@@ -316,7 +316,7 @@ err2:
 err1:
 	dev_err(&pdev->dev, "init %s fail, %d\n", dev_name(&pdev->dev), retval);
 	fsl_usb_lowpower_mode(pdata, true);
-	if (pdata->exit)
+	if (pdata->exit && pdata->pdev)
 		pdata->exit(pdata->pdev);
 	return retval;
 }
@@ -379,7 +379,7 @@ static void usb_hcd_fsl_remove(struct usb_hcd *hcd,
 	/*
 	 * do platform specific un-initialization
 	 */
-	if (pdata->exit)
+	if (pdata->exit && pdata->pdev)
 		pdata->exit(pdata->pdev);
 }
 
