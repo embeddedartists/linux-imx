@@ -90,8 +90,6 @@ extern int __init mx6sl_evk_init_pfuze100(u32 int_gpio);
 
 static int csi_enabled;
 
-#define SXSDMAN_BLUETOOTH_ENABLE
-
 static iomux_v3_cfg_t mx6sl_brd_csi_enable_pads[] = {
 	MX6SL_PAD_EPDC_GDRL__CSI_MCLK,
 	MX6SL_PAD_EPDC_SDCE3__I2C3_SDA,
@@ -114,7 +112,7 @@ static iomux_v3_cfg_t mx6sl_brd_csi_enable_pads[] = {
 	MX6SL_PAD_EPDC_SDOE__GPIO_1_25,		/* CMOS_PWDN GPIO */
 };
 
-#ifdef SXSDMAN_BLUETOOTH_ENABLE
+/* uart4 pins */
 static iomux_v3_cfg_t mx6sl_uart4_pads[] = {
 	MX6SL_PAD_SD1_DAT4__UART4_RXD,
 	MX6SL_PAD_SD1_DAT5__UART4_TXD,
@@ -123,7 +121,6 @@ static iomux_v3_cfg_t mx6sl_uart4_pads[] = {
 	/* gpio for reset */
 	MX6SL_PAD_SD1_DAT0__GPIO_5_11,
 };
-#else
 /* uart2 pins */
 static iomux_v3_cfg_t mx6sl_uart2_pads[] = {
 	MX6SL_PAD_SD2_DAT5__UART2_TXD,
@@ -131,7 +128,6 @@ static iomux_v3_cfg_t mx6sl_uart2_pads[] = {
 	MX6SL_PAD_SD2_DAT6__UART2_RTS,
 	MX6SL_PAD_SD2_DAT7__UART2_CTS,
 };
-#endif
 
 enum sd_pad_mode {
 	SD_PAD_MODE_LOW_SPEED,
@@ -793,19 +789,17 @@ static struct viv_gpu_platform_data imx6q_gpu_pdata __initdata = {
 
 void __init early_console_setup(unsigned long base, struct clk *clk);
 
-#ifdef SXSDMAN_BLUETOOTH_ENABLE
 static const struct imxuart_platform_data mx6sl_evk_uart4_data __initconst = {
 	.flags      = IMXUART_HAVE_RTSCTS,
 	.dma_req_rx = MX6Q_DMA_REQ_UART4_RX,
 	.dma_req_tx = MX6Q_DMA_REQ_UART4_TX,
 };
-#else
+
 static const struct imxuart_platform_data mx6sl_evk_uart1_data __initconst = {
 	.flags      = IMXUART_HAVE_RTSCTS | IMXUART_SDMA,
 	.dma_req_rx = MX6Q_DMA_REQ_UART2_RX,
 	.dma_req_tx = MX6Q_DMA_REQ_UART2_TX,
 };
-#endif
 
 static inline void mx6_evk_init_uart(void)
 {
@@ -1423,37 +1417,33 @@ static void mx6_snvs_poweroff(void)
 	writel(value | 0x60, mx6_snvs_base + SNVS_LPCR);
 }
 
-#ifdef SXSDMAN_BLUETOOTH_ENABLE
 static int uart4_enabled;
-static int __init uart4_setup(char * __unused)
-{
-	uart4_enabled = 1;
-	return 1;
-}
-__setup("bluetooth", uart4_setup);
-
 static void __init uart4_init(void)
 {
 	mxc_iomux_v3_setup_multiple_pads(mx6sl_uart4_pads,
 					ARRAY_SIZE(mx6sl_uart4_pads));
 	imx6sl_add_imx_uart(3, &mx6sl_evk_uart4_data);
 }
-#else
-static int uart2_enabled;
-static int __init uart2_setup(char * __unused)
-{
-	uart2_enabled = 1;
-	return 1;
-}
-__setup("bluetooth", uart2_setup);
 
+static int uart2_enabled;
 static void __init uart2_init(void)
 {
 	mxc_iomux_v3_setup_multiple_pads(mx6sl_uart2_pads,
 					ARRAY_SIZE(mx6sl_uart2_pads));
 	imx6sl_add_imx_uart(1, &mx6sl_evk_uart1_data);
 }
-#endif
+
+static int __init bluetooth_setup(char * option)
+{
+	if (strcmp(option, "ar3001") == 0)
+		uart2_enabled = 1;
+	else if (strcmp(option, "sxsdman") == 0)
+		uart4_enabled = 1;
+	else
+		pr_err("Please provide correct parameter for 'bluetooth='.\n");
+	return 1;
+}
+__setup("bluetooth=", bluetooth_setup);
 
 static void mx6sl_evk_bt_reset(void)
 {
@@ -1604,14 +1594,13 @@ static void __init mx6_evk_init(void)
 
 	imx6q_init_audio();
 
-	/* uart2 for bluetooth */
-#ifdef SXSDMAN_BLUETOOTH_ENABLE
+	/* uart4 for bluetooth */
 	if (uart4_enabled)
 		uart4_init();
-#else
+
+	/* uart2 for bluetooth */
 	if (uart2_enabled)
 		uart2_init();
-#endif
 
 	mxc_register_device(&mxc_bt_rfkill, &mxc_bt_rfkill_data);
 
