@@ -526,7 +526,6 @@ static int wm8962_clk_enable(int enable)
 
 static int mxc_wm8962_init(void)
 {
-	struct clk *pll4;
 	int rate;
 
 	extern_audio_root = clk_get(NULL, "extern_audio_clk");
