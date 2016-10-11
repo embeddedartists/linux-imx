@@ -1,0 +1,77 @@
+/*
+ * Copyright (C) 2014-2015 Freescale Semiconductor, Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+#include "imx7dea-ucom-kit.dts"
+
+
+
+/*
+ * Change settings to match the NXP/Freescale LVDS display connected
+ * to the RGB-to-LVDS bridge on the uCOM Adapter Board. The touch
+ * controller settings (ar1021 and egalax) and the timing0 values
+ * should be handled by the eadisp/eatouch command and not here.
+ * The backlight pin must be change from PWM1 (used by RGB) to PWM3
+ * when using LVDS.
+ */
+
+
+&i2c1 {
+    ar1021_rgb {
+	pinctrl-0 = <&pinctrl_lvds0>;
+	interrupt-parent = <&gpio2>;
+	interrupts = <26 IRQ_TYPE_EDGE_FALLING>;
+	status = "disabled";
+    };
+
+    egalax_ts_rgb {
+	pinctrl-0 = <&pinctrl_lvds0>;
+	interrupt-parent = <&gpio2>;
+	interrupts = <26 IRQ_TYPE_EDGE_FALLING>;
+	wakeup-gpios = <&gpio2 26 GPIO_ACTIVE_HIGH>;
+	status = "okay";
+    };
+
+    edt-ft5x06_rgb {
+	pinctrl-0 = <&pinctrl_lvds0>;
+	interrupt-parent = <&gpio2>;
+	interrupts = <26 IRQ_TYPE_EDGE_FALLING>;
+	status = "disabled";
+    };
+
+    ilitek_aim_rgb {
+	pinctrl-0 = <&pinctrl_lvds0>;
+	interrupt-parent = <&gpio2>;
+	interrupts = <26 IRQ_TYPE_EDGE_FALLING>;
+	status = "disabled";
+    };
+
+    sitronix_rgb {
+	pinctrl-0 = <&pinctrl_lvds0>;
+	interrupt-parent = <&gpio2>;
+	interrupts = <26 IRQ_TYPE_EDGE_FALLING>;
+	status = "disabled";
+    };
+};
+
+&t_lcd {
+	clock-frequency = <65000000>;
+        hactive = <1024>;
+        vactive = <768>;
+	hback-porch = <220>;
+	hfront-porch = <40>;
+	vback-porch = <21>;
+	vfront-porch = <7>;
+	hsync-len = <60>;
+	vsync-len = <10>;
+};
+
+&backlight_lcd {
+	pwms = <&pwm3 0 5000000>;
+};
+
+

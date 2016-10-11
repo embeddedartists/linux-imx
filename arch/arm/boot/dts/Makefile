@@ -331,7 +331,9 @@ dtb-$(CONFIG_SOC_IMX6Q) += \
 	imx6q-tx6q-1110.dtb \
 	imx6q-udoo.dtb \
 	imx6q-wandboard.dtb \
-	imx6q-wandboard-revb1.dtb
+	imx6q-wandboard-revb1.dtb \
+	imx6qea-com-kit.dtb \
+	imx6dlea-com-kit.dtb
 dtb-$(CONFIG_SOC_IMX6SL) += \
 	imx6sl-evk.dtb \
 	imx6sl-evk-btwifi.dtb \
@@ -356,7 +358,11 @@ dtb-$(CONFIG_SOC_IMX6SX) += \
 	imx6sx-19x19-arm2.dtb \
 	imx6sx-19x19-arm2-ldo.dtb \
 	imx6sx-19x19-arm2-csi.dtb \
-	imx6sx-19x19-arm2-gpmi-weim.dtb
+	imx6sx-19x19-arm2-gpmi-weim.dtb \
+	imx6sxea-com-kit.dtb \
+	imx6sxea-com-kit-m4.dtb \
+	imx6sxea-com-kit-lvds.dtb \
+	imx6sxea-com-kit-rgb.dtb
 dtb-$(CONFIG_SOC_IMX6UL) += \
 	imx6ul-14x14-ddr3-arm2.dtb \
 	imx6ul-14x14-ddr3-arm2-emmc.dtb	\
@@ -373,7 +379,9 @@ dtb-$(CONFIG_SOC_IMX6UL) += \
 	imx6ul-9x9-evk.dtb \
 	imx6ul-9x9-evk-btwifi.dtb \
 	imx6ul-9x9-evk-csi.dtb \
-	imx6ul-9x9-evk-ldo.dtb
+	imx6ul-9x9-evk-ldo.dtb \
+	imx6ulea-com-kit.dtb \
+	imx6ulea-com-kit-rf.dtb
 dtb-$(CONFIG_SOC_IMX7D) += \
 	imx7d-12x12-lpddr3-arm2.dtb \
 	imx7d-12x12-lpddr3-arm2-m4.dtb \
@@ -400,7 +408,12 @@ dtb-$(CONFIG_SOC_IMX7D) += \
 	imx7d-sdb-reva-m4.dtb \
 	imx7d-sdb-reva-qspi.dtb \
 	imx7d-sdb-reva-touch.dtb \
-	imx7d-sdb-reva-wm8960.dtb
+	imx7d-sdb-reva-wm8960.dtb \
+	imx7dea-ucom-kit.dtb \
+	imx7dea-ucom-kit-lvds.dtb \
+	imx7dea-ucom-kit-m4.dtb \
+	imx7dea-com-kit.dtb \
+	imx7dea-com-kit-m4.dtb
 dtb-$(CONFIG_SOC_LS1021A) += \
 	ls1021a-qds.dtb \
 	ls1021a-twr.dtb
