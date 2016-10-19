@@ -19,6 +19,64 @@
 #include "common.h"
 #include "cpuidle.h"
 
+#include <linux/can/platform/flexcan.h>
+#include <linux/of_gpio.h>
+
+static struct flexcan_platform_data flexcan_pdata[2];
+static int flexcan_en_gpio;
+static int flexcan_en_active_high;
+static int flexcan0_en;
+static int flexcan1_en;
+
+static void imx7dea_flexcan_switch(void)
+{
+        if (flexcan0_en || flexcan1_en) {
+                gpio_set_value_cansleep(flexcan_en_gpio,
+                                        !flexcan_en_active_high);
+                gpio_set_value_cansleep(flexcan_en_gpio,
+                                        flexcan_en_active_high);
+        } else {
+                gpio_set_value_cansleep(flexcan_en_gpio,
+                                        !flexcan_en_active_high);
+        }
+}
+
+static void imx7dea_flexcan0_switch(int enable)
+{
+        flexcan0_en = enable;
+        imx7dea_flexcan_switch();
+}
+
+static void imx7dea_flexcan1_switch(int enable)
+{
+        flexcan1_en = enable;
+        imx7dea_flexcan_switch();
+}
+
+static int __init imx7dea_flexcan_fixup(void)
+{
+        struct device_node *np;
+        enum of_gpio_flags en_flags;
+
+        np = of_find_node_by_path("/soc/aips-bus@30800000/can@30a00000");
+        if (!np)
+                return -ENODEV;
+
+        flexcan_en_gpio = of_get_named_gpio_flags(np, "trx-en-gpio", 0, &en_flags);
+
+        if (gpio_is_valid(flexcan_en_gpio) &&
+                !gpio_request_one(flexcan_en_gpio, GPIOF_DIR_OUT, "flexcan-trx-en")) {
+                /* flexcan 0 & 1 are using the same GPIOs for transceiver */
+                flexcan_pdata[0].transceiver_switch = imx7dea_flexcan0_switch;
+                flexcan_pdata[1].transceiver_switch = imx7dea_flexcan1_switch;
+                if (!(en_flags & OF_GPIO_ACTIVE_LOW))
+                        flexcan_en_active_high = 1;
+        }
+
+        return 0;
+}
+
+
 static int ar8031_phy_fixup(struct phy_device *dev)
 {
 	u16 val;
@@ -119,6 +177,12 @@ static void __init imx7d_init_late(void)
 	if (IS_ENABLED(CONFIG_ARM_IMX7D_CPUFREQ)) {
 		platform_device_register_simple("imx7d-cpufreq", -1, NULL, 0);
 	}
+
+        if (of_machine_is_compatible("fsl,imx7dea-com") ||
+            of_machine_is_compatible("fsl,imx7dea-ucom"))
+                imx7dea_flexcan_fixup();
+
+
 	imx7d_cpuidle_init();
 }
 

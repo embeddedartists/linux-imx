@@ -166,6 +166,8 @@ static int __init imx6sx_arm2_flexcan_fixup(void)
 
 	if (of_machine_is_compatible("fsl,imx6sx-sdb") && canfd_en)
 		imx6sx_arm2_flexcan0_switch(1);
+	if (of_machine_is_compatible("fsl,imx6sxea-com") && canfd_en)
+		imx6sx_arm2_flexcan0_switch(1);
 
 	return 0;
 }
@@ -295,7 +297,8 @@ static void __init imx6sx_init_late(void)
 	}
 
 	if (of_machine_is_compatible("fsl,imx6sx-sdb") ||
-		of_machine_is_compatible("fsl,imx6sx-sabreauto"))
+		of_machine_is_compatible("fsl,imx6sx-sabreauto") ||
+		of_machine_is_compatible("fsl,imx6sxea-com"))
 		imx6sx_arm2_flexcan_fixup();
 
 	imx6sx_cpuidle_init();

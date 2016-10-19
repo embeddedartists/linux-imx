@@ -397,6 +397,13 @@ config BATTERY_GOLDFISH
 	  Say Y to enable support for the battery and AC power in the
 	  Goldfish emulator.
 
+
+config BD7181X_POWER
+        tristate "ROHM BD71815/BD71817 Charger for Battery and Adapter Power"
+        depends on MFD_BD7181X
+        help
+          Say Y to enable support for the BD71815/BD71817 charger.
+
 source "drivers/power/reset/Kconfig"
 
 endif # POWER_SUPPLY

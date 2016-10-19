@@ -136,6 +136,48 @@ static int __init imx6q_flexcan_fixup_auto(void)
 	return 0;
 }
 
+static void mx6qea_flexcan_switch(void)
+{
+	/* Polarity is inverted on the COM Carrier Board rev A */
+	if (flexcan0_en || flexcan1_en) {
+		gpio_set_value_cansleep(flexcan_en_gpio, 1);
+		gpio_set_value_cansleep(flexcan_en_gpio, 0);
+	} else {
+		gpio_set_value_cansleep(flexcan_en_gpio, 1);
+	}
+}
+
+static void imx6qea_flexcan0_switch_auto(int enable)
+{
+	flexcan0_en = enable;
+	mx6qea_flexcan_switch();
+}
+
+static void imx6qea_flexcan1_switch_auto(int enable)
+{
+	flexcan1_en = enable;
+	mx6qea_flexcan_switch();
+}
+
+static int __init imx6qea_flexcan_fixup_auto(void)
+{
+	struct device_node *np;
+
+	np = of_find_node_by_path("/soc/aips-bus@02000000/can@02090000");
+	if (!np)
+		return -ENODEV;
+
+	flexcan_en_gpio = of_get_named_gpio(np, "trx-en-gpio", 0);
+	if (gpio_is_valid(flexcan_en_gpio) &&
+		!gpio_request_one(flexcan_en_gpio, GPIOF_DIR_OUT, "flexcan-trx-en")) {
+		/* flexcan 0 & 1 are using the same GPIOs for transceiver */
+		flexcan_pdata[0].transceiver_switch = imx6qea_flexcan0_switch_auto;
+		flexcan_pdata[1].transceiver_switch = imx6qea_flexcan1_switch_auto;
+	}
+
+	return 0;
+}
+
 /* For imx6q sabrelite board: set KSZ9021RN RGMII pad skew */
 static int ksz9021rn_phy_fixup(struct phy_device *phydev)
 {
@@ -516,6 +558,10 @@ static void __init imx6q_init_late(void)
 	if (of_machine_is_compatible("fsl,imx6q-sabreauto")
 		|| of_machine_is_compatible("fsl,imx6dl-sabreauto"))
 		imx6q_flexcan_fixup_auto();
+
+	if (of_machine_is_compatible("fsl,imx6qea-com") 
+		|| of_machine_is_compatible("fsl,imx6dlea-com"))
+		imx6qea_flexcan_fixup_auto();
 }
 
 static void __init imx6q_map_io(void)

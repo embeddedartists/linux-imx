@@ -270,7 +270,20 @@ dtb-$(CONFIG_ARCH_MXC) += \
 	imx7d-sdb-sim.dtb \
 	imx7d-sdb-touch.dtb \
 	imx7d-sdb-wm8960.dtb \
-	imx7d-sdb-m4.dtb
+	imx7d-sdb-m4.dtb \
+	imx6sxea-com-kit.dtb \
+	imx6sxea-com-kit-m4.dtb \
+	imx6sxea-com-kit-lvds.dtb \
+	imx6sxea-com-kit-rgb.dtb \
+	imx6qea-com-kit.dtb \
+	imx6dlea-com-kit.dtb \
+	imx6ulea-com-kit.dtb \
+	imx6ulea-com-kit-rf.dtb \
+	imx7dea-ucom-kit.dtb \
+	imx7dea-ucom-kit-m4.dtb \
+	imx7dea-ucom-kit-lvds.dtb \
+	imx7dea-com-kit.dtb \
+	imx7dea-com-kit-m4.dtb
 dtb-$(CONFIG_ARCH_MXS) += imx23-evk.dtb \
 	imx23-olinuxino.dtb \
 	imx23-stmp378x_devb.dtb \
