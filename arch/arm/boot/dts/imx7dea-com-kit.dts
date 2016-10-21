@@ -921,7 +921,7 @@
 	pinctrl-0 = <&pinctrl_usdhc1>;
 	pinctrl-1 = <&pinctrl_usdhc1_100mhz>;
 	pinctrl-2 = <&pinctrl_usdhc1_200mhz>;
-	cd-gpios = <&gpio5 0 1>;
+	cd-gpios = <&gpio5 0 GPIO_ACTIVE_LOW>;
 	tuning-step = <2>;
 	vmmc-supply = <&reg_sd1_vmmc>;
 	enable-sdio-wakeup;
