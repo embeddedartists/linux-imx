@@ -1016,6 +1016,7 @@
 	vmmc-supply = <&reg_sd1_vmmc>;
 	enable-sdio-wakeup;
 	keep-power-in-suspend;
+	no-1-8-v;
 	status = "okay";
 };
 /*
