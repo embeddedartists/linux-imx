@@ -925,6 +925,7 @@
 	tuning-step = <2>;
 	vmmc-supply = <&reg_sd1_vmmc>;
 	enable-sdio-wakeup;
+	no-1-8-v;
 	keep-power-in-suspend;
 	status = "okay";
 };
