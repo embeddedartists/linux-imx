@@ -268,32 +268,81 @@ static const char *imx6sx_dt_compat[] __initdata = {
 	NULL,
 };
 
-static void __init imx6sx_opp_init(struct device *cpu_dev)
+#define OCOTP_CFG3                      0x440
+#define OCOTP_CFG3_SPEED_SHIFT          16
+#define OCOTP_CFG3_SPEED_996MHZ         0x2
+
+static void __init imx6sx_opp_check_speed_grading(struct device *cpu_dev)
 {
-	struct device_node *np;
+        struct device_node *np;
+        void __iomem *base;
+        u32 val;
 
-	np = of_find_node_by_path("/cpus/cpu@0");
-	if (!np) {
-		pr_warn("failed to find cpu0 node\n");
-		return;
-	}
+        np = of_find_compatible_node(NULL, NULL, "fsl,imx6sx-ocotp");
+        if (!np) {
+                pr_warn("failed to find ocotp node\n");
+                return;
+        }
 
-	cpu_dev->of_node = np;
-	if (of_init_opp_table(cpu_dev))
-		pr_warn("failed to init OPP table\n");
+        base = of_iomap(np, 0);
+        if (!base) {
+                pr_warn("failed to map ocotp\n");
+                goto put_node;
+        }
 
-	of_node_put(np);
+        /*
+         * Speed GRADING[1:0] defines the max speed of ARM:
+         * 2b'00: 800000000Hz;
+         * 2b'01: Reserved;
+         * 2b'10: 1000000000Hz;
+         * 2b'11: Reserved;
+         * We need to set the max speed of ARM according to fuse map.
+         */
+        val = readl_relaxed(base + OCOTP_CFG3);
+        val >>= OCOTP_CFG3_SPEED_SHIFT;
+        val &= 0x3;
+
+        if (val != OCOTP_CFG3_SPEED_996MHZ) {
+                if (dev_pm_opp_disable(cpu_dev, 996000000))
+                        pr_warn("Failed to disable 996MHz OPP\n");
+        }
+        iounmap(base);
+
+put_node:
+        of_node_put(np);
 }
 
-static struct platform_device imx6sx_cpufreq_pdev = {
-	.name = "imx6q-cpufreq",
-};
+static void __init imx6sx_opp_init(void)
+{
+        struct device_node *np;
+        struct device *cpu_dev = get_cpu_device(0);
+
+        if (!cpu_dev) {
+                pr_warn("failed to get cpu0 device\n");
+                return;
+        }
+        np = of_node_get(cpu_dev->of_node);
+        if (!np) {
+                pr_warn("failed to find cpu0 node\n");
+                return;
+        }
+
+        if (of_init_opp_table(cpu_dev)) {
+                pr_warn("failed to init OPP table\n");
+                goto put_node;
+        }
+
+        imx6sx_opp_check_speed_grading(cpu_dev);
+
+put_node:
+        of_node_put(np);
+}
 
 static void __init imx6sx_init_late(void)
 {
 	if (IS_ENABLED(CONFIG_ARM_IMX6Q_CPUFREQ)) {
-		imx6sx_opp_init(&imx6sx_cpufreq_pdev.dev);
-		platform_device_register(&imx6sx_cpufreq_pdev);
+		imx6sx_opp_init();
+		platform_device_register_simple("imx6q-cpufreq", -1, NULL, 0);
 	}
 
 	if (of_machine_is_compatible("fsl,imx6sx-sdb") ||
