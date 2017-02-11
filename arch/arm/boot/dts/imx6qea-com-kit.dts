@@ -330,6 +330,27 @@
 		status = "disabled";
 	};
 
+        /* Atmel MXT1664 touch controller through RGB display interface connector on Carrier Board */
+        mxt1664_ts_rgb@4b {
+                compatible = "atmel,mxt1664_ts";
+                reg = <0x4b>;
+                pinctrl-names = "default";
+                pinctrl-0 = <&pinctrl_rgb_connector>;
+                interrupt-parent = <&gpio2>;
+                interrupts = <18 IRQ_TYPE_EDGE_FALLING>;
+                status = "disabled";
+        };
+        /* Atmel MXT1664 touch controller through LVDS0 display interface connector on Carrier Board */
+        mxt1664_ts_lvds0@4b {
+                compatible = "atmel,mxt1664_ts";
+                reg = <0x4b>;
+                pinctrl-names = "default";
+                pinctrl-0 = <&pinctrl_lvds0_connector>;
+                interrupt-parent = <&gpio3>;
+                interrupts = <13 IRQ_TYPE_EDGE_FALLING>;
+                status = "disabled";
+        };
+
 	/* Sitronix touch controller through RGB display interface connector on Carrier Board */
 	sitronix_rgb@55 {
 		compatible = "sitronix,sitronix_i2c";
@@ -401,6 +422,17 @@
 		interrupts = <31 IRQ_TYPE_EDGE_FALLING>;
 		status = "disabled";
 	};
+
+        /* Atmel MXT1664 touch controller through LVDS1 display interface connector on Carrier Board */
+        mxt1664_ts_lvds1@4b {
+                compatible = "atmel,mxt1664_ts";
+                reg = <0x4b>;
+                pinctrl-names = "default";
+                pinctrl-0 = <&pinctrl_lvds1_connector>;
+                interrupt-parent = <&gpio2>;
+                interrupts = <31 IRQ_TYPE_EDGE_FALLING>;
+                status = "disabled";
+        };
 
 	/* Sitronix touch controller through LVDS1 display interface connector on Carrier Board */
 	sitronix_lvds1@55 {

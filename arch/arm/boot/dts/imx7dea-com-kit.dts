@@ -388,6 +388,17 @@
                 interrupts = <9 IRQ_TYPE_EDGE_FALLING>;
         };
 
+        /* Atmel MXT1664 touch controller through RGB display interface connector on Carrier Board */
+        mxt1664_ts_rgb@4b {
+                compatible = "atmel,mxt1664_ts";
+                reg = <0x4b>;
+                pinctrl-names = "default";
+                pinctrl-0 = <&pinctrl_rgb_connector>;
+                interrupt-parent = <&gpio5>;
+                interrupts = <9 IRQ_TYPE_EDGE_FALLING>;
+                status = "disabled";
+        };
+
         /* Sitronix touch controller through RGB display interface connector on Carrier Board */
         sitronix_rgb@55 {
                 compatible = "sitronix,sitronix_i2c";

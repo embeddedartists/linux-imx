@@ -128,7 +128,7 @@ int driver_information[] = {DERVER_VERSION_MAJOR,DERVER_VERSION_MINOR,RELEASE_VE
 #define TOUCH_KEY      0xC0
 #define RELEASE_KEY    0x40
 #define RELEASE_POINT    0x00
-#define ROTATE_FLAG
+//#define ROTATE_FLAG
 //#define TRANSFER_LIMIT
 #define CLOCK_INTERRUPT
 //#define SET_RESET
