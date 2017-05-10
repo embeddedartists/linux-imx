@@ -50,15 +50,28 @@ static int ksz8081_phy_fixup(struct phy_device *dev)
 	return 0;
 }
 
-#define PHY_ID_KSZ8081	0x00221560
+/*
+ * i.MX6UL EVK board RevA, RevB, RevC all use KSZ8081
+ * Silicon revision 00, the PHY ID is 0x00221560, pass our
+ * test with the phy fixup.
+ */
+#define PHY_ID_KSZ8081_MNRN60	0x00221560
+/*
+ * i.MX6UL EVK board RevC1 board use KSZ8081
+ * Silicon revision 01, the PHY ID is 0x00221561.
+ * This silicon revision still need the phy fixup setting.
+ */
+#define PHY_ID_KSZ8081_MNRN61	0x00221561
 static void __init imx6ul_enet_phy_init(void)
 {
-	phy_register_fixup_for_uid(PHY_ID_KSZ8081, 0xffffffff,	ksz8081_phy_fixup);
+	phy_register_fixup(PHY_ANY_ID, PHY_ID_KSZ8081_MNRN60, 0xffffffff, ksz8081_phy_fixup);
+	phy_register_fixup(PHY_ANY_ID, PHY_ID_KSZ8081_MNRN61, 0xffffffff, ksz8081_phy_fixup);
 }
 
 #define OCOTP_CFG3			0x440
 #define OCOTP_CFG3_SPEED_SHIFT		16
 #define OCOTP_CFG3_SPEED_696MHZ		0x2
+#define OCOTP_CFG3_SPEED_900MHZ		0x3
 
 static void __init imx6ul_opp_check_speed_grading(struct device *cpu_dev)
 {
@@ -66,7 +79,11 @@ static void __init imx6ul_opp_check_speed_grading(struct device *cpu_dev)
 	void __iomem *base;
 	u32 val;
 
-	np = of_find_compatible_node(NULL, NULL, "fsl,imx6ul-ocotp");
+	if (cpu_is_imx6ul())
+		np = of_find_compatible_node(NULL, NULL, "fsl,imx6ul-ocotp");
+	else
+		np = of_find_compatible_node(NULL, NULL, "fsl,imx6ull-ocotp");
+
 	if (!np) {
 		pr_warn("failed to find ocotp node\n");
 		return;
@@ -82,17 +99,30 @@ static void __init imx6ul_opp_check_speed_grading(struct device *cpu_dev)
 	 * Speed GRADING[1:0] defines the max speed of ARM:
 	 * 2b'00: Reserved;
 	 * 2b'01: 528000000Hz;
-	 * 2b'10: 700000000Hz;
-	 * 2b'11: Reserved;
+	 * 2b'10: 700000000Hz(i.MX6UL), 800000000Hz(i.MX6ULL);
+	 * 2b'11: 900000000Hz(i.MX6ULL);
 	 * We need to set the max speed of ARM according to fuse map.
 	 */
 	val = readl_relaxed(base + OCOTP_CFG3);
 	val >>= OCOTP_CFG3_SPEED_SHIFT;
 	val &= 0x3;
+	if (cpu_is_imx6ul()) {
+		if (val < OCOTP_CFG3_SPEED_696MHZ) {
+			if (dev_pm_opp_disable(cpu_dev, 696000000))
+				pr_warn("Failed to disable 696MHz OPP\n");
+		}
+	}
 
-	if (val != OCOTP_CFG3_SPEED_696MHZ) {
-		if (dev_pm_opp_disable(cpu_dev, 696000000))
-			pr_warn("Failed to disable 696MHz OPP\n");
+	if (cpu_is_imx6ull()) {
+		if (val != OCOTP_CFG3_SPEED_696MHZ) {
+			if (dev_pm_opp_disable(cpu_dev, 792000000))
+				pr_warn("Failed to disable 792MHz OPP\n");
+		}
+
+		if (val != OCOTP_CFG3_SPEED_900MHZ) {
+			if(dev_pm_opp_disable(cpu_dev, 900000000))
+				pr_warn("Failed to disable 900MHz OPP\n");
+		}
 	}
 	iounmap(base);
 
@@ -161,8 +191,7 @@ static void __init imx6ul_init_irq(void)
 static void __init imx6ul_init_late(void)
 {
 	if (IS_ENABLED(CONFIG_ARM_IMX6Q_CPUFREQ)) {
-		if (cpu_is_imx6ul())
-			imx6ul_opp_init();
+		imx6ul_opp_init();
 		platform_device_register_simple("imx6q-cpufreq", -1, NULL, 0);
 	}
 
