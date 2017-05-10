@@ -182,6 +182,7 @@ void imx_busfreq_map_io(void);
 void imx7d_low_power_idle(void);
 void imx6sx_low_power_idle(void);
 void imx6ul_low_power_idle(void);
+void imx6ull_low_power_idle(void);
 void imx6sl_low_power_idle(void);
 bool imx_gpc_usb_wakeup_enabled(void);
 
@@ -204,6 +205,7 @@ void imx6dl_pm_init(void);
 void imx6sl_pm_init(void);
 void imx6sx_pm_init(void);
 void imx6ul_pm_init(void);
+void imx6ull_pm_init(void);
 void imx6q_pm_set_ccm_base(void __iomem *base);
 
 #ifdef CONFIG_PM
