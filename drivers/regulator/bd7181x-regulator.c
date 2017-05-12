@@ -27,6 +27,13 @@
 
 #define BD7181X_VOL_OFFSET		0
 #define BD7181X_STANDBY_OFFSET		0
+#define BD7181X_DVS_BUCK_NUM		2
+#define BD7181X_DVS_HIGH_LOW		2
+
+struct bd7181x_buck_dvs {
+	int	i2c_dvs_enable;
+	u32 voltage[BD7181X_DVS_HIGH_LOW];
+};
 
 struct bd7181x_regulator {
 	struct regulator_desc desc;
@@ -40,6 +47,7 @@ struct bd7181x_pmic {
 	struct bd7181x *mfd;					/**< parent device */
 	struct device *dev;					/**< regulator kernel device */
 	struct regulator_dev *rdev[BD7181X_REGULATOR_CNT];	/**< regulator device of system */
+	struct bd7181x_buck_dvs buck_dvs[BD7181X_DVS_BUCK_NUM];			/**< buck1/2 dvs */
 };
 
 static const int bd7181x_wled_currents[] = {
@@ -57,25 +65,41 @@ static const int bd7181x_wled_currents[] = {
 	23000, 24000, 25000,
 };
 
-static int bd7181x_set_ramp_delay(struct regulator_dev *rdev, int ramp_delay) {
+/*
+ * BUCK1/2
+ * BUCK1RAMPRATE[1:0] BUCK1 DVS ramp rate setting
+ * 00: 10.00mV/usec 10mV 1uS
+ * 01: 5.00mV/usec	10mV 2uS
+ * 10: 2.50mV/usec	10mV 4uS
+ * 11: 1.25mV/usec	10mV 8uS
+ */
+static int bd7181x_buck12_set_ramp_delay(struct regulator_dev *rdev, int ramp_delay) {
 	struct bd7181x_pmic *pmic = rdev_get_drvdata(rdev);
 	struct bd7181x *mfd = pmic->mfd;
-	// int id = rdev->desc->id;
-	unsigned int ramp_bits;
-	int ret;
+	int id = rdev->desc->id;
+	unsigned int ramp_value = BUCK1_RAMPRATE_10P00MV;
 
-	if (1 /*TODO*/ ) {
-		ramp_delay = 12500 / ramp_delay;
-		ramp_bits = (ramp_delay >> 1) - (ramp_delay >> 3);
-		ret = regmap_update_bits(mfd->regmap,
-					 rdev->desc->vsel_reg + 4,
-					 0xc0, ramp_bits << 6);
-		if (ret < 0)
-			dev_err(pmic->dev, "ramp failed, err %d\n", ret);
-	} else
-		ret = -EACCES;
+	switch (ramp_delay) {
+	case 1 ... 1250:
+		ramp_value = BUCK1_RAMPRATE_1P25MV;
+		break;
+	case 1251 ... 2500:
+		ramp_value = BUCK1_RAMPRATE_2P50MV;
+		break;
+	case 2501 ... 5000:
+		ramp_value = BUCK1_RAMPRATE_5P00MV;
+		break;
+	case 5001 ... 10000:
+		ramp_value = BUCK1_RAMPRATE_10P00MV;
+		break;
+	default:
+		ramp_value = BUCK1_RAMPRATE_10P00MV;
+		dev_err(pmic->dev, "%s: ramp_delay: %d not supported, setting 10000mV//us\n",
+			rdev->desc->name, ramp_delay);
+	}
 
-	return ret;
+	return regmap_update_bits(mfd->regmap, BD7181X_REG_BUCK1_MODE + id*0x1,
+			BUCK1_RAMPRATE_MASK, ramp_value << 6);
 }
 
 static int bd7181x_led_set_current_limit(struct regulator_dev *rdev,
@@ -119,6 +143,60 @@ static int bd7181x_led_get_current_limit(struct regulator_dev *rdev)
 			bd7181x_wled_currents[r] : -EINVAL;
 }
 
+static int bd7181x_buck12_get_voltage_sel(struct regulator_dev *rdev)
+{
+	struct bd7181x_pmic *pmic = rdev_get_drvdata(rdev);
+	int rid = rdev_get_id(rdev);
+	struct bd7181x *bd7181x = pmic->mfd;
+	int ret, val;
+	u8 regh = BD7181X_REG_BUCK1_VOLT_H + rid*0x2,
+			regl = BD7181X_REG_BUCK1_VOLT_L + rid*0x2;
+
+	ret = bd7181x_reg_read(bd7181x, regh);
+	if (ret < 0) {
+		return ret;
+	}
+	val = ret;
+	if((!(val & BUCK1_STBY_DVS)) && (!(val & BUCK1_DVSSEL))) {
+		ret = bd7181x_reg_read(bd7181x, regl);
+		if (ret < 0) {
+			return ret;
+		}
+		val = ret & BUCK1_L_MASK;
+	} else {
+		val &= BUCK1_H_MASK;
+	}
+	return val;
+}
+
+/*
+ * For Buck 1/2.
+ *
+ */
+static int bd7181x_buck12_set_voltage_sel(struct regulator_dev *rdev, unsigned sel)
+{
+	struct bd7181x_pmic *pmic = rdev_get_drvdata(rdev);
+	int rid = rdev_get_id(rdev);
+	struct bd7181x *bd7181x = pmic->mfd;
+	int ret, val;
+	u8 regh = BD7181X_REG_BUCK1_VOLT_H + rid*0x2,
+			regl = BD7181X_REG_BUCK1_VOLT_L + rid*0x2;
+
+	ret = bd7181x_reg_read(bd7181x, regh);
+	if (ret < 0) {
+		return ret;
+	}
+	val = ret;
+	if((!(val & BUCK1_STBY_DVS)) && (!(val & BUCK1_DVSSEL))) {
+		ret = bd7181x_reg_write(bd7181x, regl, sel & BUCK1_L_MASK);
+	} else {
+		val = (val & 0xC0) | (sel & BUCK1_H_MASK);
+		ret = bd7181x_reg_write(bd7181x, regh, val);
+	}
+
+	return ret;
+}
+
 static struct regulator_ops bd7181x_ldo_regulator_ops = {
 	.enable = regulator_enable_regmap,
 	.disable = regulator_disable_regmap,
@@ -143,7 +221,17 @@ static struct regulator_ops bd7181x_buck_regulator_ops = {
 	.set_voltage_sel = regulator_set_voltage_sel_regmap,
 	.get_voltage_sel = regulator_get_voltage_sel_regmap,
 	.set_voltage_time_sel = regulator_set_voltage_time_sel,
-	.set_ramp_delay = bd7181x_set_ramp_delay,
+};
+
+static struct regulator_ops bd7181x_buck12_regulator_ops = {
+	.enable = regulator_enable_regmap,
+	.disable = regulator_disable_regmap,
+	.is_enabled = regulator_is_enabled_regmap,
+	.list_voltage = regulator_list_voltage_linear,
+	.set_voltage_sel = bd7181x_buck12_set_voltage_sel,
+	.get_voltage_sel = bd7181x_buck12_get_voltage_sel,
+	.set_voltage_time_sel = regulator_set_voltage_time_sel,
+	.set_ramp_delay = bd7181x_buck12_set_ramp_delay,
 };
 
 static struct regulator_ops bd7181x_led_regulator_ops = {
@@ -179,6 +267,26 @@ static struct regulator_ops bd7181x_led_regulator_ops = {
 			.name = #_name,\
 			.n_voltages = ((max) - (min)) / (step) + 1,	\
 			.ops = &bd7181x_buck_regulator_ops,	\
+			.type = REGULATOR_VOLTAGE,	\
+			.id = BD7181X_ ## _name,	\
+			.owner = THIS_MODULE,	\
+			.min_uV = (min),	\
+			.uV_step = (step),	\
+			.vsel_reg = (base) + BD7181X_VOL_OFFSET,	\
+			.vsel_mask = 0x3f,	\
+			.enable_reg = (ereg),	\
+			.enable_mask = 0x04,	\
+		},	\
+		.stby_reg = (base) + BD7181X_STANDBY_OFFSET,	\
+		.stby_mask = 0x3f,	\
+	}
+
+#define BD7181X_BUCK12_REG(_name, base, ereg, min, max, step)	\
+	[BD7181X_ ## _name] = {	\
+		.desc = {	\
+			.name = #_name,\
+			.n_voltages = ((max) - (min)) / (step) + 1,	\
+			.ops = &bd7181x_buck12_regulator_ops,	\
 			.type = REGULATOR_VOLTAGE,	\
 			.id = BD7181X_ ## _name,	\
 			.owner = THIS_MODULE,	\
@@ -231,8 +339,8 @@ static struct regulator_ops bd7181x_led_regulator_ops = {
 	}
 
 static struct bd7181x_regulator bd7181x_regulators[] = {
-	BD7181X_BUCK_REG(BUCK1, BD7181X_REG_BUCK1_VOLT_H, BD7181X_REG_BUCK1_MODE, 800000, 2000000, 25000),
-	BD7181X_BUCK_REG(BUCK2, BD7181X_REG_BUCK2_VOLT_H, BD7181X_REG_BUCK2_MODE, 800000, 2000000, 25000),
+	BD7181X_BUCK12_REG(BUCK1, BD7181X_REG_BUCK1_VOLT_H, BD7181X_REG_BUCK1_MODE, 800000, 2000000, 25000),
+	BD7181X_BUCK12_REG(BUCK2, BD7181X_REG_BUCK2_VOLT_H, BD7181X_REG_BUCK2_MODE, 800000, 2000000, 25000),
 	BD7181X_BUCK_REG(BUCK3, BD7181X_REG_BUCK3_VOLT, BD7181X_REG_BUCK3_MODE,  1200000, 2700000, 50000),
 	BD7181X_BUCK_REG(BUCK4, BD7181X_REG_BUCK4_VOLT, BD7181X_REG_BUCK4_MODE,  1100000, 1850000, 25000),
 	BD7181X_BUCK_REG(BUCK5, BD7181X_REG_BUCK5_VOLT, BD7181X_REG_BUCK5_MODE,  1800000, 3300000, 50000),
@@ -399,10 +507,48 @@ static ssize_t available_values(struct device *dev, struct device_attribute *att
 	return sprintf(buf, "0 1 \n");
 }
 
-static DEVICE_ATTR(out32k_mode, 0664, show_mode, set_mode);
-static DEVICE_ATTR(out32k_value, 0664, show_value, set_value);
-static DEVICE_ATTR(available_mode, 0444, available_modes, NULL);
-static DEVICE_ATTR(available_value, 0444, available_values, NULL);
+
+/** @brief retrive dvssel output value */
+static ssize_t show_dvssel(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct bd7181x_pmic *pmic = dev_get_drvdata(dev);
+	int value, index = 0, i;
+
+	for (i = 0; i < BD7181X_DVS_BUCK_NUM; i++) {
+		value = bd7181x_reg_read(pmic->mfd, BD7181X_REG_BUCK1_VOLT_H + i*0x2);
+		if(value < 0)
+			return value;
+		value = (value & BUCK1_DVSSEL) != 0;
+		index += sprintf(buf+index, "BUCK%i: %d\n", i, value);
+	}
+	return index;
+}
+
+/** @brief set o output value */
+static ssize_t set_dvssel(struct device *dev, struct device_attribute *attr,
+			const char *buf, size_t count)
+{
+	struct bd7181x_pmic *pmic = dev_get_drvdata(dev);
+	int devsel1, devsel2, ret;
+
+	if (sscanf(buf, "%d %d", &devsel1, &devsel2) < 1) {
+		return -EINVAL;
+	}
+
+	ret = bd7181x_update_bits(pmic->mfd, BD7181X_REG_BUCK1_VOLT_H, BUCK1_DVSSEL, devsel1<<7);
+	if(ret < 0)
+		return ret;
+	ret = bd7181x_update_bits(pmic->mfd, BD7181X_REG_BUCK2_VOLT_H, BUCK2_DVSSEL, devsel2<<7);
+	if(ret < 0)
+		return ret;
+	return count;
+}
+
+static DEVICE_ATTR(out32k_mode, S_IWUSR | S_IRUGO, show_mode, set_mode);
+static DEVICE_ATTR(out32k_value, S_IWUSR | S_IRUGO, show_value, set_value);
+static DEVICE_ATTR(available_mode, S_IWUSR | S_IRUGO, available_modes, NULL);
+static DEVICE_ATTR(available_value, S_IWUSR | S_IRUGO, available_values, NULL);
+static DEVICE_ATTR(dvssel, S_IWUSR | S_IRUGO, show_dvssel, set_dvssel);
 
 /** @brief device sysfs attribute table, about o */
 static struct attribute *gpo_attributes[] = {
@@ -410,12 +556,96 @@ static struct attribute *gpo_attributes[] = {
 	&dev_attr_out32k_value.attr,
 	&dev_attr_available_mode.attr,
 	&dev_attr_available_value.attr,
+	&dev_attr_dvssel.attr,
 	NULL
 };
 
 static const struct attribute_group gpo_attr_group = {
 	.attrs	= gpo_attributes,
 };
+
+/*----------------------------------------------------------------------*/
+#ifdef CONFIG_OF
+/** @brief buck1/2 dvs enable/voltage from device tree
+ * @param pdev platfrom device pointer
+ * @param buck_dvs pointer
+ * @return void
+ */
+static void of_bd7181x_buck_dvs(struct platform_device *pdev, struct bd7181x_buck_dvs *buck_dvs)
+{
+	struct device_node *pmic_np;
+
+	pmic_np = of_node_get(pdev->dev.parent->of_node);
+	if (!pmic_np) {
+		dev_err(&pdev->dev, "could not find pmic sub-node\n");
+		return;
+	}
+
+	if (of_get_property(pmic_np, "bd7181x,pmic-buck1-uses-i2c-dvs", NULL)) {
+		buck_dvs[0].i2c_dvs_enable = 1;
+		if (of_property_read_u32_array(pmic_np,
+							"bd7181x,pmic-buck1-dvs-voltage",
+							&buck_dvs[0].voltage[0], 2)) {
+			dev_err(&pdev->dev, "buck1 voltages not specified\n");
+		}
+	}
+
+	if (of_get_property(pmic_np, "bd7181x,pmic-buck2-uses-i2c-dvs", NULL)) {
+		buck_dvs[1].i2c_dvs_enable = 1;
+		if (of_property_read_u32_array(pmic_np,
+							"bd7181x,pmic-buck2-dvs-voltage",
+						&buck_dvs[1].voltage[0], 2)) {
+			dev_err(&pdev->dev, "buck2 voltages not specified\n");
+		}
+	}
+}
+#else
+static void of_bd7181x_buck_dvs(struct platform_device *pdev, struct bd7181x_buck_dvs *buck_dvs)
+{
+	buck_dvs[0].i2c_dvs_enable = 0;
+	buck_dvs[0].voltage[0] = BUCK1_H_DEFAULT;
+	buck_dvs[0].voltage[1] = BUCK1_L_DEFAULT;
+	buck_dvs[1].i2c_dvs_enable = 0;
+	buck_dvs[1].voltage[0] = BUCK1_H_DEFAULT;
+	buck_dvs[1].voltage[1] = BUCK1_L_DEFAULT;
+}
+#endif
+
+static int bd7181x_buck12_dvs_init(struct bd7181x_pmic *pmic)
+{
+	struct bd7181x *bd7181x = pmic->mfd;
+	struct bd7181x_buck_dvs *buck_dvs = &pmic->buck_dvs[0];
+	int i, ret, val, selector = 0;
+	u8 regh, regl;
+
+	for(i = 0; i < BD7181X_DVS_BUCK_NUM; i++, buck_dvs++) {
+		regh = BD7181X_REG_BUCK1_VOLT_H + i*0x2;
+		regl = BD7181X_REG_BUCK1_VOLT_L + i*0x2;
+		val = BUCK1_DVSSEL;
+		if(buck_dvs->i2c_dvs_enable) {
+			dev_info(pmic->dev, "Buck%d: I2C DVS Enabled !\n", i);
+			val &= ~BUCK1_STBY_DVS;
+		}
+		dev_info(pmic->dev, "Buck%d: DVS High-Low[%d - %d].\n", i, buck_dvs->voltage[0], buck_dvs->voltage[1]);
+		selector = regulator_map_voltage_iterate(pmic->rdev[i], buck_dvs->voltage[0], buck_dvs->voltage[0]);
+		if(selector < 0) {
+			dev_err(pmic->dev, "%s(): not found selector for voltage [%d]\n", __func__, buck_dvs->voltage[0]);
+		} else {
+			ret = bd7181x_reg_write(bd7181x, regh, val | (selector & BUCK1_H_MASK));
+			if(ret < 0)
+				return ret;
+		}
+		selector = regulator_map_voltage_iterate(pmic->rdev[i], buck_dvs->voltage[1], buck_dvs->voltage[1]);
+		if(selector < 0) {
+			dev_err(pmic->dev, "%s(): not found selector for voltage [%d]\n", __func__, buck_dvs->voltage[1]);
+		} else {
+			ret = bd7181x_reg_write(bd7181x, regl, val | (selector & BUCK1_L_MASK));
+			if(ret < 0)
+				return ret;
+		}
+	}
+	return 0;
+}
 
 
 /**@brief probe bd7181x regulator device
@@ -457,6 +687,9 @@ static int bd7181x_probe(struct platform_device *pdev)
 		}
 	}
 
+	/* Get buck dvs parameters */
+	of_bd7181x_buck_dvs(pdev, &pmic->buck_dvs[0]);
+
 	for (i = 0; i < BD7181X_REGULATOR_CNT; i++) {
 		struct regulator_init_data *init_data;
 		struct regulator_desc *desc;
@@ -464,7 +697,7 @@ static int bd7181x_probe(struct platform_device *pdev)
 
 		desc = &pmic->descs[i].desc;
 		desc->name = bd7181x_matches[i].name;
-		
+
 		if (pdata) {
 			init_data = pdata->init_data[i];
 		} else {
@@ -491,6 +724,13 @@ static int bd7181x_probe(struct platform_device *pdev)
 	err = sysfs_create_group(&pdev->dev.kobj, &gpo_attr_group);
 	if (err != 0) {
 		dev_err(&pdev->dev, "Failed to create attribute group: %d\n", err);
+		goto err;
+	}
+
+	/* Init buck12 dvs */
+	err = bd7181x_buck12_dvs_init(pmic);
+	if (err != 0) {
+		dev_err(&pdev->dev, "Failed to buck12 dvs: %d\n", err);
 		goto err;
 	}
 

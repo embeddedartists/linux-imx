@@ -274,6 +274,33 @@ enum {
 	BD7181X_MAX_REGISTER,
 };
 
+/* BD7181X_REG_BUCK1_MODE bits */
+#define BUCK1_RAMPRATE_MASK		0xC0
+#define BUCK1_RAMPRATE_10P00MV	0x0
+#define BUCK1_RAMPRATE_5P00MV	0x1
+#define BUCK1_RAMPRATE_2P50MV	0x2
+#define BUCK1_RAMPRATE_1P25MV	0x3
+
+/* BD7181X_REG_BUCK1_VOLT_H bits */
+#define BUCK1_DVSSEL			0x80
+#define BUCK1_STBY_DVS			0x40
+#define BUCK1_H_MASK			0x3F
+#define BUCK1_H_DEFAULT			0x14
+
+/* BD7181X_REG_BUCK1_VOLT_L bits */
+#define BUCK1_L_MASK			0x3F
+#define BUCK1_L_DEFAULT			0x14
+
+/* BD7181X_REG_BUCK2_VOLT_H bits */
+#define BUCK2_DVSSEL			0x80
+#define BUCK2_STBY_DVS			0x40
+#define BUCK2_H_MASK			0x3F
+#define BUCK2_H_DEFAULT			0x14
+
+/* BD7181X_REG_BUCK2_VOLT_L bits */
+#define BUCK2_L_MASK			0x3F
+#define BUCK2_L_DEFAULT			0x14
+
 /* BD7181X_REG_LDO1_CTRL bits */
 #define LDO1_EN					0x01
 #define LDO2_EN					0x02
@@ -310,6 +337,10 @@ enum {
 /* BD7181X_REG_INT_STAT_03 bits */
 #define DCIN_MON_DET				0x02
 #define DCIN_MON_RES				0x01
+#define POWERON_LONG				0x04
+#define POWERON_MID				0x08
+#define POWERON_SHORT				0x10
+#define POWERON_PRESS				0x20
 
 /* BD71805_REG_INT_STAT_08 bits */
 #define VBAT_MON_DET				0x02
@@ -341,7 +372,7 @@ enum {
 enum {
 	BD7181X_INT_EN_01_BUCKAST_MASK	=	0x0F,
 	BD7181X_INT_EN_02_DCINAST_MASK	=	0x3E,
-	BD7181X_INT_EN_03_DCINAST_MASK	=	0x03,
+	BD7181X_INT_EN_03_DCINAST_MASK	=	0x3F,
 	BD7181X_INT_EN_04_VSYSAST_MASK	=	0xCF,
 	BD7181X_INT_EN_05_CHGAST_MASK	=	0xFC,
 	BD7181X_INT_EN_06_BATAST_MASK	=	0xF3,
@@ -557,6 +588,15 @@ struct bd7181x_gpo_plat_data {
 	u32 mode;		///< gpo output mode
 	int gpio_base;		///< base gpio number in system
 };
+
+#define BD7181X_DBG0		0x0001
+#define BD7181X_DBG1		0x0002
+#define BD7181X_DBG2		0x0004
+#define BD7181X_DBG3		0x0008
+
+extern unsigned int bd7181x_debug_mask;
+#define bd7181x_debug(debug, fmt, arg...) do { if(debug & bd7181x_debug_mask) printk("BD7181x:" fmt, ##arg);} while(0)
+
 
 #endif /* __LINUX_MFD_BD7181X_H */
 
