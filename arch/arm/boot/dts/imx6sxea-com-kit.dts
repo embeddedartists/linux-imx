@@ -361,8 +361,8 @@
 	codec: wm8731@1a {
 		compatible = "wlf,wm8731";
 		reg = <0x1a>;
-		clocks = <&clks IMX6SX_CLK_AUDIO>;
-		/*clock-names = "mclk";*/
+		clocks = <&clks IMX6SX_CLK_AUDIO>, <&clks IMX6SX_CLK_PLL4_AUDIO_DIV>;
+		clock-names = "mclk", "mclk_parent";
 		AVDD-supply = <&vgen4_reg>;
 		HPVDD-supply = <&vgen4_reg>;
 		DCVDD-supply = <&vgen4_reg>;
