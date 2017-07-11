@@ -1,0 +1,52 @@
+/*
+ * Copyright 2012 Freescale Semiconductor, Inc.
+ * Copyright 2011 Linaro Ltd.
+ *
+ * The code contained herein is licensed under the GNU General Public
+ * License. You may obtain a copy of the GNU General Public License
+ * Version 2 or later at the following locations:
+ *
+ * http://www.opensource.org/licenses/gpl-license.html
+ * http://www.gnu.org/copyleft/gpl.html
+ */
+
+#include "imx6dlea-com-kit.dts"
+
+&mxcfb1 {
+	status = "disabled"; /*LVDS0*/
+};
+&mxcfb2 {
+        status = "disabled"; /*HDMI*/
+};
+&mxcfb3 {
+        status = "okay"; /*LCD*/
+};
+&mxcfb4 {
+        status = "okay"; /*LVDS1*/
+};
+&t_lcd {
+        status = "okay";
+};
+&t_lvds {
+        status = "disabled";
+};
+&t_lvds2 {
+        status = "okay";
+};
+&backlight_lcd {
+        status = "okay";
+};
+&backlight_lvds {
+        status = "okay";
+};
+&lcd {
+        status = "okay";
+};
+&ldb {
+        status = "okay";
+};
+&i2c2 {
+	egalax_ts_lvds1@04 {
+		status = "disabled";
+	};
+};

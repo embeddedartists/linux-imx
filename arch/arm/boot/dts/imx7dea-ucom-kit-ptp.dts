@@ -1,0 +1,22 @@
+/*
+ * Copyright (C) 2015 Freescale Semiconductor, Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+#include "imx7dea-ucom-kit.dts"
+
+&lcdif {
+        status = "okay";
+};
+&t_lcd {
+        status = "okay";
+};
+&backlight_lcd {
+        status = "okay";
+};
+&display0 {
+        status = "okay";
+};
