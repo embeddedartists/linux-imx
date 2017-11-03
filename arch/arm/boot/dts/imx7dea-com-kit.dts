@@ -63,7 +63,7 @@
 			regulator-name = "usb_otg2_vbus";
 			regulator-min-microvolt = <5000000>;
 			regulator-max-microvolt = <5000000>;
-			gpio = <&gpio4 7 GPIO_ACTIVE_HIGH>;
+			gpio = <&gpio1 7 GPIO_ACTIVE_HIGH>;
 			enable-active-high;
 		};
 
@@ -446,6 +446,7 @@
 				MX7D_PAD_SD1_CD_B__GPIO5_IO0		0x59 /* CD */
 				MX7D_PAD_SD1_RESET_B__GPIO5_IO2		0x59 /* vmmc */
 				MX7D_PAD_EPDC_SDCE3__GPIO2_IO23         0x59
+				MX7D_PAD_EPDC_DATA14__GPIO2_IO14        0x59  /* CAN_STBY */
 			>;
 		};
 
@@ -794,8 +795,8 @@
 		pinctrl_hog_2: hoggrp-2 {
 			fsl,pins = <
 				MX7D_PAD_GPIO1_IO05__GPIO1_IO5	0x14
-				MX7D_PAD_EPDC_DATA14__GPIO2_IO14 0x59  /* CAN_STBY */
 				MX7D_PAD_GPIO1_IO00__WDOD1_WDOG_B 0x74
+				MX7D_PAD_GPIO1_IO07__GPIO1_IO7 0x59
 			>;
 		};
 
