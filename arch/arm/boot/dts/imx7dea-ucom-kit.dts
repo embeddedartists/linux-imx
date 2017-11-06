@@ -138,7 +138,7 @@
 
 &clks {
 	assigned-clocks = <&clks IMX7D_PLL_AUDIO_POST_DIV>;
-	assigned-clock-rates = <869299200>;
+	assigned-clock-rates = <722534400>;
 };
 
 &cpu0 {
@@ -425,6 +425,12 @@
                 compatible = "wlf,wm8731";
                 reg = <0x1a>;
                 clocks = <&clks IMX7D_AUDIO_MCLK_ROOT_CLK>;
+
+		assigned-clocks = <&clks IMX7D_AUDIO_MCLK_ROOT_CLK>,
+				<&clks IMX7D_AUDIO_MCLK_ROOT_SRC>;
+		assigned-clock-parents = <&clks IMX7D_AUDIO_MCLK_ROOT_DIV>,
+				<&clks IMX7D_PLL_AUDIO_POST_DIV>;
+		assigned-clock-rates = <11289600>, <0>;
         };
 
         /* AR1021 touch controller through RGB display interface connector on Carrier Board */
