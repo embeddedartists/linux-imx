@@ -35,6 +35,7 @@ struct imx_wm8731_data {
 	char platform_name[DAI_NAME_SIZE];
 	struct i2c_client *codec_dev;
 	struct clk *codec_clk;
+	struct clk *mclk_parent_clk;
 	long sysclk;
 };
 
@@ -184,6 +185,20 @@ static int imx_hifi_hw_params_slv_mode(struct snd_pcm_substream *substream,
 	if (ret < 0)
 		return ret;
 
+	if (data->mclk_parent_clk)
+	{
+		/*
+		 * This is an attempt to support several sample rates (and mclk's
+		 * The mclk rate can only be set if the parent clock is a multiple
+		 * of requested mclk. clk_get_parent isn't used since we want this
+		 * to be configurable from the dts. If mclk_parent isn't set in
+		 * the dts the rate won't be changed for the parent.
+		 *
+		 * This was introduced for iMX6 SoloX
+		 */
+		clk_set_rate(data->mclk_parent_clk, 32*data->sysclk);
+	}
+
 	ret = snd_soc_dai_set_sysclk(codec_dai,
 				     WM8731_SYSCLK_MCLK,
 				     data->sysclk,
@@ -296,7 +311,7 @@ static int imx_wm8731_probe(struct platform_device *pdev)
 	struct device_node *node;
 
 	priv->pdev = pdev;
-	
+
 	ssi_np = of_parse_phandle(pdev->dev.of_node, "ssi-controller", 0);
 	codec_np = of_parse_phandle(pdev->dev.of_node, "audio-codec", 0);
 	if (!ssi_np || !codec_np) {
@@ -311,7 +326,7 @@ static int imx_wm8731_probe(struct platform_device *pdev)
 		ret = -EINVAL;
 		goto fail;
 	}
-        
+
 	codec_dev = of_find_i2c_device_by_node(codec_np);
 	if (!codec_dev) {
 		dev_err(&pdev->dev, "failed to find codec platform device\n");
@@ -367,6 +382,11 @@ static int imx_wm8731_probe(struct platform_device *pdev)
 		goto fail;
 	}
 
+	data->mclk_parent_clk = devm_clk_get(&codec_dev->dev, "mclk_parent");
+	if (IS_ERR(data->mclk_parent_clk)) {
+		data->mclk_parent_clk = NULL;
+	}
+
 	data->dai.name = "HiFi";
 	data->dai.stream_name = "HiFi";
 	data->dai.codec_dai_name = "wm8731-hifi";
@@ -375,7 +395,7 @@ static int imx_wm8731_probe(struct platform_device *pdev)
 	data->dai.platform_of_node = ssi_np;
 	data->dai.ops = &imx_hifi_ops;
 	data->dai.init = &imx_wm8731_init;
-	
+
 	ret = of_property_read_u32(pdev->dev.of_node, "src-port", &src_port);
 	if (ret) {
 		dev_err(&pdev->dev, "failed to get \"src-port\" value\n");
