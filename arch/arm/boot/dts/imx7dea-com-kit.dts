@@ -442,7 +442,7 @@
 			fsl,pins = <
 				MX7D_PAD_UART3_CTS_B__GPIO4_IO7	0x14
 				MX7D_PAD_ECSPI2_SS0__GPIO4_IO23	 0x80000000  /* bt reg on */
-				MX7D_PAD_GPIO1_IO08__SD1_VSELECT	0x59 /* VSELECT */
+				MX7D_PAD_GPIO1_IO08__GPIO1_IO8		0x59 
 				MX7D_PAD_SD1_CD_B__GPIO5_IO0		0x59 /* CD */
 				MX7D_PAD_SD1_RESET_B__GPIO5_IO2		0x59 /* vmmc */
 				MX7D_PAD_EPDC_SDCE3__GPIO2_IO23         0x59
@@ -452,7 +452,7 @@
 		pinctrl_rgb_connector: rgb_connector_grp {
 			fsl,pins = <
 				MX7D_PAD_SD2_CD_B__GPIO5_IO9          0x1f0b0
- 			>;
+			>;
 		};
 
 		pinctrl_ov5647: ov5647grp-1 {
