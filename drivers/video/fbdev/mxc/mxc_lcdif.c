@@ -19,6 +19,9 @@
 #include <linux/of_device.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/platform_device.h>
+#include <video/of_display_timing.h>
+#include <video/of_videomode.h>
+#include <video/videomode.h>
 
 #include "mxc_dispdrv.h"
 
@@ -48,6 +51,19 @@ static struct fb_videomode lcdif_modedb[] = {
 	FB_SYNC_CLK_LAT_FALL,
 	FB_VMODE_NONINTERLACED,
 	0,},
+	{
+	/* 800x480 @ 49 Hz , pixel clk @ 33.5MHz */
+	"EA7-WVGA", 49, 800, 480, 33500, 89, 164, 75, 75, 10, 10,
+	FB_SYNC_CLK_LAT_FALL,
+	FB_VMODE_NONINTERLACED,
+	0,},
+	{
+	/* Special placeholder, will be filled in by content in device tree */
+	"eadisp_special", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	FB_SYNC_CLK_LAT_FALL,
+	FB_VMODE_NONINTERLACED,
+	0,},
+
 };
 static int lcdif_modedb_sz = ARRAY_SIZE(lcdif_modedb);
 
@@ -102,10 +118,11 @@ static struct mxc_dispdrv_driver lcdif_drv = {
 static int lcd_get_of_property(struct platform_device *pdev,
 				struct mxc_lcd_platform_data *plat_data)
 {
-	struct device_node *np = pdev->dev.of_node;
+	struct device_node *np = pdev->dev.of_node, *child;
 	int err;
 	u32 ipu_id, disp_id;
 	const char *default_ifmt;
+	int i;
 
 	err = of_property_read_string(np, "default_ifmt", &default_ifmt);
 	if (err) {
@@ -150,6 +167,33 @@ static int lcd_get_of_property(struct platform_device *pdev,
 	else {
 		dev_err(&pdev->dev, "err default_ifmt!\n");
 		return -ENOENT;
+	}
+
+	for (i = 0; i < lcdif_modedb_sz; i++) {
+		if (strcmp(lcdif_modedb[i].name, "eadisp_special")==0) {
+			struct videomode vm;
+
+			/* Read customized display information, should only be one display node but iterate anyway */
+			for_each_child_of_node(np, child) {
+				err = of_get_videomode(child, &vm, OF_USE_NATIVE_MODE);
+				if (err) {
+					return -EINVAL;
+				}
+				err = fb_videomode_from_videomode(&vm, &lcdif_modedb[i]);
+				if (err < 0) {
+					return -EINVAL;
+				}
+
+				if (!(vm.flags & DISPLAY_FLAGS_DE_HIGH)) {
+					lcdif_modedb[i].sync |= FB_SYNC_OE_LOW_ACT;
+				}
+				if (vm.flags & DISPLAY_FLAGS_PIXDATA_NEGEDGE) {
+					lcdif_modedb[i].sync |= FB_SYNC_CLK_LAT_FALL;
+				}
+				break;
+			}
+			break;
+		}
 	}
 
 	return err;

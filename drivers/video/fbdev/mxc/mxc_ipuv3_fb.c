@@ -45,6 +45,7 @@
 #include <linux/module.h>
 #include <linux/mxcfb.h>
 #include <linux/of_device.h>
+#include <linux/of_gpio.h>
 #include <linux/platform_device.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
@@ -3426,6 +3427,37 @@ static int mxcfb_get_of_property(struct platform_device *pdev,
 		dev_err(&pdev->dev, "err interface_pix_fmt!\n");
 		return -ENOENT;
 	}
+
+	if (of_find_property(np, "dispctrl-gpios", NULL)) {
+		enum of_gpio_flags flags;
+		int gpio;
+		int index = 0;
+		for (;; index++) {
+			gpio = of_get_named_gpio_flags(np, "dispctrl-gpios", index, &flags);
+			if (gpio < 0)
+				break; /* End of the phandle list */
+
+			if (!gpio_is_valid(gpio)) {
+				return -EINVAL;
+			}
+
+			err = devm_gpio_request_one(&pdev->dev, gpio, GPIOF_OUT_INIT_LOW, NULL);
+			if (err < 0) {
+				dev_dbg(&pdev->dev, "could not allocate gpio\n");
+				return err;
+			}
+
+			if (!(flags & OF_GPIO_ACTIVE_LOW)) {
+				if (gpio_cansleep(gpio))
+					gpio_set_value_cansleep(gpio, 1);
+				else
+					gpio_set_value(gpio, 1);
+			}
+
+			devm_gpio_free(&pdev->dev, gpio);
+		}
+	}
+
 
 	len = min(sizeof(plat_data->disp_dev) - 1, strlen(disp_dev));
 	memcpy(plat_data->disp_dev, disp_dev, len);

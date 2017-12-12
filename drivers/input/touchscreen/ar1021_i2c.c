@@ -22,6 +22,9 @@ struct ar1021_i2c {
 	struct i2c_client *client;
 	struct input_dev *input;
 	u8 data[AR1021_TOCUH_PKG_SIZE];
+	bool swap_xy;
+	bool invert_x;
+	bool invert_y;
 };
 
 static irqreturn_t ar1021_i2c_irq(int irq, void *dev_id)
@@ -45,6 +48,13 @@ static irqreturn_t ar1021_i2c_irq(int irq, void *dev_id)
 	x = ((data[2] & 0x1f) << 7) | (data[1] & 0x7f);
 	y = ((data[4] & 0x1f) << 7) | (data[3] & 0x7f);
 
+	if (ar1021->swap_xy)
+		swap(x, y);
+	if (ar1021->invert_x)
+		x = AR1021_MAX_X - x;
+	if (ar1021->invert_y)
+		y = AR1021_MAX_Y - y;
+
 	input_report_abs(input, ABS_X, x);
 	input_report_abs(input, ABS_Y, y);
 	input_report_key(input, BTN_TOUCH, button);
@@ -58,6 +68,13 @@ static int ar1021_i2c_open(struct input_dev *dev)
 {
 	struct ar1021_i2c *ar1021 = input_get_drvdata(dev);
 	struct i2c_client *client = ar1021->client;
+	
+	/* ENABLE_TOUCH */
+	unsigned char buf[] = { 0x00, 0x55, 0x01, 0x12 };
+	int retval = i2c_master_send(client, buf, sizeof(buf));
+	if (retval != sizeof(buf)) {
+		dev_err(&client->dev, "Failed to send ENABLE_TOUCH command, err=%d\n", retval);
+	}
 
 	enable_irq(client->irq);
 
@@ -68,8 +85,16 @@ static void ar1021_i2c_close(struct input_dev *dev)
 {
 	struct ar1021_i2c *ar1021 = input_get_drvdata(dev);
 	struct i2c_client *client = ar1021->client;
+	unsigned char buf[] = { 0x00, 0x55, 0x01, 0x13 };
+	int retval;
 
 	disable_irq(client->irq);
+
+	/* DISABLE_TOUCH */
+	retval = i2c_master_send(client, buf, sizeof(buf));
+	if (retval != sizeof(buf)) {
+		dev_err(&client->dev, "Failed to send DISABLE_TOUCH command, err=%d\n", retval);
+	}
 }
 
 static int ar1021_i2c_probe(struct i2c_client *client,
@@ -77,6 +102,7 @@ static int ar1021_i2c_probe(struct i2c_client *client,
 {
 	struct ar1021_i2c *ar1021;
 	struct input_dev *input;
+	struct device_node *np = client->dev.of_node;
 	int error;
 
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
@@ -92,8 +118,14 @@ static int ar1021_i2c_probe(struct i2c_client *client,
 	if (!input)
 		return -ENOMEM;
 
+	if (!np)
+		return -ENODEV;
+
 	ar1021->client = client;
 	ar1021->input = input;
+	ar1021->swap_xy = of_property_read_bool(np, "ar1021,swap_xy");
+	ar1021->invert_x = of_property_read_bool(np, "ar1021,invert_x");
+	ar1021->invert_y = of_property_read_bool(np, "ar1021,invert_y");
 
 	input->name = "ar1021 I2C Touchscreen";
 	input->id.bustype = BUS_I2C;
@@ -101,7 +133,10 @@ static int ar1021_i2c_probe(struct i2c_client *client,
 	input->open = ar1021_i2c_open;
 	input->close = ar1021_i2c_close;
 
-	input_set_capability(input, EV_KEY, BTN_TOUCH);
+	__set_bit(EV_ABS, input->evbit);
+	__set_bit(EV_KEY, input->evbit);
+	__set_bit(BTN_TOUCH, input->keybit);
+
 	input_set_abs_params(input, ABS_X, 0, AR1021_MAX_X, 0, 0);
 	input_set_abs_params(input, ABS_Y, 0, AR1021_MAX_Y, 0, 0);
 
@@ -109,7 +144,7 @@ static int ar1021_i2c_probe(struct i2c_client *client,
 
 	error = devm_request_threaded_irq(&client->dev, client->irq,
 					  NULL, ar1021_i2c_irq,
-					  IRQF_TRIGGER_RISING | IRQF_ONESHOT,
+					  IRQF_ONESHOT,
 					  "ar1021_i2c", ar1021);
 	if (error) {
 		dev_err(&client->dev,
@@ -178,3 +213,4 @@ module_i2c_driver(ar1021_i2c_driver);
 MODULE_AUTHOR("Christian Gmeiner <christian.gmeiner@gmail.com>");
 MODULE_DESCRIPTION("Microchip AR1021 I2C Driver");
 MODULE_LICENSE("GPL");
+

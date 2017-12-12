@@ -382,6 +382,19 @@ config TOUCHSCREEN_ILI210X
 	  To compile this driver as a module, choose M here: the
 	  module will be called ili210x.
 
+config TOUCHSCREEN_ILIAIM
+	tristate "Ilitek I2C based touchscreen"
+	depends on I2C
+	help
+	  Say Y here if you have an Ilitek multitouch touchscreen
+	  controller. This driver supports at least models ILI2115
+	  and ILI8939.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called ilitek_aim.
+
 config TOUCHSCREEN_IPROC
 	tristate "IPROC touch panel driver support"
 	depends on ARCH_BCM_IPROC || COMPILE_TEST
@@ -1128,6 +1141,18 @@ config TOUCHSCREEN_ST1232
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called st1232_ts.
+
+config TOUCHSCREEN_SITRONIX_I2C
+	tristate "Sitronix I2C I/F Multi-Touch Controller"
+	depends on I2C
+	help
+	  Say Y here if you want to support Sitronix multitouch
+	  touchscreen controller.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called sitronix_i2c_touch.
 
 config TOUCHSCREEN_STMPE
 	tristate "STMicroelectronics STMPE touchscreens"

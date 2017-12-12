@@ -525,4 +525,11 @@ config SABRESD_MAX8903
          sabresd board.The driver supports controlling charger and battery
          based on the status of charger connections with interrupt handlers.
 
+config BD7181X_POWER
+	tristate "ROHM BD71815/BD71817 Charger for Battery and Adapter Power"
+	depends on MFD_BD7181X
+	help
+	  Say Y to enable support for the BD71815/BD71817 charger.
+
+
 endif # POWER_SUPPLY

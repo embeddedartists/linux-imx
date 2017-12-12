@@ -393,6 +393,7 @@ static int wm8731_set_dai_sysclk(struct snd_soc_dai *codec_dai,
 	case WM8731_SYSCLK_MCLK:
 		if (wm8731->mclk && clk_set_rate(wm8731->mclk, freq))
 			return -EINVAL;
+
 		wm8731->sysclk_type = clk_id;
 		break;
 	default:
@@ -743,6 +744,7 @@ static int wm8731_i2c_probe(struct i2c_client *i2c,
 		return -ENOMEM;
 
 	wm8731->mclk = devm_clk_get(&i2c->dev, "mclk");
+
 	if (IS_ERR(wm8731->mclk)) {
 		ret = PTR_ERR(wm8731->mclk);
 		if (ret == -ENOENT) {
