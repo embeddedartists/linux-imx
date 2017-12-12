@@ -219,13 +219,13 @@ static irqreturn_t bd7181x_rtc_interrupt(int irq, void *rtc)
 	int ret;
 	u32 rtc_reg;
 
-	printk("bd7181x_vbat_interrupt() in.\n");
+	dev_info(mfd->dev, "bd7181x_rtc_interrupt() in.\n");
 
 	ret = regmap_read(mfd->regmap, BD7181X_REG_INT_STAT_12, &rtc_reg);
 	if (ret)
 		return IRQ_NONE;
 
-	printk("BD7181X_REG_INT_STAT_12=0x%x\n", rtc_reg);
+	dev_info(mfd->dev, "BD7181X_REG_INT_STAT_12=0x%x\n", rtc_reg);
 
 	if (rtc_reg & ALM0)
 		events = RTC_IRQF | RTC_AF;
@@ -234,7 +234,7 @@ static irqreturn_t bd7181x_rtc_interrupt(int irq, void *rtc)
 	if (ret)
 		return IRQ_NONE;
 
-	printk("\n~~~IRQ ALARM.\n");
+	dev_info(mfd->dev, "\n~~~IRQ ALARM.\n");
 
 	/* Notify RTC core on event */
 	rtc_update_irq(bd_rtc->rtc, 1, events);
@@ -288,8 +288,8 @@ static int bd7181x_rtc_probe(struct platform_device *pdev)
 	if (ret < 0)
 		return ret;
 	#endif
-	/* Disable ALM0 mask */
-	ret = regmap_write(bd7181x->regmap, BD7181X_REG_ALM0_MASK, 0);
+	/* Enable ALM0_EN mask */
+	ret = regmap_write(bd7181x->regmap, BD7181X_REG_ALM0_MASK, ALM0);
 	if (ret < 0)
 		return ret;
 

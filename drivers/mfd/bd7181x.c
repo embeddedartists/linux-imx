@@ -312,6 +312,13 @@ static int bd7181x_i2c_probe(struct i2c_client *i2c,
 		return ret;
 	}
 
+	ret = bd7181x_reg_read(bd7181x, BD7181X_REG_DEVICE);
+	if(ret < 0) {
+		dev_err(bd7181x->dev, "%s(): Read BD7181X_REG_DEVICE failed!\n", __func__);
+		goto err;
+	}
+	dev_info(bd7181x->dev, "BD7181x: Device ID=0x%X\n", ret);
+
 	bd7181x_irq_init(bd7181x, of_pmic_plat_data);
 
 	ret = mfd_add_devices(bd7181x->dev, -1,
