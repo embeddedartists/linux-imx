@@ -231,6 +231,10 @@
 		clocks = <&clks IMX6QDL_CLK_CKO>;
 		clock-names = "mclk";
 
+		assigned-clocks = <&clks IMX6QDL_CLK_CKO>, <&clks IMX6QDL_CLK_CKO1_SEL>;
+		assigned-clock-parents = <&clks IMX6QDL_CLK_CKO1>, <&clks IMX6QDL_CLK_PLL4_POST_DIV>;
+		assigned-clock-rates = <22579200>, <0>;
+
 		AVDD-supply = <&vgen4_reg>;
 		HPVDD-supply = <&vgen4_reg>;
 		DCVDD-supply = <&vgen4_reg>;
@@ -814,9 +818,18 @@
 	status = "okay";
 };
 
+&clks {
+	assigned-clocks = <&clks IMX6QDL_CLK_PLL4_POST_DIV>;
+	assigned-clock-rates = <180633600>;
+};
+
 &ssi2 {
 	fsl,mode = "i2s-master";
 	status = "okay";
+	assigned-clocks = <&clks IMX6QDL_CLK_SSI2_SEL>,
+			<&clks IMX6QDL_CLK_SSI2>;
+	assigned-clock-parents = <&clks IMX6QDL_CLK_PLL4_AUDIO_DIV>;
+	assigned-clock-rates = <0>, <11289600>;
 };
 
 &uart1 {
