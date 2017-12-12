@@ -436,6 +436,8 @@ dtb-$(CONFIG_SOC_IMX6Q) += \
 	imx6q-wandboard.dtb \
 	imx6q-wandboard-revb1.dtb \
 	imx6qea-com-kit.dtb \
+	imx6qea-com-kit-ptp.dtb \
+	imx6dlea-com-kit-ptp.dtb \
 	imx6dlea-com-kit.dtb \
 	imx6qp-nitrogen6_max.dtb \
 	imx6qp-sabreauto.dtb \
@@ -484,6 +486,7 @@ dtb-$(CONFIG_SOC_IMX6SX) += \
 	imx6sxscm-epop-evb-m4-ldo.dtb \
 	imx6sxea-com-kit.dtb \
 	imx6sxea-com-kit-m4.dtb \
+	imx6sxea-com-kit-ptp.dtb \
 	imx6sxea-com-kit-lvds.dtb \
 	imx6sxea-com-kit-rgb.dtb
 dtb-$(CONFIG_SOC_IMX6UL) += \
@@ -514,6 +517,7 @@ dtb-$(CONFIG_SOC_IMX6UL) += \
 	imx6ul-9x9-evk-csi.dtb \
 	imx6ul-9x9-evk-ldo.dtb \
 	imx6ulea-com-kit.dtb \
+	imx6ulea-com-kit-ptp.dtb \
 	imx6ulea-com-kit-rf.dtb
 dtb-$(CONFIG_SOC_IMX6ULL) += \
 	imx6ull-14x14-ddr3-arm2.dtb \
@@ -586,8 +590,10 @@ dtb-$(CONFIG_SOC_IMX7D) += \
 	imx7d-sdb-reva-wm8960.dtb \
 	imx7dea-ucom-kit.dtb \
 	imx7dea-ucom-kit-lvds.dtb \
+	imx7dea-ucom-kit-ptp.dtb \
 	imx7dea-ucom-kit-m4.dtb \
 	imx7dea-com-kit.dtb \
+	imx7dea-com-kit-ptp.dtb \
 	imx7dea-com-kit-m4.dtb
 dtb-$(CONFIG_SOC_IMX7ULP) += \
 	imx7ulp-14x14-arm2.dtb \
