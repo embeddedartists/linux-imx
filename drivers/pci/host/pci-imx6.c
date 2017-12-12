@@ -571,7 +571,7 @@ static void imx6_pcie_init_phy(struct imx6_pcie *imx6_pcie)
 
 		/* pcie phy ref clock select; 1? internal pll : external osc */
 		regmap_update_bits(imx6_pcie->iomuxc_gpr, IOMUXC_GPR12,
-				BIT(5), 0);
+				BIT(5), BIT(5));
 	} else if (imx6_pcie->variant == IMX6SX) {
 		/* Force PCIe PHY reset */
 		regmap_update_bits(imx6_pcie->iomuxc_gpr, IOMUXC_GPR5,
@@ -1083,7 +1083,7 @@ static int pci_imx_suspend_noirq(struct device *dev)
 		else if (imx6_pcie->variant == IMX7D)
 			/* turn off external osc input */
 			regmap_update_bits(imx6_pcie->iomuxc_gpr, IOMUXC_GPR12,
-					BIT(5), BIT(5));
+					BIT(5), 0);
 		else if (imx6_pcie->variant == IMX6QP) {
 			regmap_update_bits(imx6_pcie->iomuxc_gpr, IOMUXC_GPR1,
 					IMX6Q_GPR1_PCIE_REF_CLK_EN, 0);
