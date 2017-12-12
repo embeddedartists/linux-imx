@@ -1116,6 +1116,12 @@ static int mxsfb_pan_display(struct fb_var_screeninfo *var,
 	writel(fb_info->fix.smem_start + offset,
 			host->base + host->devdata->next_buf);
 
+        /* Clear pending irq before enabling irq, otherwise, a pending */
+        /* irq will cause the interrupt handler to run and change framebuffer */
+        /* in the middle of an LCD update. */
+        writel(CTRL1_CUR_FRAME_DONE_IRQ,
+                        host->base + LCDC_CTRL1 + REG_CLR);
+
 	writel(CTRL1_CUR_FRAME_DONE_IRQ_EN,
 		host->base + LCDC_CTRL1 + REG_SET);
 
