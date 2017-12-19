@@ -8,7 +8,7 @@
 
 #include "imx6ulea-com-kit.dts"
 
-&flexcan2 {
+&can2 {
 	status = "disabled";
 };
 

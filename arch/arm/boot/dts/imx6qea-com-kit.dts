@@ -451,7 +451,7 @@
 };
 
 &i2c3 {
-	hdmi: edid@50 {
+	hdmi_edid: edid@50 {
 		compatible = "fsl,imx6-hdmi-i2c";
 		reg = <0x50>;
 	};
@@ -826,6 +826,7 @@
 &ssi2 {
 	fsl,mode = "i2s-master";
 	status = "okay";
+
 	assigned-clocks = <&clks IMX6QDL_CLK_SSI2_SEL>,
 			<&clks IMX6QDL_CLK_SSI2>;
 	assigned-clock-parents = <&clks IMX6QDL_CLK_PLL4_AUDIO_DIV>;

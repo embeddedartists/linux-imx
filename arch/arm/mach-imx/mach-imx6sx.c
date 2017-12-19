@@ -158,8 +158,8 @@ static void __init imx6sx_opp_init(void)
                 return;
         }
 
-        if (of_init_opp_table(cpu_dev)) {
-                pr_warn("failed to init OPP table\n");
+        if (dev_pm_opp_of_add_table(cpu_dev)) {
+                pr_warn("failed to add OPP table\n");
                 goto put_node;
         }
 

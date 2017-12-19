@@ -24,10 +24,16 @@
 
 };
 
+&reg_arm {
+       vin-supply = <&sw1a_reg>;
+};
 
-&cpu0 {
-	arm-supply = <&sw1a_reg>;
-	soc-supply = <&sw1c_reg>;
+&reg_pu {
+       vin-supply = <&sw1c_reg>;
+};
+
+&reg_soc {
+       vin-supply = <&sw1c_reg>;
 };
 
 &gpc {

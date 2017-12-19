@@ -170,7 +170,7 @@
 	display = <&display0>;
 	status = "okay";
 
-	display0: display {
+	display0: display@0 {
 		bits-per-pixel = <32>;
 		bus-width = <24>;
 
@@ -207,7 +207,7 @@
 	assigned-clock-parents = <&clks IMX6SX_CLK_LDB_DI0>;
 	assigned-clock-rates = <0>;
 
-	display1: display {
+	display1: display@1 {
 		bits-per-pixel = <16>;
 		bus-width = <18>;
 	};
@@ -351,7 +351,7 @@
 	vmmc-supply = <&vcc_sd2>;
 	no-1-8-v;
 	keep-power-in-suspend;
-	enable-sdio-wakeup;
+	wakeup-source;
 	status = "okay";
 };
 

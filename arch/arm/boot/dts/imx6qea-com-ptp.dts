@@ -123,7 +123,7 @@
                 gpio-controller;
                 #gpio-cells = <2>;
         };	
-	hdmi: edid@50 {
+	hdmi_edid: edid@50 {
 		compatible = "fsl,imx6-hdmi-i2c";
 		reg = <0x50>;
 	};

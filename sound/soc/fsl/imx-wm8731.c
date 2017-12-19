@@ -91,7 +91,6 @@ static int imx_hifi_hw_params_slv_mode(struct snd_pcm_substream *substream,
 	u32 dai_format;
 	snd_pcm_format_t sample_format;
 	unsigned int channels;
-	unsigned int tx_mask, rx_mask;
 	unsigned int sampling_rate;
 	unsigned int div_2, div_psr, div_pm;
 	int ret;
@@ -131,9 +130,7 @@ static int imx_hifi_hw_params_slv_mode(struct snd_pcm_substream *substream,
 
 	/* set i.MX active slot mask */
 	/* S[TR]CCR:DC */
-	tx_mask = ~((1 << channels) - 1);
-	rx_mask = tx_mask;
-	snd_soc_dai_set_tdm_slot(cpu_dai, tx_mask, rx_mask, 2, 32);
+	snd_soc_dai_set_tdm_slot(cpu_dai, 0x3, 0x3, 2, 32);
 
 	/*
 	 * SSI sysclk divider:
@@ -217,23 +214,24 @@ static int imx_wm8731_init(struct snd_soc_pcm_runtime *rtd)
 {
 	int ret = 0;
 	struct snd_soc_codec *codec = rtd->codec;
+	struct snd_soc_dapm_context *dapm = snd_soc_codec_get_dapm(codec);
 
 	/* Add imx specific widgets */
-	ret = snd_soc_dapm_new_controls(&codec->dapm, imx_dapm_widgets,
+	ret = snd_soc_dapm_new_controls(dapm, imx_dapm_widgets,
 									ARRAY_SIZE(imx_dapm_widgets));
 	if (ret)
 			goto out_retcode;
 
 	/* Set up imx specific audio path audio_map */
-	ret = snd_soc_dapm_add_routes(&codec->dapm, audio_map, ARRAY_SIZE(audio_map));
+	ret = snd_soc_dapm_add_routes(dapm, audio_map, ARRAY_SIZE(audio_map));
 	if (ret)
 			goto out_retcode;
 
-	ret = snd_soc_dapm_enable_pin(&codec->dapm, "Headphone Jack");
+	ret = snd_soc_dapm_enable_pin(dapm, "Headphone Jack");
 	if (ret)
 			goto out_retcode;
 
-	ret = snd_soc_dapm_nc_pin(&codec->dapm, "Ext Spk");
+	ret = snd_soc_dapm_nc_pin(dapm, "Ext Spk");
 	if (ret)
 			goto out_retcode;
 
