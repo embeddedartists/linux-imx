@@ -826,6 +826,10 @@ static const struct flash_info spi_nor_ids[] = {
 
 	{ "at45db081d", INFO(0x1f2500, 0, 64 * 1024, 16, SECT_4K) },
 
+	/* Adesto Technologies (former Atmel) */
+	{ "at25sl321", INFO(0x1f4216, 0, 64 * 1024,  64, SECT_4K /*| SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ*/) },
+
+
 	/* EON -- en25xxx */
 	{ "en25f32",    INFO(0x1c3116, 0, 64 * 1024,   64, SECT_4K) },
 	{ "en25p32",    INFO(0x1c2016, 0, 64 * 1024,   64, 0) },
