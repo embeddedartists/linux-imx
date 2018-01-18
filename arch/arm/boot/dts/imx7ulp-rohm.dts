@@ -98,8 +98,12 @@
 			enable-active-high;
 		};
 
+		/* TODO: temporary solution until rohm pmic driver is implemented */
 		dummy: regulator-dummy {
 			compatible = "regulator-fixed";
+                        regulator-min-microvolt = <1800000>;
+                        regulator-max-microvolt = <1800000>;
+
 			regulator-name = "dummy";
 			regulator-always-on;
 		};  
@@ -521,8 +525,12 @@
 	 * --0x9FF10000~0x9FF1FFFF: pingpong,virtual tty
 	 */
 	vdev-nums = <2>;
-	reg = <0x67F00000 0x20000>;
-	status = "disabled";
+	reg = <0x67F00000 0x60000>;
+	status = "okay";
+};
+
+&rpmsg_reserved {
+	reg = <0x67F00000 0x100000>;
 };
 
 &usbotg1 {
@@ -544,6 +552,7 @@
 	pinctrl-1 = <&pinctrl_usdhc0_8bit>;
 	non-removable;
 	bus-width = <8>;
+	/* TODO: temporary until rohm pmic is implemented */
 	vmmc-supply = <&dummy>;
 	no-1-8-v;
 	status = "okay"; 
