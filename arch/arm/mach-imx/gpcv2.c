@@ -772,7 +772,7 @@ static int imx_mipi_regulator_notify(struct notifier_block *nb,
 		 * For imx7d pcie phy, VDD18 turn on time has to wait
 		 * at least 0.1 .s after VDD10 turns on.
 		 */
-		udelay(1);
+		udelay(25);
 		val = readl_relaxed(gpc_base + GPC_PU_PGC_SW_PUP_REQ);
 		writel_relaxed(val | BIT(0), gpc_base + GPC_PU_PGC_SW_PUP_REQ);
 		while (readl_relaxed(gpc_base + GPC_PU_PGC_SW_PUP_REQ) & BIT(0))
@@ -817,7 +817,7 @@ static int imx_pcie_regulator_notify(struct notifier_block *nb,
 		 * For imx7d pcie phy, VDD18 turn on time has to wait
 		 * at least 0.1 .s after VDD10 turns on.
 		 */
-		udelay(1);
+		udelay(25);
 		val = readl_relaxed(gpc_base + GPC_PU_PGC_SW_PUP_REQ);
 		writel_relaxed(val | BIT(1), gpc_base + GPC_PU_PGC_SW_PUP_REQ);
 		while (readl_relaxed(gpc_base + GPC_PU_PGC_SW_PUP_REQ) & BIT(1))
