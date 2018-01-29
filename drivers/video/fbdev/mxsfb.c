@@ -1434,7 +1434,7 @@ static int mxsfb_init_fbinfo(struct mxsfb_info *host)
 
 	fb_info->fix.line_length =
 		fb_info->var.xres * (fb_info->var.bits_per_pixel >> 3);
-	fb_info->fix.smem_len = SZ_32M;
+	fb_info->fix.smem_len = SZ_2M;
 
 	/* Memory allocation for framebuffer */
 	if (mxsfb_map_videomem(fb_info) < 0)
@@ -1521,7 +1521,7 @@ static int mxsfb_map_videomem(struct fb_info *fbi)
 		return -EBUSY;
 	}
 
-	dev_dbg(fbi->device, "allocated fb @ paddr=0x%08X, size=%d.\n",
+	dev_err(fbi->device, "allocated fb @ paddr=0x%08X, size=%d.\n",
 		(uint32_t) fbi->fix.smem_start, fbi->fix.smem_len);
 
 	fbi->screen_size = fbi->fix.smem_len;
@@ -2047,6 +2047,10 @@ static int mxsfb_overlay_map_video_memory(struct mxsfb_info *fbi,
 		return -ENOMEM;
 	}
 
+	 dev_err(ofb->dev, "allocated fb @ paddr=0x%08X, size=%d.\n",
+                (uint32_t) ofb->video_mem_phys, ofb->video_mem_size);
+
+
 	/* clear overlay fb memory buffer */
 	memset(ofb->video_mem, 0x0, ofb->video_mem_size);
 
@@ -2305,7 +2309,7 @@ static int mxsfb_probe(struct platform_device *pdev)
 		goto fb_destroy;
 	}
 
-	mxsfb_overlay_init(host);
+	//mxsfb_overlay_init(host);
 
 	console_lock();
 	ret = fb_blank(fb_info, FB_BLANK_UNBLANK);
