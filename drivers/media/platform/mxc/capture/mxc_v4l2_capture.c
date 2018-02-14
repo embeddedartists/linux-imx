@@ -391,7 +391,8 @@ static inline int valid_mode(u32 palette)
 		(palette == V4L2_PIX_FMT_YUYV) ||
 		(palette == V4L2_PIX_FMT_YUV420) ||
 		(palette == V4L2_PIX_FMT_YVU420) ||
-		(palette == V4L2_PIX_FMT_NV12));
+		(palette == V4L2_PIX_FMT_NV12 ||
+		 palette == V4L2_PIX_FMT_SBGGR8));
 }
 
 /*!
@@ -815,7 +816,6 @@ static int mxc_v4l2_s_fmt(cam_data *cam, struct v4l2_format *f)
 	int *width, *height;
 
 	pr_debug("In MVC: mxc_v4l2_s_fmt\n");
-
 	switch (f->type) {
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE:
 		pr_debug("   type=V4L2_BUF_TYPE_VIDEO_CAPTURE\n");
@@ -829,11 +829,13 @@ static int mxc_v4l2_s_fmt(cam_data *cam, struct v4l2_format *f)
 		 * Force the capture window resolution to be crop bounds
 		 * for CSI MEM input mode.
 		 */
+/*
 		if (strcmp(mxc_capture_inputs[cam->current_input].name,
 			   "CSI MEM") == 0) {
 			f->fmt.pix.width = cam->crop_current.width;
 			f->fmt.pix.height = cam->crop_current.height;
 		}
+*/
 
 		if (cam->rotation >= IPU_ROTATE_90_RIGHT) {
 			height = &f->fmt.pix.width;
@@ -914,6 +916,10 @@ static int mxc_v4l2_s_fmt(cam_data *cam, struct v4l2_format *f)
 			size = f->fmt.pix.width * f->fmt.pix.height * 3 / 2;
 			bytesperline = f->fmt.pix.width;
 			break;
+		case V4L2_PIX_FMT_SBGGR8:
+			size = f->fmt.pix.width * f->fmt.pix.height;
+			bytesperline = f->fmt.pix.width;
+			break;
 		default:
 			break;
 		}
@@ -929,6 +935,14 @@ static int mxc_v4l2_s_fmt(cam_data *cam, struct v4l2_format *f)
 			size = f->fmt.pix.sizeimage;
 
 		cam->v2f.fmt.pix = f->fmt.pix;
+
+		/* need to inform the camera driver about the format change */
+		retval = vidioc_int_s_fmt_cap(cam->sensor, f);
+	        if (retval) {
+			pr_err("%s: vidioc_int_s_fmt returned an error %d\n",
+				__func__, retval);
+	        }
+
 		break;
 	case V4L2_BUF_TYPE_VIDEO_OVERLAY:
 		pr_debug("   type=V4L2_BUF_TYPE_VIDEO_OVERLAY\n");
@@ -1372,6 +1386,9 @@ static int mxc_v4l2_s_param(cam_data *cam, struct v4l2_streamparm *parm)
 			cam_fmt.fmt.pix.width, cam_fmt.fmt.pix.height);
 
 	csi_param.data_fmt = cam_fmt.fmt.pix.pixelformat;
+// TODO convert from pix.pixelformat...
+csi_param.data_fmt = IPU_PIX_FMT_GENERIC;
+//
 
 	cam->crop_bounds.top = cam->crop_bounds.left = 0;
 	cam->crop_bounds.width = cam_fmt.fmt.pix.width;
@@ -1396,7 +1413,7 @@ static int mxc_v4l2_s_param(cam_data *cam, struct v4l2_streamparm *parm)
 			       cam->csi);
 	ipu_csi_init_interface(cam->ipu, cam->crop_bounds.width,
 			       cam->crop_bounds.height,
-			       cam_fmt.fmt.pix.pixelformat, csi_param);
+			       csi_param.data_fmt, csi_param);
 
 
 exit:
@@ -2250,6 +2267,10 @@ static long mxc_v4l_do_ioctl(struct file *file,
 	case VIDIOC_ENUMSTD: {
 		struct v4l2_standard *e = arg;
 		pr_debug("   case VIDIOC_ENUMSTD\n");
+		if (e->index > 0) {
+			retval = -EINVAL;
+			break;
+		}
 		*e = cam->standard;
 		break;
 	}
@@ -2625,6 +2646,7 @@ static int init_camera_struct(cam_data *cam, struct platform_device *pdev)
 			of_match_device(mxc_v4l2_dt_ids, &pdev->dev);
 	struct device_node *np = pdev->dev.of_node;
 	int ipu_id, csi_id, mclk_source;
+	u32 def_input;
 	int ret = 0;
 	struct v4l2_device *v4l2_dev;
 
@@ -2647,6 +2669,10 @@ static int init_camera_struct(cam_data *cam, struct platform_device *pdev)
 		dev_err(&pdev->dev, "sensor mclk missing or invalid\n");
 		return ret;
 	}
+
+	ret = of_property_read_u32(np, "default_input", &def_input);
+	if (ret || (def_input != 0 && def_input != 1))
+		def_input = 0;
 
 	/* Default everything to 0 */
 	memset(cam, 0, sizeof(cam_data));
@@ -2738,6 +2764,8 @@ static int init_camera_struct(cam_data *cam, struct platform_device *pdev)
 	cam->csi = csi_id;
 	cam->mclk_source = mclk_source;
 	cam->mclk_on[cam->mclk_source] = false;
+	cam->current_input = def_input;
+
 
 	cam->enc_callback = camera_callback;
 	init_waitqueue_head(&cam->power_queue);
@@ -3059,7 +3087,6 @@ static int mxc_v4l2_master_attach(struct v4l2_int_device *slave)
 	cam->crop_current.top = cam->crop_current.left = 0;
 	cam->crop_current.width = cam_fmt.fmt.pix.width;
 	cam->crop_current.height = cam_fmt.fmt.pix.height;
-
 	pr_debug("End of %s: v2f pix widthxheight %d x %d\n",
 		 __func__,
 		 cam->v2f.fmt.pix.width, cam->v2f.fmt.pix.height);

@@ -124,6 +124,8 @@ struct ov5647 {
 	struct clk *sensor_clk;
 	int csi;
 
+	enum ov5647_frame_rate current_fr;
+
 	void (*io_init)(void);
 };
 /*!
@@ -1313,6 +1315,7 @@ static int ov5647_s_parm(struct v4l2_subdev *sd, struct v4l2_streamparm *a)
 			return -EINVAL;
 		}
 
+		sensor->current_fr = frame_rate;
 		orig_mode = sensor->streamcap.capturemode;
 		ret = ov5647_init_mode(frame_rate,
 				(u32)a->parm.capture.capturemode, orig_mode);
@@ -1347,6 +1350,32 @@ static int ov5647_s_parm(struct v4l2_subdev *sd, struct v4l2_streamparm *a)
 	return ret;
 }
 
+static const struct ov5647_mode_info * 
+ov5647_find_mode(struct ov5647 *sensor, 
+		 enum ov5647_frame_rate fr, 
+		 int width, 
+		 int height)
+{
+	struct ov5647_mode_info *mode = NULL;
+	int i;
+	int min_err = INT_MAX;
+
+	for (i = 0; i < ov5647_mode_MAX; i++) {
+		int w = ov5647_mode_info_data[fr][i].width;
+		int h = ov5647_mode_info_data[fr][i].height;
+		int err = abs(width-w)+abs(height-h);
+
+		if (err < min_err) {
+			min_err = err;
+			mode = &ov5647_mode_info_data[fr][i];
+		}
+
+		if (err == 0) break;
+	}
+
+	return mode;
+}
+
 static int ov5647_set_fmt(struct v4l2_subdev *sd,
 			  struct v4l2_subdev_pad_config *cfg,
 			  struct v4l2_subdev_format *format)
@@ -1355,6 +1384,10 @@ static int ov5647_set_fmt(struct v4l2_subdev *sd,
 	const struct ov5647_datafmt *fmt = ov5647_find_datafmt(mf->code);
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	struct ov5647 *sensor = to_ov5647(client);
+	const struct ov5647_mode_info *mode = NULL;
+
+	if (format->pad != 0)
+		return -EINVAL;
 
 	if (!fmt) {
 		mf->code	= ov5647_colour_fmts[0].code;
@@ -1363,10 +1396,18 @@ static int ov5647_set_fmt(struct v4l2_subdev *sd,
 
 	mf->field	= V4L2_FIELD_NONE;
 
+	mode = ov5647_find_mode(sensor, sensor->current_fr, mf->width, mf->height);
+
 	if (format->which == V4L2_SUBDEV_FORMAT_TRY)
 		return 0;
 
 	sensor->fmt = fmt;
+	if (mode != NULL) {
+		mf->width = mode->width;
+		mf->height = mode->height;
+		sensor->streamcap.capturemode = mode->mode;
+	}
+
 
 	return 0;
 }
@@ -1640,6 +1681,7 @@ static int ov5647_probe(struct i2c_client *client,
 	ov5647_data.streamcap.capturemode = 0;
 	ov5647_data.streamcap.timeperframe.denominator = DEFAULT_FPS;
 	ov5647_data.streamcap.timeperframe.numerator = 1;
+	ov5647_data.current_fr = ov5647_30_fps;
 
 	ov5647_regulator_enable(&client->dev);
 

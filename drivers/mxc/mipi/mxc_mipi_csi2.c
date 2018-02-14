@@ -38,6 +38,7 @@
 #include "mxc_mipi_csi2.h"
 
 static struct mipi_csi2_info *gmipi_csi2;
+static u32 dphy_clk;
 
 void _mipi_csi2_lock(struct mipi_csi2_info *info)
 {
@@ -278,6 +279,7 @@ EXPORT_SYMBOL(mipi_csi2_pixelclk_disable);
  */
 int mipi_csi2_reset(struct mipi_csi2_info *info)
 {
+	u32 tst_ctrl1 = (u32)0x0 | (u32)dphy_clk << 0;
 	_mipi_csi2_lock(info);
 
 	mipi_csi2_write(info, 0x0, MIPI_CSI2_PHY_SHUTDOWNZ);
@@ -290,7 +292,7 @@ int mipi_csi2_reset(struct mipi_csi2_info *info)
 	mipi_csi2_write(info, 0x00000002, MIPI_CSI2_PHY_TST_CTRL0);
 	mipi_csi2_write(info, 0x00010044, MIPI_CSI2_PHY_TST_CTRL1);
 	mipi_csi2_write(info, 0x00000000, MIPI_CSI2_PHY_TST_CTRL0);
-	mipi_csi2_write(info, 0x00000014, MIPI_CSI2_PHY_TST_CTRL1);
+	mipi_csi2_write(info, tst_ctrl1, MIPI_CSI2_PHY_TST_CTRL1);
 	mipi_csi2_write(info, 0x00000002, MIPI_CSI2_PHY_TST_CTRL0);
 	mipi_csi2_write(info, 0x00000000, MIPI_CSI2_PHY_TST_CTRL0);
 
@@ -382,6 +384,7 @@ static int mipi_csi2_probe(struct platform_device *pdev)
 	struct resource *res;
 	u32 mipi_csi2_dphy_ver;
 	int ret;
+	u32 clk;
 
 	gmipi_csi2 = kmalloc(sizeof(struct mipi_csi2_info), GFP_KERNEL);
 	if (!gmipi_csi2) {
@@ -463,6 +466,12 @@ static int mipi_csi2_probe(struct platform_device *pdev)
 		ret = -ENOMEM;
 		goto err;
 	}
+
+	dphy_clk = 0x14;
+	ret = of_property_read_u32(np, "mipi_dphy_clk", &clk);
+	if (!ret)
+		dphy_clk = clk;
+
 
 	/* mipi dphy clk enable for register access */
 	clk_prepare_enable(gmipi_csi2->dphy_clk);
