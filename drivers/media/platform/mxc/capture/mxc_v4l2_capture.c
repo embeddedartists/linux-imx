@@ -268,7 +268,6 @@ static int mxc_allocate_frame_buf(cam_data *cam, int count)
 
 	pr_debug("In MVC:mxc_allocate_frame_buf - size=%d\n",
 		cam->v2f.fmt.pix.sizeimage);
-
 	for (i = 0; i < count; i++) {
 		cam->frame[i].vaddress =
 		    dma_alloc_coherent(0,
@@ -929,7 +928,7 @@ static int mxc_v4l2_s_fmt(cam_data *cam, struct v4l2_format *f)
 		else
 			bytesperline = f->fmt.pix.bytesperline;
 
-		if (f->fmt.pix.sizeimage < size)
+		if (f->fmt.pix.sizeimage < size || f->fmt.pix.sizeimage % size)
 			f->fmt.pix.sizeimage = size;
 		else
 			size = f->fmt.pix.sizeimage;
@@ -1279,6 +1278,52 @@ static int mxc_v4l2_s_ctrl(cam_data *cam, struct v4l2_control *c)
 	return ret;
 }
 
+static u32 mxc_v4l2_to_ipu_format(u32 v4l2_format)
+{
+	u32 format = IPU_PIX_FMT_GENERIC;
+	switch (v4l2_format) {
+	case V4L2_PIX_FMT_RGB565:
+		format = IPU_PIX_FMT_RGB565;
+		break;
+	case V4L2_PIX_FMT_BGR24:
+		format = IPU_PIX_FMT_BGR24;
+		break;
+	case V4L2_PIX_FMT_RGB24:
+		format = IPU_PIX_FMT_RGB24;
+		break;
+	case V4L2_PIX_FMT_BGR32:
+		format = IPU_PIX_FMT_BGR32;
+		break;
+	case V4L2_PIX_FMT_RGB32:
+		format = IPU_PIX_FMT_RGB32;
+		break;
+	case V4L2_PIX_FMT_YUV422P:
+		format = IPU_PIX_FMT_YUV422P;
+		break;
+	case V4L2_PIX_FMT_UYVY:
+		format = IPU_PIX_FMT_UYVY;
+		break;
+	case V4L2_PIX_FMT_YUYV:
+		format = IPU_PIX_FMT_YUYV;
+		break;
+	case V4L2_PIX_FMT_YUV420:
+		format = IPU_PIX_FMT_YUV420P;
+		break;
+	case V4L2_PIX_FMT_YVU420:
+		format = IPU_PIX_FMT_YVU420P;;
+		break;
+	case V4L2_PIX_FMT_NV12:
+		format = IPU_PIX_FMT_NV12;
+		break;
+	case V4L2_PIX_FMT_SBGGR8:
+	default:
+		format = IPU_PIX_FMT_GENERIC;
+		break;
+	}
+
+	return format;
+}
+
 /*!
  * V4L2 - mxc_v4l2_s_param function
  * Allows setting of capturemode and frame rate.
@@ -1385,10 +1430,7 @@ static int mxc_v4l2_s_param(cam_data *cam, struct v4l2_streamparm *parm)
 	pr_debug("   g_fmt_cap returns widthxheight of input as %d x %d\n",
 			cam_fmt.fmt.pix.width, cam_fmt.fmt.pix.height);
 
-	csi_param.data_fmt = cam_fmt.fmt.pix.pixelformat;
-// TODO convert from pix.pixelformat...
-csi_param.data_fmt = IPU_PIX_FMT_GENERIC;
-//
+	csi_param.data_fmt = mxc_v4l2_to_ipu_format(cam_fmt.fmt.pix.pixelformat);
 
 	cam->crop_bounds.top = cam->crop_bounds.left = 0;
 	cam->crop_bounds.width = cam_fmt.fmt.pix.width;
@@ -2478,6 +2520,7 @@ static int mxc_mmap(struct file *file, struct vm_area_struct *vma)
 		return -EINTR;
 
 	size = vma->vm_end - vma->vm_start;
+
 	vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
 
 	if (remap_pfn_range(vma, vma->vm_start,
