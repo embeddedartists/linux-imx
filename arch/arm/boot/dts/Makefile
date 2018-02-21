@@ -595,10 +595,14 @@ dtb-$(CONFIG_SOC_IMX7D) += \
 	imx7d-sdb-reva-touch.dtb \
 	imx7d-sdb-reva-wm8960.dtb \
 	imx7dea-ucom-kit.dtb \
+	imx7dea-ucom-kit-ov5647.dtb \
+	imx7dea-ucom-kit-ov5640.dtb \
 	imx7dea-ucom-kit-lvds.dtb \
 	imx7dea-ucom-ptp.dtb \
 	imx7dea-ucom-kit-m4.dtb \
 	imx7dea-com-kit.dtb \
+	imx7dea-com-kit-ov5647.dtb \
+	imx7dea-com-kit-ov5640.dtb \
 	imx7dea-com-ptp.dtb \
 	imx7dea-com-kit-m4.dtb
 dtb-$(CONFIG_SOC_IMX7ULP) += \
