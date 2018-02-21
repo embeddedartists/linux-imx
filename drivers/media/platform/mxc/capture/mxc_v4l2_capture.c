@@ -942,6 +942,7 @@ static int mxc_v4l2_s_fmt(cam_data *cam, struct v4l2_format *f)
 				__func__, retval);
 	        }
 
+
 		break;
 	case V4L2_BUF_TYPE_VIDEO_OVERLAY:
 		pr_debug("   type=V4L2_BUF_TYPE_VIDEO_OVERLAY\n");

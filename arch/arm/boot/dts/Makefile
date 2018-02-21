@@ -438,10 +438,12 @@ dtb-$(CONFIG_SOC_IMX6Q) += \
 	imx6qea-com-kit.dtb \
 	imx6qea-com-kit-lvds.dtb \
 	imx6qea-com-kit-ov5647.dtb \
+	imx6qea-com-kit-ov5640.dtb \
 	imx6qea-com-ptp.dtb \
 	imx6dlea-com-kit.dtb \
 	imx6dlea-com-kit-lvds.dtb \
 	imx6dlea-com-kit-ov5647.dtb \
+	imx6dlea-com-kit-ov5640.dtb \
 	imx6dlea-com-ptp.dtb \
 	imx6qp-nitrogen6_max.dtb \
 	imx6qp-sabreauto.dtb \
