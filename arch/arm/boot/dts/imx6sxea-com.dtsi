@@ -107,7 +107,11 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 		compatible = "jedec,spi-nor";
-		spi-max-frequency = <29000000>;
+		spi-max-frequency = <51000000>;
+
+		/* The "spi-nor,ddr-quad-read-dummy" value is for the
+		   n25q256a flash. The spi-nor.c driver will change it
+		   to 2 for the is25lp064a flash. */
 		spi-nor,ddr-quad-read-dummy = <6>;
 		reg = <0>;
 	};
@@ -116,7 +120,11 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 		compatible = "jedec,spi-nor";
-		spi-max-frequency = <29000000>;
+		spi-max-frequency = <51000000>;
+
+		/* The "spi-nor,ddr-quad-read-dummy" value is for the
+		   n25q256a flash. The spi-nor.c driver will change it
+		   to 2 for the is25lp064a flash. */
 		spi-nor,ddr-quad-read-dummy = <6>;
 		reg = <1>;
 	};
