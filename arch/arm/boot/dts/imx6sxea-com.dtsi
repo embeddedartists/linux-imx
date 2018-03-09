@@ -118,7 +118,7 @@
 		   n25q256a flash. The spi-nor.c driver will change it
 		   to 2 for the is25lp064a flash. */
 		spi-nor,ddr-quad-read-dummy = <6>;
-		reg = <0>;
+		reg = <1>;
 	};
 
 };
