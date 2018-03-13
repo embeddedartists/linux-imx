@@ -1258,14 +1258,6 @@ int spi_nor_scan(struct spi_nor *nor, const char *name, enum read_mode mode)
 	}
 
 	nor->read_dummy = spi_nor_read_dummy_cycles(nor);
-	if ((nor->flash_read == SPI_NOR_DDR_QUAD) &&
-	    (JEDEC_MFR(info) == CFI_MFR_PMC)) { /* The ISSI/PMC is25lp064a */
-		/* This is to handle the case where two different
-		   flash memories are used on the same hardware. The DTS
-		   can only have one "spi-nor,ddr-quad-read-dummy" and
-		   the two memories require different number of dummy cycles. */
-		nor->read_dummy = 2;
-	}
 
 	dev_info(dev, "%s (%lld Kbytes)\n", id->name,
 			(long long)mtd->size >> 10);
