@@ -439,11 +439,13 @@ dtb-$(CONFIG_SOC_IMX6Q) += \
 	imx6qea-com-kit-lvds.dtb \
 	imx6qea-com-kit-ov5647.dtb \
 	imx6qea-com-kit-ov5640.dtb \
+	imx6qea-com-kit-ov5640-pl.dtb \
 	imx6qea-com-ptp.dtb \
 	imx6dlea-com-kit.dtb \
 	imx6dlea-com-kit-lvds.dtb \
 	imx6dlea-com-kit-ov5647.dtb \
 	imx6dlea-com-kit-ov5640.dtb \
+	imx6dlea-com-kit-ov5640-pl.dtb \
 	imx6dlea-com-ptp.dtb \
 	imx6qp-nitrogen6_max.dtb \
 	imx6qp-sabreauto.dtb \
@@ -492,6 +494,7 @@ dtb-$(CONFIG_SOC_IMX6SX) += \
 	imx6sxscm-epop-evb-m4-ldo.dtb \
 	imx6sxea-com-kit.dtb \
 	imx6sxea-com-kit-m4.dtb \
+	imx6sxea-com-kit-ov5640-pl.dtb \
 	imx6sxea-com-ptp.dtb \
 	imx6sxea-com-kit-lvds.dtb \
 	imx6sxea-com-kit-rgb.dtb
@@ -524,7 +527,8 @@ dtb-$(CONFIG_SOC_IMX6UL) += \
 	imx6ul-9x9-evk-ldo.dtb \
 	imx6ulea-com-kit.dtb \
 	imx6ulea-com-ptp.dtb \
-	imx6ulea-com-kit-rf.dtb
+	imx6ulea-com-kit-rf.dtb \
+	imx6ulea-com-kit-ov5640-pl.dtb
 dtb-$(CONFIG_SOC_IMX6ULL) += \
 	imx6ull-14x14-ddr3-arm2.dtb \
 	imx6ull-14x14-ddr3-arm2-adc.dtb \
