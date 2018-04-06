@@ -391,14 +391,14 @@
 		display-timings {
 			native-mode = <&t_lvds>;
 			t_lvds: t_lvds_default {
-				clock-frequency = <25175000>;
-				hactive = <640>;
-				vactive = <480>;
+				clock-frequency = <85000000>;
+				hactive = <1280>;
+				vactive = <1024>;
 				hback-porch = <10>;
 				hfront-porch = <10>;
 				vback-porch = <10>;
 				vfront-porch = <10>;
-				hsync-len = <60>;
+				hsync-len = <44>;
 				vsync-len = <10>;
 			};
 		};
@@ -413,14 +413,14 @@
 		display-timings {
 			native-mode = <&t_lvds2>;
 			t_lvds2: t_lvds2_default {
-				clock-frequency = <25175000>;
-				hactive = <640>;
-				vactive = <480>;
+				clock-frequency = <85000000>;
+				hactive = <1280>;
+				vactive = <1024>;
 				hback-porch = <10>;
 				hfront-porch = <10>;
 				vback-porch = <10>;
 				vfront-porch = <10>;
-				hsync-len = <60>;
+				hsync-len = <44>;
 				vsync-len = <10>;
 			};
 		};
