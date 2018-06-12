@@ -195,6 +195,7 @@ static inline int set_4byte(struct spi_nor *nor, struct flash_info *info,
 		/* Some Micron need WREN command; all will accept it */
 		need_wren = true;
 	case CFI_MFR_MACRONIX:
+	case CFI_MFR_PMC: /* The ISSI/PMC is25lp256d use the same register/setting */
 	case 0xEF /* winbond */:
 		if (need_wren)
 			write_enable(nor);
