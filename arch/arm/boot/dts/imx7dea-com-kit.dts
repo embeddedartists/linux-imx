@@ -928,13 +928,8 @@
         flash0: n25q256a@0 {
                 #address-cells = <1>;
                 #size-cells = <1>;
-                compatible = "micron,n25q256a";
-                spi-max-frequency = <29000000>;
-                /* take off one dummy cycle */
-                spi-nor,ddr-quad-read-dummy = <6>;
+                compatible = "micron,n25q256a", "issi,is25lp256d";
+                spi-max-frequency = <51000000>;
                 reg = <0>;
         };
 };
-
-
-
