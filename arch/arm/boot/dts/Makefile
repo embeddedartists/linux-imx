@@ -440,6 +440,8 @@ dtb-$(CONFIG_SOC_IMX6Q) += \
 	imx6qea-com-kit-ov5647.dtb \
 	imx6qea-com-kit-ov5640.dtb \
 	imx6qea-com-kit-ov5640-pl.dtb \
+	imx6qea-com-kit-pcie.dtb \
+	imx6qea-com-kit-sd.dtb \
 	imx6qea-com-ptp.dtb \
 	imx6dlea-com-kit.dtb \
 	imx6dlea-com-kit-lvds.dtb \
@@ -605,6 +607,8 @@ dtb-$(CONFIG_SOC_IMX7D) += \
 	imx7dea-ucom-ptp.dtb \
 	imx7dea-ucom-kit-m4.dtb \
 	imx7dea-com-kit.dtb \
+	imx7dea-com-kit-sd.dtb \
+	imx7dea-com-kit-pcie.dtb \
 	imx7dea-com-kit-ov5647.dtb \
 	imx7dea-com-kit-ov5640.dtb \
 	imx7dea-com-ptp.dtb \

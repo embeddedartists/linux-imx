@@ -11,8 +11,8 @@
  */
 
 /dts-v1/;
-
-#include "imx6dlea-com.dtsi"
+ 
+#include "imx6qea-com.dtsi"
 
 
 / {
@@ -39,6 +39,13 @@
 		ts_con_lvds1 = &i2c2;
 	};
 
+
+	modem_reset: modem-reset {		/* Murata -- BT_REG_ON */
+		compatible = "gpio-reset";
+		reset-gpios = <&gpio_buff 0 GPIO_ACTIVE_LOW>;
+		reset-delay-us = <1000>;
+		#reset-cells = <0>;
+	};
 
 	regulators {
 		compatible = "simple-bus";
@@ -67,7 +74,7 @@
 			enable-active-high;
 		};
 
-		/* For uSD/MMC socket on EA COM Base Board */
+		/* For uSD/MMC socket on EA COM Base Board
 		reg_vcc_sd2: regulator@2 {
 			compatible = "regulator-fixed";
 			reg = <2>;
@@ -78,7 +85,7 @@
 			regulator-max-microvolt = <3000000>;
 			gpio = <&gpio7 8 GPIO_ACTIVE_LOW>;
 			enable-active-high;
-		};
+		};*/
 
 		reg_vcc_can: regulator@4 {
 			compatible = "regulator-fixed";
@@ -89,6 +96,11 @@
 			regulator-always-on;
 			/*regulator-boot-on;*/
 		};
+
+//		usdhc2_pwrseq: usdhc1_pwrseq {			/* add construct for "fmac" to control WL_REG_ON signal */
+//			compatible = "mmc-pwrseq-simple";
+//			reset-gpios = <&gpio_buff 1 GPIO_ACTIVE_LOW>; /* WL REG ON */
+//		};
 	};
 
 	sound {
@@ -199,7 +211,6 @@
                 };
 
         };
-
 };
 
 &audmux {
@@ -214,10 +225,11 @@
 		compatible = "wlf,wm8731";
 		reg = <0x1a>;
 		clocks = <&clks IMX6QDL_CLK_CKO>;
-		clock-names = "mclk"; 
+		clock-names = "mclk";
 
 		assigned-clocks = <&clks IMX6QDL_CLK_CKO>, <&clks IMX6QDL_CLK_CKO1_SEL>;
-		assigned-clock-parents = <&clks IMX6QDL_CLK_CKO1>, <&clks IMX6QDL_CLK_PLL4_AUDIO_DIV>;
+		assigned-clock-parents = <&clks IMX6QDL_CLK_CKO1>, <&clks IMX6QDL_CLK_PLL4_POST_DIV>;
+		assigned-clock-rates = <22579200>, <0>;
 
 		AVDD-supply = <&vgen4_reg>;
 		HPVDD-supply = <&vgen4_reg>;
@@ -454,6 +466,27 @@
 			"SD_MUX_CTRL1", "AUD_CODEC_MUX_CTRL1",
 			"AUD_CODEC_MUX_CTRL2", "PCIE_PERST_L", "SD_MUX_CTRL2",
 			"VBAT_VSEL", "M2-E_WLAN_ENABLE";
+
+		mux_high_1 {
+			gpio-hog;
+			gpios = <8 0>;
+			output-high;
+		};
+		mux_low_1 {
+			gpio-hog;
+			gpios = <5 0>;
+			output-low;
+		};
+		mux_low_2 {
+			gpio-hog;
+			gpios = <7 0>;
+			output-low;
+		};
+		mux_low_3 {
+			gpio-hog;
+			gpios = <6 0>;
+			output-low;
+		};
 	};
 };
 
@@ -475,7 +508,7 @@
 		
 		pinctrl_rgb_connector: rgb_connector_grp {
 			fsl,pins = <
-				MX6QDL_PAD_EIM_A20__GPIO2_IO18          0x1f0b0
+				MX6QDL_PAD_EIM_A20__GPIO2_IO18		0x1f0b0
 				MX6QDL_PAD_EIM_DA14__GPIO3_IO14		0x1f0b0
 			>;
 		};
@@ -539,7 +572,6 @@
 				MX6QDL_PAD_DISP0_DAT23__IPU1_DISP0_DATA23  0x10
 			>;
 		};
-
 
 		pinctrl_pwm1: pwm1grp {
 			fsl,pins = <
@@ -614,13 +646,13 @@
 
 		pinctrl_vcc_sd2: vccsd2grp {
 			fsl,pins = <
-				MX6QDL_PAD_SD3_RST__GPIO7_IO08			0x17059
+				/*MX6QDL_PAD_SD3_RST__GPIO7_IO08			0x17059*/
 			>;
 		};
 
 		pinctrl_can_gpios: can-gpios {
 			fsl,pins = <
-				MX6QDL_PAD_NANDF_CS0__GPIO6_IO11	0x17059
+				/*MX6QDL_PAD_NANDF_CS0__GPIO6_IO11	0x17059*/
 			>;
 		}; 
 
@@ -653,6 +685,11 @@
                         >;
                 };
 
+		pinctrl_pcie: pciegrp {
+			fsl,pins = <
+				MX6QDL_PAD_NANDF_CS0__GPIO6_IO11	0x17059
+			>;
+		}; 
  	};
 };
 
@@ -779,7 +816,11 @@
 };
 
 &pcie {
-	reset-gpio = <&gpio1 1 0>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_pcie>;
+	reset-gpio = <&gpio_buff 12 GPIO_ACTIVE_LOW>; /* PCIE_PERST_L */
+	disable-gpio = <&gpio_buff 1 GPIO_ACTIVE_LOW>; /* WL REG ON */
+	clkreq-gpio = <&gpio6 11 GPIO_ACTIVE_LOW>; /* PCIe_CLKREQ */
 	status = "okay";
 };
 
@@ -796,10 +837,9 @@
 };
 
 &clks {
-	assigned-clocks = <&clks IMX6QDL_CLK_PLL4_AUDIO_DIV>, <&clks IMX6QDL_CLK_CKO1>;
-	assigned-clock-rates = <90316800>, <11289600>;
+	assigned-clocks = <&clks IMX6QDL_CLK_PLL4_POST_DIV>;
+	assigned-clock-rates = <180633600>;
 };
-
 
 &ssi2 {
 	fsl,mode = "i2s-master";
@@ -823,6 +863,7 @@
 	status = "okay";
 };
 
+/* Bluetooth UART */
 &uart5 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_uart5>;
@@ -830,6 +871,7 @@
 
 	fsl,uart-has-rtscts;
 	#fsl,dte-mode;
+	resets = <&modem_reset>;
 };
 
 &usbh1 {
@@ -848,13 +890,29 @@
 &usdhc2 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_usdhc2>;
-	bus-width = <4>;
-	vmmc-supply = <&reg_vcc_sd2>;
-	cd-gpios = <&gpio6 9 GPIO_ACTIVE_LOW>;
-	no-1-8-v;
-	keep-power-in-suspend;
+
+//	#address-cells = <1>;
+//	#size-cells = <0>;
+//	cd-gpios = <&gpio6 9 GPIO_ACTIVE_LOW>;
+	fsl,tuning-start-tap = <20>;	/* Murata: i.MX default tuning-start-tap */
+	fsl,tuning-step= <2>;		/* Murata: change default step value from 2 to 4 for 1BB */
 	enable-sdio-wakeup;
+	keep-power-in-suspend;
+	non-removable;
+	cd-broken;
+	pm-ignore-notify;
+	wifi-host;
 	status = "okay";
+//	no-1-8-v;	/* Murata: enable 1.8V VIO for SD1 by disabling 3.3V-only mode */
+	max-frequency = <104000000>; /* slow down UHS SDR104 clock */
+//	mmc-pwrseq = <&usdhc2_pwrseq>;
+//	brcmf: bcrmf@1 {
+//		reg = <1>;
+//		compatible = "brcm,bcm4329-fmac";
+//		interrupt-parent = <&gpio1>;
+//		interrupts = <4 IRQ_TYPE_LEVEL_HIGH>;  /* WL_HOST_WAKE = GPIO1_IO04 active high. Change to IRQ_TYPE_EDGE_RISING for 1BW and SN8000. */
+//		interrupt-names = "host-wake";
+//	};
 };
 
 
@@ -869,32 +927,40 @@
 
 &ldb {
 	lvds-channel@0 {
-		crtc = "ipu1-di0";
+		crtc = "ipu2-di0";
 	};
 
 	lvds-channel@1 {
-		crtc = "ipu1-di1";
+		crtc = "ipu2-di1";
 	};
 };
-
-
 
 &mxcfb1 {
 	status = "okay";
 };
 
-
 &mxcfb2 {
 	status = "okay";
 };
 
+&mxcfb3 {
+	status = "okay";
+};
+
+&mxcfb4 {
+	status = "okay";
+};
+
+&sata {
+	status = "okay";
+};
 
 &can1 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_flexcan1>;
 	xceiver-supply = <&reg_vcc_can>; 
 	trx-stby-gpio = <&gpio6 11 GPIO_ACTIVE_LOW>;
-	status = "okay";
+	status = "disabled";
 };
 
 &can2 {
@@ -902,7 +968,7 @@
 	pinctrl-0 = <&pinctrl_flexcan2>;
 	xceiver-supply = <&reg_vcc_can>; 
 	trx-stby-gpio = <&gpio6 11 GPIO_ACTIVE_LOW>;
-	status = "okay";
+	status = "disabled";
 };
 
 

@@ -40,6 +40,13 @@
 		status = "okay";
 	};
 
+	modem_reset: modem-reset {		/* Murata -- BT_REG_ON */
+		compatible = "gpio-reset";
+		reset-gpios = <&gpio4 14 GPIO_ACTIVE_LOW>;
+		reset-delay-us = <1000>;
+		#reset-cells = <0>;
+	};
+
 	regulators {
 		compatible = "simple-bus";
 		#address-cells = <1>;
@@ -54,15 +61,6 @@
 			gpios = <&gpio5 1 GPIO_ACTIVE_LOW>;
 		};
 
-		reg_sd1_vmmc: regulator@1 {
-			compatible = "regulator-fixed";
-			regulator-name = "VSD_3V3";
-			regulator-min-microvolt = <3300000>;
-			regulator-max-microvolt = <3300000>;
-			gpio = <&gpio1 9 GPIO_ACTIVE_HIGH>;
-			enable-active-high;
-		};
-
 		reg_3v3: regulator@2 {
 			compatible = "regulator-fixed";
 			reg = <2>;
@@ -70,6 +68,11 @@
 			regulator-min-microvolt = <3300000>;
 			regulator-max-microvolt = <3300000>;
 		};
+
+		usdhc1_pwrseq: usdhc1_pwrseq {			/* add construct for "fmac" to control WL_REG_ON signal */
+			compatible = "mmc-pwrseq-simple";
+			reset-gpios = <&gpio4 13 GPIO_ACTIVE_LOW>; /* WL REG ON */
+			};
 
 	};
 
@@ -83,8 +86,6 @@
 		audio-routing = "LOUT", "ROUT", "LLINEIN", "RLINEIN";
 		gpr = <&gpr 0x4 20>;
 	};
-
-
 };
 
 
@@ -102,6 +103,7 @@
 	status = "okay";
 };
 
+/* Murata -- disable for UART2
 &can2 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_flexcan2>;
@@ -109,7 +111,7 @@
 	trx-stby-gpio = <&gpio5 1 GPIO_ACTIVE_LOW>;
 	status = "okay";
 };
-
+*/
 
 &lcdif {
 	pinctrl-names = "default";
@@ -174,9 +176,12 @@
 	status = "okay";
 };
 
+/* Bluetooth UART */
 &uart2 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_uart2>;
+	fsl,uart-has-rtscts;
+	resets = <&modem_reset>;
 	status = "okay";
 };
 
@@ -199,18 +204,31 @@
 
 
 &usdhc1 {
+	#address-cells = <1>;
+	#size-cells = <0>;
 	pinctrl-names = "default", "state_100mhz", "state_200mhz";
 	pinctrl-0 = <&pinctrl_usdhc1>;
 	pinctrl-1 = <&pinctrl_usdhc1_100mhz>;
 	pinctrl-2 = <&pinctrl_usdhc1_200mhz>;
 	cd-gpios = <&gpio1 3 GPIO_ACTIVE_LOW>;
-	keep-power-in-suspend;
-	no-1-8-v;
 	enable-sdio-wakeup;
-	vmmc-supply = <&reg_sd1_vmmc>;
+	keep-power-in-suspend;
+	non-removable;
+	cd-broken;
+	pm-ignore-notify;
+	wifi-host;
 	status = "okay";
+//	no-1-8-v;	/* Murata: enable 1.8V VIO for SD1 by disabling 3.3V-only mode */
+	max-frequency = <100000000>; /* slow down UHS SDR104 clock */
+	mmc-pwrseq = <&usdhc1_pwrseq>;
+	brcmf: bcrmf@1 {
+		reg = <1>;
+		compatible = "brcm,bcm4329-fmac";
+		interrupt-parent = <&gpio4>;
+		interrupts = <15 IRQ_TYPE_LEVEL_HIGH>;  /* WL_HOST_WAKE = GPIO4_IO15 active high. Change to IRQ_TYPE_EDGE_RISING for 1BW and SN8000. */
+		interrupt-names = "host-wake";
+	};
 };
-
 
 &i2c1 {
 
@@ -291,9 +309,26 @@
 		interrupt-parent = <&gpio4>;
 		interrupts = <24 IRQ_TYPE_EDGE_FALLING>;
 	};
+	rtc: pcf8523@68 {
+		compatible = "nxp,pcf8523";
+		reg = <0x68>;
+	};
 };
 
-
+&i2c2 {
+	gpio_buff: pca6416@20 {
+		compatible = "ti,tca6416";
+		reg = <0x20>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		gpio-line-names = "BT_REG_ON", "WL_REG_ON", "",
+			"BT_DEV_WAKE", "AUD_MUX_CTRL", "SD_PCIE_MUX_CTRL",
+			"VDDIO_VSEL", "PCIE_CLK_MUX_CTRL", "PCIE_SLOT_MUX_CTRL",
+			"SD_MUX_CTRL1", "AUD_CODEC_MUX_CTRL1",
+			"AUD_CODEC_MUX_CTRL2", "PCIE_PERST_L", "SD_MUX_CTRL2",
+			"VBAT_VSEL", "M2-E_WLAN_ENABLE";
+	};
+};
 
 &iomuxc {
 
@@ -372,6 +407,9 @@
 			fsl,pins = <
 				MX6UL_PAD_UART2_TX_DATA__UART2_DCE_TX	0x1f0b1
 				MX6UL_PAD_UART2_RX_DATA__UART2_DCE_RX	0x1f0b1
+				MX6UL_PAD_UART2_RTS_B__UART2_DCE_RTS	0x1f0b1
+				MX6UL_PAD_UART2_CTS_B__UART2_DCE_CTS	0x1f0b1
+				MX6UL_PAD_NAND_CE1_B__GPIO4_IO14	0x03029	  /* BT_REG_ON */
 			>;
 		};
 
@@ -391,7 +429,9 @@
 				MX6UL_PAD_SD1_DATA1__USDHC1_DATA1 0x17059
 				MX6UL_PAD_SD1_DATA2__USDHC1_DATA2 0x17059
 				MX6UL_PAD_SD1_DATA3__USDHC1_DATA3 0x17059
-				MX6UL_PAD_GPIO1_IO03__GPIO1_IO03  0x17059
+				MX6UL_PAD_GPIO1_IO03__GPIO1_IO03  0x17059  /* CD */
+				MX6UL_PAD_NAND_CE0_B__GPIO4_IO13  0x03029  /* WL_REG_ON */
+				MX6UL_PAD_NAND_CLE__GPIO4_IO15    0x13041  /* WL_HOST_WAKE */
 			>;
 		};
 

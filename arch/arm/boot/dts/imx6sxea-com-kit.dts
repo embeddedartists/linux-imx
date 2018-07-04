@@ -506,12 +506,26 @@
 		interrupts = <15 IRQ_TYPE_EDGE_FALLING>;
 		status = "disabled";
 	};
+	rtc: pcf8523@68 {
+		compatible = "nxp,pcf8523";
+		reg = <0x68>;
+	};
 };
 
 &i2c2 {
-
+	gpio_buff: pca6416@20 {
+		compatible = "ti,tca6416";
+		reg = <0x20>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		gpio-line-names = "BT_REG_ON", "WL_REG_ON", "",
+			"BT_DEV_WAKE", "AUD_MUX_CTRL", "SD_PCIE_MUX_CTRL",
+			"VDDIO_VSEL", "PCIE_CLK_MUX_CTRL", "PCIE_SLOT_MUX_CTRL",
+			"SD_MUX_CTRL1", "AUD_CODEC_MUX_CTRL1",
+			"AUD_CODEC_MUX_CTRL2", "PCIE_PERST_L", "SD_MUX_CTRL2",
+			"VBAT_VSEL", "M2-E_WLAN_ENABLE";
+	};
 };
-
 
 &vadc {
 	vadc_in = <0>;
