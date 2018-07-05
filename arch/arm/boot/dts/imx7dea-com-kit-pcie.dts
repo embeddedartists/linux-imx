@@ -42,13 +42,13 @@
 		status = "okay";
 	};
 
-//	modem_reset: modem-reset {		/* Murata -- BT_REG_ON */
-//		compatible = "gpio-reset";
-//		/*reset-gpios = <&gpio4 17 GPIO_ACTIVE_LOW>;*/
-//		reset-gpios = <&gpio_buff 0 GPIO_ACTIVE_LOW>;
-//		reset-delay-us = <1000>;
-//		#reset-cells = <0>;
-//	};
+	modem_reset: modem-reset {		/* Murata -- BT_REG_ON */
+		compatible = "gpio-reset";
+		/*reset-gpios = <&gpio4 17 GPIO_ACTIVE_LOW>;*/
+		reset-gpios = <&gpio_buff 0 GPIO_ACTIVE_LOW>;
+		reset-delay-us = <1000>;
+		#reset-cells = <0>;
+	};
 
 	regulators {
 		compatible = "simple-bus";
@@ -611,8 +611,8 @@
                         fsl,pins = <
                                 MX7D_PAD_UART2_TX_DATA__UART2_DCE_TX 0x79
                                 MX7D_PAD_UART2_RX_DATA__UART2_DCE_RX 0x79
-//				MX7D_PAD_SAI2_TX_DATA__UART2_DCE_RTS 0x79
-//				MX7D_PAD_SAI2_RX_DATA__UART2_DCE_CTS 0x79
+				MX7D_PAD_SAI2_TX_DATA__UART2_DCE_RTS 0x79
+				MX7D_PAD_SAI2_RX_DATA__UART2_DCE_CTS 0x79
 				/*MX7D_PAD_ECSPI1_MOSI__GPIO4_IO17     0x19  / * BT_REG_ON */
                         >;
                 };
@@ -898,8 +898,8 @@
         pinctrl-0 = <&pinctrl_uart2>;
         assigned-clocks = <&clks IMX7D_UART2_ROOT_SRC>;
         assigned-clock-parents = <&clks IMX7D_OSC_24M_CLK>;
-//	fsl,uart-has-rtscts;
-//	resets = <&modem_reset>;
+	fsl,uart-has-rtscts;
+	resets = <&modem_reset>;
 	status = "okay";
 };
 
