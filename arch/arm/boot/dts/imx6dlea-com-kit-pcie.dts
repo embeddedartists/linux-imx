@@ -11,8 +11,8 @@
  */
 
 /dts-v1/;
- 
-#include "imx6qea-com.dtsi"
+
+#include "imx6dlea-com.dtsi"
 
 
 / {
@@ -74,19 +74,6 @@
 			enable-active-high;
 		};
 
-		/* For uSD/MMC socket on EA COM Base Board
-		reg_vcc_sd2: regulator@2 {
-			compatible = "regulator-fixed";
-			reg = <2>;
-			pinctrl-names = "default";
-			pinctrl-0 = <&pinctrl_vcc_sd2>;
-			regulator-name = "VCC_SD2";
-			regulator-min-microvolt = <3000000>;
-			regulator-max-microvolt = <3000000>;
-			gpio = <&gpio7 8 GPIO_ACTIVE_LOW>;
-			enable-active-high;
-		};*/
-
 		reg_vcc_can: regulator@4 {
 			compatible = "regulator-fixed";
 			reg = <4>;
@@ -96,11 +83,6 @@
 			regulator-always-on;
 			/*regulator-boot-on;*/
 		};
-
-//		usdhc2_pwrseq: usdhc1_pwrseq {			/* add construct for "fmac" to control WL_REG_ON signal */
-//			compatible = "mmc-pwrseq-simple";
-//			reset-gpios = <&gpio_buff 1 GPIO_ACTIVE_LOW>; /* WL REG ON */
-//		};
 	};
 
 	sound {
@@ -211,6 +193,7 @@
                 };
 
         };
+
 };
 
 &audmux {
@@ -225,11 +208,10 @@
 		compatible = "wlf,wm8731";
 		reg = <0x1a>;
 		clocks = <&clks IMX6QDL_CLK_CKO>;
-		clock-names = "mclk";
+		clock-names = "mclk"; 
 
 		assigned-clocks = <&clks IMX6QDL_CLK_CKO>, <&clks IMX6QDL_CLK_CKO1_SEL>;
-		assigned-clock-parents = <&clks IMX6QDL_CLK_CKO1>, <&clks IMX6QDL_CLK_PLL4_POST_DIV>;
-		assigned-clock-rates = <22579200>, <0>;
+		assigned-clock-parents = <&clks IMX6QDL_CLK_CKO1>, <&clks IMX6QDL_CLK_PLL4_AUDIO_DIV>;
 
 		AVDD-supply = <&vgen4_reg>;
 		HPVDD-supply = <&vgen4_reg>;
@@ -513,7 +495,7 @@
 		
 		pinctrl_rgb_connector: rgb_connector_grp {
 			fsl,pins = <
-				MX6QDL_PAD_EIM_A20__GPIO2_IO18		0x1f0b0
+				MX6QDL_PAD_EIM_A20__GPIO2_IO18          0x1f0b0
 				MX6QDL_PAD_EIM_DA14__GPIO3_IO14		0x1f0b0
 			>;
 		};
@@ -577,6 +559,7 @@
 				MX6QDL_PAD_DISP0_DAT23__IPU1_DISP0_DATA23  0x10
 			>;
 		};
+
 
 		pinctrl_pwm1: pwm1grp {
 			fsl,pins = <
@@ -651,7 +634,7 @@
 
 		pinctrl_vcc_sd2: vccsd2grp {
 			fsl,pins = <
-				/*MX6QDL_PAD_SD3_RST__GPIO7_IO08			0x17059*/
+				MX6QDL_PAD_SD3_RST__GPIO7_IO08			0x17059
 			>;
 		};
 
@@ -683,6 +666,7 @@
                                 MX6QDL_PAD_EIM_D29__GPIO3_IO29 0x80000000
                         >;
                 };
+
 
 		pinctrl_pcie: pciegrp {
 			fsl,pins = <
@@ -836,9 +820,10 @@
 };
 
 &clks {
-	assigned-clocks = <&clks IMX6QDL_CLK_PLL4_POST_DIV>;
-	assigned-clock-rates = <180633600>;
+	assigned-clocks = <&clks IMX6QDL_CLK_PLL4_AUDIO_DIV>, <&clks IMX6QDL_CLK_CKO1>;
+	assigned-clock-rates = <90316800>, <11289600>;
 };
+
 
 &ssi2 {
 	fsl,mode = "i2s-master";
@@ -926,38 +911,31 @@
 
 &ldb {
 	lvds-channel@0 {
-		crtc = "ipu2-di0";
+		crtc = "ipu1-di0";
 	};
 
 	lvds-channel@1 {
-		crtc = "ipu2-di1";
+		crtc = "ipu1-di1";
 	};
 };
+
+
 
 &mxcfb1 {
 	status = "okay";
 };
 
+
 &mxcfb2 {
 	status = "okay";
 };
 
-&mxcfb3 {
-	status = "okay";
-};
-
-&mxcfb4 {
-	status = "okay";
-};
-
-&sata {
-	status = "okay";
-};
 
 &can1 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_flexcan1>;
 	xceiver-supply = <&reg_vcc_can>; 
+	trx-stby-gpio = <&gpio6 11 GPIO_ACTIVE_LOW>;
 	status = "okay";
 };
 
@@ -965,7 +943,7 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_flexcan2>;
 	xceiver-supply = <&reg_vcc_can>; 
+	trx-stby-gpio = <&gpio6 11 GPIO_ACTIVE_LOW>;
 	status = "okay";
 };
-
 
