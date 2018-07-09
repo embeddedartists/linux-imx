@@ -441,6 +441,7 @@ dtb-$(CONFIG_SOC_IMX6Q) += \
 	imx6qea-com-kit-ov5640.dtb \
 	imx6qea-com-kit-ov5640-pl.dtb \
 	imx6qea-com-kit-pcie.dtb \
+	imx6qea-com-kit-pcie-m2.dtb \
 	imx6qea-com-kit-sd.dtb \
 	imx6qea-com-ptp.dtb \
 	imx6dlea-com-kit.dtb \
@@ -449,6 +450,7 @@ dtb-$(CONFIG_SOC_IMX6Q) += \
 	imx6dlea-com-kit-ov5640.dtb \
 	imx6dlea-com-kit-ov5640-pl.dtb \
 	imx6dlea-com-kit-pcie.dtb \
+	imx6dlea-com-kit-pcie-m2.dtb \
 	imx6dlea-com-kit-sd.dtb \
 	imx6dlea-com-ptp.dtb \
 	imx6qp-nitrogen6_max.dtb \
@@ -501,9 +503,10 @@ dtb-$(CONFIG_SOC_IMX6SX) += \
 	imx6sxea-com-kit-ov5640-pl.dtb \
 	imx6sxea-com-ptp.dtb \
 	imx6sxea-com-kit-lvds.dtb \
-	imx6sxea-com-kit-rgb.dtb
+	imx6sxea-com-kit-rgb.dtb \
 	imx6sxea-com-kit-pcie.dtb \
-	imx6sxea-com-kit-sd.dtb \
+	imx6sxea-com-kit-pcie-m2.dtb \
+	imx6sxea-com-kit-sd.dtb
 dtb-$(CONFIG_SOC_IMX6UL) += \
 	imx6ul-14x14-evk.dtb \
 	imx6ul-14x14-evk-btwifi.dtb \
@@ -533,7 +536,7 @@ dtb-$(CONFIG_SOC_IMX6UL) += \
 	imx6ul-9x9-evk-ldo.dtb \
 	imx6ulea-com-kit.dtb \
 	imx6ulea-com-ptp.dtb \
-	imx6ulea-com-ptp-sd.dtb \
+	imx6ulea-com-kit-sd.dtb \
 	imx6ulea-com-kit-rf.dtb \
 	imx6ulea-com-kit-ov5640-pl.dtb
 dtb-$(CONFIG_SOC_IMX6ULL) += \
@@ -612,10 +615,12 @@ dtb-$(CONFIG_SOC_IMX7D) += \
 	imx7dea-ucom-ptp.dtb \
 	imx7dea-ucom-kit-m4.dtb \
 	imx7dea-ucom-kit-pcie.dtb \
+	imx7dea-ucom-kit-pcie-m2.dtb \
 	imx7dea-ucom-kit-sd.dtb \
 	imx7dea-com-kit.dtb \
 	imx7dea-com-kit-sd.dtb \
 	imx7dea-com-kit-pcie.dtb \
+	imx7dea-com-kit-pcie-m2.dtb \
 	imx7dea-com-kit-ov5647.dtb \
 	imx7dea-com-kit-ov5640.dtb \
 	imx7dea-com-ptp.dtb \

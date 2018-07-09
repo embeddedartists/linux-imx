@@ -44,7 +44,6 @@
 
 	modem_reset: modem-reset {		/* Murata -- BT_REG_ON */
 		compatible = "gpio-reset";
-		/*reset-gpios = <&gpio4 17 GPIO_ACTIVE_LOW>;*/
 		reset-gpios = <&gpio_buff 0 GPIO_ACTIVE_LOW>;
 		reset-delay-us = <1000>;
 		#reset-cells = <0>;
@@ -101,11 +100,14 @@
 			enable-active-high;
 		};
 
-//		usdhc1_pwrseq: usdhc1_pwrseq {			/* add construct for "fmac" to control WL_REG_ON signal */
-//			compatible = "mmc-pwrseq-simple";
-//			/*reset-gpios = <&gpio4 16 GPIO_ACTIVE_LOW>; / * WL REG ON */
-//			reset-gpios = <&gpio_buff 1 GPIO_ACTIVE_LOW>; /* WL REG ON */
-//			};
+		reg_sd1_vmmc: regulator@5 {
+			compatible = "regulator-fixed";
+			regulator-name = "VDD_SD1";
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+			enable-active-high;
+			startup-delay-us = <200000>;
+		};
 	};
 
         sound {
@@ -387,25 +389,25 @@
 			"AUD_CODEC_MUX_CTRL2", "PCIE_PERST_L", "SD_MUX_CTRL2",
 			"VBAT_VSEL", "M2-E_WLAN_ENABLE";
 
-		mux_high_1 {
-			gpio-hog;
-			gpios = <8 0>;
-			output-high;
-		};
-		mux_low_1 {
+		hog_SD_PCIE_MUX_CTRL {
 			gpio-hog;
 			gpios = <5 0>;
 			output-low;
 		};
-		mux_low_2 {
-			gpio-hog;
-			gpios = <7 0>;
-			output-low;
-		};
-		mux_low_3 {
+		hog_VDDIO_VSEL {
 			gpio-hog;
 			gpios = <6 0>;
 			output-low;
+		};
+		hog_PCIE_CLK_MUX_CTRL {
+			gpio-hog;
+			gpios = <7 0>;
+			output-high;
+		};
+		hog_PCIE_SLOT_MUX_CTRL {
+			gpio-hog;
+			gpios = <8 0>;
+			output-high; /* High for J23 (Samtec PCIe), Low for J30 (M.2 PCIe) */
 		};
 	};
 };
@@ -434,9 +436,7 @@
 		pinctrl_hog_1: hoggrp-1 {
 			fsl,pins = <
 				MX7D_PAD_UART3_CTS_B__GPIO4_IO7	0x14
-//				MX7D_PAD_ECSPI2_SS0__GPIO4_IO23	 0x80000000  
-//				MX7D_PAD_GPIO1_IO08__SD1_VSELECT	0x59 /* VSELECT */
-//				MX7D_PAD_SD1_RESET_B__GPIO5_IO2		0x59 /* vmmc */
+				MX7D_PAD_SD1_RESET_B__GPIO5_IO2		0x59 /* vmmc */
 				MX7D_PAD_EPDC_SDCE3__GPIO2_IO23         0x59
 				MX7D_PAD_EPDC_DATA14__GPIO2_IO14        0x59  /* CAN_STBY */
 				MX7D_PAD_EPDC_SDCE3__GPIO2_IO23		0x59 /* PCIe CLKREQ */
@@ -613,7 +613,6 @@
                                 MX7D_PAD_UART2_RX_DATA__UART2_DCE_RX 0x79
 				MX7D_PAD_SAI2_TX_DATA__UART2_DCE_RTS 0x79
 				MX7D_PAD_SAI2_RX_DATA__UART2_DCE_CTS 0x79
-				/*MX7D_PAD_ECSPI1_MOSI__GPIO4_IO17     0x19  / * BT_REG_ON */
                         >;
                 };
 
@@ -633,10 +632,8 @@
 				MX7D_PAD_SD1_DATA1__SD1_DATA1	0x59
 				MX7D_PAD_SD1_DATA2__SD1_DATA2	0x59
 				MX7D_PAD_SD1_DATA3__SD1_DATA3	0x59
-				/*MX7D_PAD_ECSPI1_SCLK__GPIO4_IO16	0x19 / * WL_REG_ON */
-				/*MX7D_PAD_ECSPI1_MISO__GPIO4_IO18	0x19 / * WL_HOST_WAKE */
-				MX7D_PAD_EPDC_SDCE0__GPIO2_IO20		0x59 /*19 WL_HOST_WAKE */
-				/*MX7D_PAD_SD1_CD_B__GPIO5_IO0		0x59 / * CD */
+				MX7D_PAD_EPDC_SDCE0__GPIO2_IO20		0x59 /* WL_HOST_WAKE */
+				MX7D_PAD_SD1_CD_B__GPIO5_IO0		0x59 /* CD */
 			>;
 		};
 
@@ -927,32 +924,17 @@
 
 
 &usdhc1 {
-//	#address-cells = <1>;
-//	#size-cells = <0>;
 	pinctrl-names = "default", "state_100mhz", "state_200mhz";
 	pinctrl-0 = <&pinctrl_usdhc1>;
 	pinctrl-1 = <&pinctrl_usdhc1_100mhz>;
 	pinctrl-2 = <&pinctrl_usdhc1_200mhz>;
-//	cd-gpios = <&gpio5 0 GPIO_ACTIVE_LOW>;
-	fsl,tuning-start-tap = <20>;	/* Murata: i.MX default tuning-start-tap */
-	fsl,tuning-step= <2>;		/* Murata: change default step value from 2 to 4 for 1BB */
+	cd-gpios = <&gpio5 0 GPIO_ACTIVE_LOW>;
+	tuning-step = <2>;
+	vmmc-supply = <&reg_sd1_vmmc>;
 	enable-sdio-wakeup;
+	no-1-8-v;
 	keep-power-in-suspend;
-	non-removable;
-	cd-broken;
-	pm-ignore-notify;
-	wifi-host;
 	status = "okay";
-//	no-1-8-v;	/* Murata: enable 1.8V VIO for SD1 by disabling 3.3V-only mode */
-	max-frequency = <250000000>; /* slow down UHS SDR104 clock */
-//	mmc-pwrseq = <&usdhc1_pwrseq>;
-//	brcmf: bcrmf@1 {
-//		reg = <1>;
-//		compatible = "brcm,bcm4329-fmac";
-//		interrupt-parent = <&gpio2>;
-//		interrupts = <20 IRQ_TYPE_LEVEL_HIGH>;  /* WL_HOST_WAKE = GPIO2_IO20 active high. Change to IRQ_TYPE_EDGE_RISING for 1BW and SN8000. */
-//		interrupt-names = "host-wake";
-//	};
 };
 /*
 &usdhc2 {
@@ -989,13 +971,8 @@
         flash0: n25q256a@0 {
                 #address-cells = <1>;
                 #size-cells = <1>;
-                compatible = "micron,n25q256a";
-                spi-max-frequency = <29000000>;
-                /* take off one dummy cycle */
-                spi-nor,ddr-quad-read-dummy = <6>;
+                compatible = "micron,n25q256a", "issi,is25lp256d";
+                spi-max-frequency = <51000000>;
                 reg = <0>;
         };
 };
-
-
-

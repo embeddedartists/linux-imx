@@ -1,0 +1,18 @@
+/*
+ * Copyright (C) 2015 Freescale Semiconductor, Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+#include "imx7dea-ucom-kit-pcie.dts"
+
+
+&gpio_buff {
+	hog_PCIE_SLOT_MUX_CTRL {
+		gpio-hog;
+		gpios = <8 0>;
+		output-low; /* High for J23 (Samtec PCIe), Low for J30 (M.2 PCIe) */
+	};
+};

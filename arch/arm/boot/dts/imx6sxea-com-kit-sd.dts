@@ -267,7 +267,6 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_flexcan1>;
 	xceiver-supply = <&reg_psu_5v>;
-	trx-stby-gpio = <&gpio2 17 GPIO_ACTIVE_LOW>;
 	status = "okay";
 };
 
@@ -275,14 +274,13 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_flexcan2>;
 	xceiver-supply = <&reg_psu_5v>;
-	trx-stby-gpio = <&gpio2 17 GPIO_ACTIVE_LOW>;
 	status = "okay";
 };
 
 &pcie {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_pcie>;
-	reset-gpio = <&gpio6 1 GPIO_ACTIVE_HIGH>;
+	reset-gpio = <&gpio6 1 GPIO_ACTIVE_HIGH>;	/* AL: Change?? */
 	status = "okay";
 };
 
@@ -364,8 +362,8 @@
 	brcmf: bcrmf@1 {
 		reg = <1>;
 		compatible = "brcm,bcm4329-fmac";
-		interrupt-parent = <&gpio1>;
-		interrupts = <4 IRQ_TYPE_LEVEL_HIGH>;  /* WL_HOST_WAKE = GPIO1_IO04 active high. Change to IRQ_TYPE_EDGE_RISING for 1BW and SN8000. */
+		interrupt-parent = <&gpio6>;
+		interrupts = <0 IRQ_TYPE_LEVEL_HIGH>;  /* WL_HOST_WAKE = GPIO6_IO00 active high. Change to IRQ_TYPE_EDGE_RISING for 1BW and SN8000. */
 		interrupt-names = "host-wake";
 	};
 };
@@ -539,25 +537,25 @@
 			"AUD_CODEC_MUX_CTRL2", "PCIE_PERST_L", "SD_MUX_CTRL2",
 			"VBAT_VSEL", "M2-E_WLAN_ENABLE";
 
-		mux_high_1 {
-			gpio-hog;
-			gpios = <9 0>;
-			output-high;
-		};
-		mux_high_2 {
+		hog_SD_PCIE_MUX_CTRL {
 			gpio-hog;
 			gpios = <5 0>;
 			output-high;
 		};
-		mux_high_3 {
-			gpio-hog;
-			gpios = <14 0>; /* Possible conflict with SATA which needs this low */
-			output-high;
-		};
-		mux_low_1 {
+		hog_VDDIO_VSEL {
 			gpio-hog;
 			gpios = <6 0>;
 			output-low;
+		};
+		hog_SD_MUX_CTRL1 {
+			gpio-hog;
+			gpios = <9 0>;
+			output-high;
+		};
+		hog_VBAT_VSEL {
+			gpio-hog;
+			gpios = <14 0>; /* Possible conflict with SATA which needs this low */
+			output-high;
 		};
 	};
 };
@@ -574,7 +572,7 @@
 };
 
 &iomuxc {
-	pinctrl-0 = <&pinctrl_can_gpios>, <&pinctrl_lcdif_ctrl>;
+	pinctrl-0 = <&pinctrl_lcdif_ctrl>;
 
 	imx6xea-com-kit {
 
@@ -628,14 +626,6 @@
 				MX6SX_PAD_QSPI1A_DQS__CAN2_TX		0x1b020
 			>;
 		};
-
-
-		pinctrl_can_gpios: can-gpios {
-			fsl,pins = <
-				MX6SX_PAD_KEY_ROW2__GPIO2_IO_17 0x17059
-			>;
-		};
-
 
 		pinctrl_lcdif_dat: lcdifdatgrp {
 			fsl,pins = <
@@ -709,14 +699,7 @@
 
 		pinctrl_pcie: pciegrp {
 			fsl,pins = <
-				MX6SX_PAD_SD1_CMD__GPIO6_IO_1 0x10b0
-			>;
-		};
-
-
-		pinctrl_vcc_sd2: vccsd2grp {
-			fsl,pins = <
-				MX6SX_PAD_SD4_RESET_B__GPIO6_IO_22		0x17059
+				MX6SX_PAD_SD1_CMD__GPIO6_IO_1 0x10b0	/* AL: Change?? */
 			>;
 		};
 
@@ -730,7 +713,7 @@
 		pinctrl_uart2: uart2grp {
 			fsl,pins = <
 				MX6SX_PAD_SD1_DATA1__UART2_TX		0x1f0b1
-				MX6SX_PAD_SD1_DATA0__UART2_RX		0x1f0b1
+				MX6SX_PAD_SD1_DATA0__UART2_RX		0x1b0b1
 				MX6SX_PAD_SD1_DATA3__UART2_RTS_B	0x1b0b1
 				MX6SX_PAD_SD1_DATA2__UART2_CTS_B	0x1b0b1
 
@@ -780,7 +763,8 @@
 				MX6SX_PAD_SD2_DATA1__USDHC2_DATA1	0x17059
 				MX6SX_PAD_SD2_DATA2__USDHC2_DATA2	0x17059
 				MX6SX_PAD_SD2_DATA3__USDHC2_DATA3	0x17059
-				MX6SX_PAD_KEY_ROW1__GPIO2_IO_16		0x17059 /* CD */
+				/*MX6SX_PAD_KEY_ROW1__GPIO2_IO_16		0x17059 / * CD */
+				MX6SX_PAD_SD1_CLK__GPIO6_IO_0		0x17059 /* WL_HOST_WAKE */
 			>;
 		};
 	};

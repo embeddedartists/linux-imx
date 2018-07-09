@@ -42,6 +42,13 @@
 		status = "okay";
 	};
 
+	modem_reset: modem-reset {		/* Murata -- BT_REG_ON */
+		compatible = "gpio-reset";
+		reset-gpios = <&gpio_buff 0 GPIO_ACTIVE_LOW>;
+		reset-delay-us = <1000>;
+		#reset-cells = <0>;
+	};
+
 	regulators {
 		compatible = "simple-bus";
 		#address-cells = <1>;
@@ -98,7 +105,6 @@
 			regulator-name = "VDD_SD1";
 			regulator-min-microvolt = <3300000>;
 			regulator-max-microvolt = <3300000>;
-			/* gpio = <&gpio5 2 GPIO_ACTIVE_HIGH>; */
 			enable-active-high;
 			startup-delay-us = <200000>;
 		};
@@ -367,6 +373,10 @@
                 interrupt-parent = <&gpio5>;
                 interrupts = <9 IRQ_TYPE_EDGE_FALLING>;
         };
+	rtc: pcf8523@68 {
+		compatible = "nxp,pcf8523";
+		reg = <0x68>;
+	};
 };
 
 &i2c2 {
@@ -374,6 +384,19 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_i2c2>;
 	status = "okay";
+
+	gpio_buff: pca6416@20 {
+		compatible = "ti,tca6416";
+		reg = <0x20>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		gpio-line-names = "BT_REG_ON", "WL_REG_ON", "",
+			"BT_DEV_WAKE", "AUD_MUX_CTRL", "SD_PCIE_MUX_CTRL",
+			"VDDIO_VSEL", "PCIE_CLK_MUX_CTRL", "PCIE_SLOT_MUX_CTRL",
+			"SD_MUX_CTRL1", "AUD_CODEC_MUX_CTRL1",
+			"AUD_CODEC_MUX_CTRL2", "PCIE_PERST_L", "SD_MUX_CTRL2",
+			"VBAT_VSEL", "M2-E_WLAN_ENABLE";
+	};
 };
 
 &i2c3 {
@@ -402,7 +425,6 @@
 				MX7D_PAD_UART3_CTS_B__GPIO4_IO7	0x14
 				MX7D_PAD_ECSPI2_SS0__GPIO4_IO23	 0x80000000  /* bt reg on */
 				MX7D_PAD_GPIO1_IO08__GPIO1_IO8		0x59 
-				MX7D_PAD_SD1_CD_B__GPIO5_IO0		0x59 /* CD */
 				MX7D_PAD_SD1_RESET_B__GPIO5_IO2		0x59 /* vmmc */
 				MX7D_PAD_EPDC_SDCE3__GPIO2_IO23         0x59
 				MX7D_PAD_EPDC_DATA14__GPIO2_IO14        0x59  /* CAN_STBY */
@@ -577,6 +599,8 @@
                         fsl,pins = <
                                 MX7D_PAD_UART2_TX_DATA__UART2_DCE_TX 0x79
                                 MX7D_PAD_UART2_RX_DATA__UART2_DCE_RX 0x79
+				MX7D_PAD_SAI2_TX_DATA__UART2_DCE_RTS 0x79
+				MX7D_PAD_SAI2_RX_DATA__UART2_DCE_CTS 0x79
                         >;
                 };
 
@@ -596,6 +620,7 @@
 				MX7D_PAD_SD1_DATA1__SD1_DATA1	0x59
 				MX7D_PAD_SD1_DATA2__SD1_DATA2	0x59
 				MX7D_PAD_SD1_DATA3__SD1_DATA3	0x59
+				MX7D_PAD_SD1_CD_B__GPIO5_IO0		0x59 /* CD */
 			>;
 		};
 
@@ -808,7 +833,7 @@
 	pinctrl-names = "default";
 	reset-gpio = <&gpio2 21 GPIO_ACTIVE_LOW>;
 	disable-gpio = <&gpio2 22 GPIO_ACTIVE_LOW>;
-	status = "okay";
+	status = "disabled";
 };
 
 &pwm1 {
@@ -849,11 +874,14 @@
 	status = "okay";
 };
 
+/* Bluetooth UART */
 &uart2 {
         pinctrl-names = "default";
         pinctrl-0 = <&pinctrl_uart2>;
         assigned-clocks = <&clks IMX7D_UART2_ROOT_SRC>;
         assigned-clock-parents = <&clks IMX7D_OSC_24M_CLK>;
+	fsl,uart-has-rtscts;
+	resets = <&modem_reset>;
 	status = "okay";
 };
 

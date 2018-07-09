@@ -44,7 +44,6 @@
 
 	modem_reset: modem-reset {		/* Murata -- BT_REG_ON */
 		compatible = "gpio-reset";
-		/*reset-gpios = <&gpio4 17 GPIO_ACTIVE_LOW>;*/
 		reset-gpios = <&gpio_buff 0 GPIO_ACTIVE_LOW>;
 		reset-delay-us = <1000>;
 		#reset-cells = <0>;
@@ -387,25 +386,25 @@
 			"AUD_CODEC_MUX_CTRL2", "PCIE_PERST_L", "SD_MUX_CTRL2",
 			"VBAT_VSEL", "M2-E_WLAN_ENABLE";
 
-		mux_high_1 {
-			gpio-hog;
-			gpios = <9 0>;
-			output-high;
-		};
-		mux_high_2 {
+		hog_SD_PCIE_MUX_CTRL {
 			gpio-hog;
 			gpios = <5 0>;
 			output-high;
 		};
-		mux_high_3 {
-			gpio-hog;
-			gpios = <14 0>;
-			output-high;
-		};
-		mux_low_1 {
+		hog_VDDIO_VSEL {
 			gpio-hog;
 			gpios = <6 0>;
 			output-low;
+		};
+		hog_SD_MUX_CTRL1 {
+			gpio-hog;
+			gpios = <9 0>;
+			output-high;
+		};
+		hog_VBAT_VSEL {
+			gpio-hog;
+			gpios = <14 0>;
+			output-high;
 		};
 	};
 };
@@ -434,9 +433,6 @@
 		pinctrl_hog_1: hoggrp-1 {
 			fsl,pins = <
 				MX7D_PAD_UART3_CTS_B__GPIO4_IO7	0x14
-//				MX7D_PAD_ECSPI2_SS0__GPIO4_IO23	 0x80000000  
-//				MX7D_PAD_GPIO1_IO08__SD1_VSELECT	0x59 /* VSELECT */
-//				MX7D_PAD_SD1_RESET_B__GPIO5_IO2		0x59 /* vmmc */
 				MX7D_PAD_EPDC_SDCE3__GPIO2_IO23         0x59
 				MX7D_PAD_EPDC_DATA14__GPIO2_IO14        0x59  /* CAN_STBY */
 			>;
@@ -612,7 +608,6 @@
                                 MX7D_PAD_UART2_RX_DATA__UART2_DCE_RX 0x79
 				MX7D_PAD_SAI2_TX_DATA__UART2_DCE_RTS 0x79
 				MX7D_PAD_SAI2_RX_DATA__UART2_DCE_CTS 0x79
-				/*MX7D_PAD_ECSPI1_MOSI__GPIO4_IO17     0x19  / * BT_REG_ON */
                         >;
                 };
 
@@ -632,10 +627,7 @@
 				MX7D_PAD_SD1_DATA1__SD1_DATA1	0x59
 				MX7D_PAD_SD1_DATA2__SD1_DATA2	0x59
 				MX7D_PAD_SD1_DATA3__SD1_DATA3	0x59
-				/*MX7D_PAD_ECSPI1_SCLK__GPIO4_IO16	0x19 / * WL_REG_ON */
-				/*MX7D_PAD_ECSPI1_MISO__GPIO4_IO18	0x19 / * WL_HOST_WAKE */
-				MX7D_PAD_EPDC_SDCE0__GPIO2_IO20		0x59 /*19 WL_HOST_WAKE */
-				/*MX7D_PAD_SD1_CD_B__GPIO5_IO0		0x59 / * CD */
+				MX7D_PAD_EPDC_SDCE0__GPIO2_IO20		0x59 /* WL_HOST_WAKE */
 			>;
 		};
 
@@ -985,13 +977,8 @@
         flash0: n25q256a@0 {
                 #address-cells = <1>;
                 #size-cells = <1>;
-                compatible = "micron,n25q256a";
-                spi-max-frequency = <29000000>;
-                /* take off one dummy cycle */
-                spi-nor,ddr-quad-read-dummy = <6>;
+                compatible = "micron,n25q256a", "issi,is25lp256d";
+                spi-max-frequency = <51000000>;
                 reg = <0>;
         };
 };
-
-
-

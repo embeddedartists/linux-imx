@@ -467,27 +467,27 @@
 			"AUD_CODEC_MUX_CTRL2", "PCIE_PERST_L", "SD_MUX_CTRL2",
 			"VBAT_VSEL", "M2-E_WLAN_ENABLE";
 
-		mux_high_1 {
-			gpio-hog;
-			gpios = <8 0>;
-			output-high;
-		};
-		mux_low_1 {
+		hog_SD_PCIE_MUX_CTRL {
 			gpio-hog;
 			gpios = <5 0>;
 			output-low;
 		};
-		mux_low_2 {
-			gpio-hog;
-			gpios = <7 0>;
-			output-low;
-		};
-		mux_low_3 {
+		hog_VDDIO_VSEL {
 			gpio-hog;
 			gpios = <6 0>;
 			output-low;
 		};
-		mux_low_4 {
+		hog_PCIE_CLK_MUX_CTRL {
+			gpio-hog;
+			gpios = <7 0>;
+			output-low;
+		};
+		hog_PCIE_SLOT_MUX_CTRL {
+			gpio-hog;
+			gpios = <8 0>;
+			output-high; /* High for J23 (Samtec PCIe), Low for J30 (M.2 PCIe) */
+		};
+		hog_VBAT_VSEL {
 			gpio-hog;
 			gpios = <14 0>;
 			output-low;
