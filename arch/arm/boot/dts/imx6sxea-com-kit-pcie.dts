@@ -140,12 +140,6 @@
 			regulator-max-microvolt = <3300000>;			
 			regulator-always-on;
 		};
-
-//		usdhc1_pwrseq: usdhc1_pwrseq {			/* add construct for "fmac" to control WL_REG_ON signal */
-//			compatible = "mmc-pwrseq-simple";
-//			/*reset-gpios = <&gpio4 16 GPIO_ACTIVE_LOW>; / * WL REG ON */
-//			reset-gpios = <&gpio_buff 1 GPIO_ACTIVE_LOW>; /* WL REG ON */
-//			};
 	};
 
 	sound {
@@ -558,6 +552,16 @@
 			gpios = <8 0>;
 			output-high;
 		};
+		hog_AUD_CODEC_MUX_CTRL1 {
+			gpio-hog;
+			gpios = <10 0>;
+			output-high;
+		};
+		hog_AUD_CODEC_MUX_CTRL2 {
+			gpio-hog;
+			gpios = <11 0>;
+			output-high;
+		};
 	};
 };
 
@@ -721,7 +725,7 @@
 		pinctrl_uart2: uart2grp {
 			fsl,pins = <
 				MX6SX_PAD_SD1_DATA1__UART2_TX		0x1f0b1
-				MX6SX_PAD_SD1_DATA0__UART2_RX		0x1f0b1
+				MX6SX_PAD_SD1_DATA0__UART2_RX		0x1b0b1
 				MX6SX_PAD_SD1_DATA3__UART2_RTS_B	0x1b0b1
 				MX6SX_PAD_SD1_DATA2__UART2_CTS_B	0x1b0b1
 

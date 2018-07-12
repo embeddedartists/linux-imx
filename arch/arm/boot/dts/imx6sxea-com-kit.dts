@@ -34,6 +34,13 @@
 	};
 
 
+	modem_reset: modem-reset {		/* Murata -- BT_REG_ON */
+		compatible = "gpio-reset";
+		reset-gpios = <&gpio_buff 0 GPIO_ACTIVE_LOW>;
+		reset-delay-us = <1000>;
+		#reset-cells = <0>;
+	};
+
 	backlight_lvds: backlight1 {
 		compatible = "pwm-backlight";
 		pwms = <&pwm1 0 5000000>;
@@ -268,7 +275,6 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_flexcan1>;
 	xceiver-supply = <&reg_psu_5v>;
-	trx-stby-gpio = <&gpio2 17 GPIO_ACTIVE_LOW>;
 	status = "okay";
 };
 
@@ -276,15 +282,16 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_flexcan2>;
 	xceiver-supply = <&reg_psu_5v>;
-	trx-stby-gpio = <&gpio2 17 GPIO_ACTIVE_LOW>;
 	status = "okay";
 };
 
 &pcie {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_pcie>;
-	reset-gpio = <&gpio6 1 GPIO_ACTIVE_HIGH>;
-	status = "okay";
+	reset-gpio = <&gpio_buff 12 GPIO_ACTIVE_LOW>; /* PCIE_PERST_L */
+	disable-gpio = <&gpio_buff 1 GPIO_ACTIVE_LOW>; /* WL REG ON */
+	clkreq-gpio = <&gpio2 17 GPIO_ACTIVE_LOW>; /* PCIe_CLKREQ */
+	status = "disabled";
 };
 
 &pxp {
@@ -524,6 +531,17 @@
 			"SD_MUX_CTRL1", "AUD_CODEC_MUX_CTRL1",
 			"AUD_CODEC_MUX_CTRL2", "PCIE_PERST_L", "SD_MUX_CTRL2",
 			"VBAT_VSEL", "M2-E_WLAN_ENABLE";
+
+		hog_AUD_CODEC_MUX_CTRL1 {
+			gpio-hog;
+			gpios = <10 0>;
+			output-high;
+		};
+		hog_AUD_CODEC_MUX_CTRL2 {
+			gpio-hog;
+			gpios = <11 0>;
+			output-high;
+		};
 	};
 };
 
@@ -539,7 +557,7 @@
 };
 
 &iomuxc {
-	pinctrl-0 = <&pinctrl_can_gpios>, <&pinctrl_lcdif_ctrl>;
+	pinctrl-0 = <&pinctrl_lcdif_ctrl>;
 
 	imx6xea-com-kit {
 
@@ -593,14 +611,6 @@
 				MX6SX_PAD_QSPI1A_DQS__CAN2_TX		0x1b020
 			>;
 		};
-
-
-		pinctrl_can_gpios: can-gpios {
-			fsl,pins = <
-				MX6SX_PAD_KEY_ROW2__GPIO2_IO_17 0x17059
-			>;
-		};
-
 
 		pinctrl_lcdif_dat: lcdifdatgrp {
 			fsl,pins = <
@@ -674,7 +684,7 @@
 
 		pinctrl_pcie: pciegrp {
 			fsl,pins = <
-				MX6SX_PAD_SD1_CMD__GPIO6_IO_1 0x10b0
+				MX6SX_PAD_KEY_ROW2__GPIO2_IO_17		0x17059
 			>;
 		};
 
@@ -695,7 +705,7 @@
 		pinctrl_uart2: uart2grp {
 			fsl,pins = <
 				MX6SX_PAD_SD1_DATA1__UART2_TX		0x1f0b1
-				MX6SX_PAD_SD1_DATA0__UART2_RX		0x1f0b1
+				MX6SX_PAD_SD1_DATA0__UART2_RX		0x1b0b1
 				MX6SX_PAD_SD1_DATA3__UART2_RTS_B	0x1b0b1
 				MX6SX_PAD_SD1_DATA2__UART2_CTS_B	0x1b0b1
 
@@ -748,8 +758,5 @@
 				MX6SX_PAD_KEY_ROW1__GPIO2_IO_16		0x17059 /* CD */
 			>;
 		};
-
-
-
 	};
 };

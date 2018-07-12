@@ -74,7 +74,7 @@
 			enable-active-high;
 		};
 
-		/* For uSD/MMC socket on EA COM Base Board
+		/* For uSD/MMC socket on EA COM Base Board */
 		reg_vcc_sd2: regulator@2 {
 			compatible = "regulator-fixed";
 			reg = <2>;
@@ -85,7 +85,7 @@
 			regulator-max-microvolt = <3000000>;
 			gpio = <&gpio7 8 GPIO_ACTIVE_LOW>;
 			enable-active-high;
-		};*/
+		};
 
 		reg_vcc_can: regulator@4 {
 			compatible = "regulator-fixed";
@@ -96,11 +96,6 @@
 			regulator-always-on;
 			/*regulator-boot-on;*/
 		};
-
-//		usdhc2_pwrseq: usdhc1_pwrseq {			/* add construct for "fmac" to control WL_REG_ON signal */
-//			compatible = "mmc-pwrseq-simple";
-//			reset-gpios = <&gpio_buff 1 GPIO_ACTIVE_LOW>; /* WL REG ON */
-//		};
 	};
 
 	sound {
@@ -487,6 +482,16 @@
 			gpios = <8 0>;
 			output-high; /* High for J23 (Samtec PCIe), Low for J30 (M.2 PCIe) */
 		};
+		hog_AUD_CODEC_MUX_CTRL1 {
+			gpio-hog;
+			gpios = <10 0>;
+			output-high;
+		};
+		hog_AUD_CODEC_MUX_CTRL2 {
+			gpio-hog;
+			gpios = <11 0>;
+			output-high;
+		};
 		hog_VBAT_VSEL {
 			gpio-hog;
 			gpios = <14 0>;
@@ -639,7 +644,7 @@
 				MX6QDL_PAD_SD2_DAT1__SD2_DATA1		0x17059
 				MX6QDL_PAD_SD2_DAT2__SD2_DATA2		0x17059
 				MX6QDL_PAD_SD2_DAT3__SD2_DATA3		0x17059
-				MX6QDL_PAD_NANDF_WP_B__GPIO6_IO09	0x17059
+				MX6QDL_PAD_NANDF_WP_B__GPIO6_IO09	0x17059  /* CD */
 			>;
 		};
 
@@ -651,7 +656,7 @@
 
 		pinctrl_vcc_sd2: vccsd2grp {
 			fsl,pins = <
-				/*MX6QDL_PAD_SD3_RST__GPIO7_IO08			0x17059*/
+				MX6QDL_PAD_SD3_RST__GPIO7_IO08			0x17059
 			>;
 		};
 
@@ -688,7 +693,7 @@
 			fsl,pins = <
 				MX6QDL_PAD_NANDF_CS0__GPIO6_IO11	0x17059
 			>;
-		}; 
+		};
  	};
 };
 
@@ -889,29 +894,13 @@
 &usdhc2 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_usdhc2>;
-
-//	#address-cells = <1>;
-//	#size-cells = <0>;
-//	cd-gpios = <&gpio6 9 GPIO_ACTIVE_LOW>;
-	fsl,tuning-start-tap = <20>;	/* Murata: i.MX default tuning-start-tap */
-	fsl,tuning-step= <2>;		/* Murata: change default step value from 2 to 4 for 1BB */
-	enable-sdio-wakeup;
+	bus-width = <4>;
+	vmmc-supply = <&reg_vcc_sd2>;
+	cd-gpios = <&gpio6 9 GPIO_ACTIVE_LOW>;
+	no-1-8-v;
 	keep-power-in-suspend;
-	non-removable;
-	cd-broken;
-	pm-ignore-notify;
-	wifi-host;
+	enable-sdio-wakeup;
 	status = "okay";
-//	no-1-8-v;	/* Murata: enable 1.8V VIO for SD1 by disabling 3.3V-only mode */
-	max-frequency = <104000000>; /* slow down UHS SDR104 clock */
-//	mmc-pwrseq = <&usdhc2_pwrseq>;
-//	brcmf: bcrmf@1 {
-//		reg = <1>;
-//		compatible = "brcm,bcm4329-fmac";
-//		interrupt-parent = <&gpio1>;
-//		interrupts = <4 IRQ_TYPE_LEVEL_HIGH>;  /* WL_HOST_WAKE = GPIO1_IO04 active high. Change to IRQ_TYPE_EDGE_RISING for 1BW and SN8000. */
-//		interrupt-names = "host-wake";
-//	};
 };
 
 

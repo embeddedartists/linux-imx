@@ -102,9 +102,8 @@
 
 		usdhc1_pwrseq: usdhc1_pwrseq {			/* add construct for "fmac" to control WL_REG_ON signal */
 			compatible = "mmc-pwrseq-simple";
-			/*reset-gpios = <&gpio4 16 GPIO_ACTIVE_LOW>; / * WL REG ON */
 			reset-gpios = <&gpio_buff 1 GPIO_ACTIVE_LOW>; /* WL REG ON */
-			};
+		};
 	};
 
         sound {
@@ -172,7 +171,6 @@
         pinctrl-names = "default";
         pinctrl-0 = <&pinctrl_flexcan1>;
         xceiver-supply = <&reg_can>;
-        trx-stby-gpio = <&gpio2 23 GPIO_ACTIVE_LOW>;
         status = "okay";
 };
 
@@ -181,7 +179,6 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_flexcan2>;
 	xceiver-supply = <&reg_can>;
-	trx-stby-gpio = <&gpio2 23 GPIO_ACTIVE_LOW>;
 	status = "okay";
 };
 
@@ -401,6 +398,16 @@
 			gpios = <9 0>;
 			output-high;
 		};
+		hog_AUD_CODEC_MUX_CTRL1 {
+			gpio-hog;
+			gpios = <10 0>;
+			output-high;
+		};
+		hog_AUD_CODEC_MUX_CTRL2 {
+			gpio-hog;
+			gpios = <11 0>;
+			output-high;
+		};
 		hog_VBAT_VSEL {
 			gpio-hog;
 			gpios = <14 0>;
@@ -433,7 +440,8 @@
 		pinctrl_hog_1: hoggrp-1 {
 			fsl,pins = <
 				MX7D_PAD_UART3_CTS_B__GPIO4_IO7	0x14
-				MX7D_PAD_EPDC_SDCE3__GPIO2_IO23         0x59
+				MX7D_PAD_ECSPI2_SS0__GPIO4_IO23	 0x80000000  /* SSEL SPI2 */
+				MX7D_PAD_GPIO1_IO08__GPIO1_IO8		0x59 /* SD1_VSELECT */
 				MX7D_PAD_EPDC_DATA14__GPIO2_IO14        0x59  /* CAN_STBY */
 			>;
 		};
@@ -767,6 +775,11 @@
                         >;
                 };
 
+		pinctrl_pcie: pciegrp {
+			fsl,pins = <
+				MX7D_PAD_EPDC_SDCE3__GPIO2_IO23		0x59 /* PCIe CLKREQ */
+			>;
+		};
 	};
 };
 
@@ -837,9 +850,11 @@
 
 &pcie {
 	pinctrl-names = "default";
-	reset-gpio = <&gpio2 21 GPIO_ACTIVE_LOW>;
-	disable-gpio = <&gpio2 22 GPIO_ACTIVE_LOW>;
-	status = "okay";
+	pinctrl-0 = <&pinctrl_pcie>;
+	reset-gpio = <&gpio_buff 12 GPIO_ACTIVE_LOW>; /* PCIE_PERST_L */
+	disable-gpio = <&gpio_buff 1 GPIO_ACTIVE_LOW>; /* WL REG ON */
+	clkreq-gpio = <&gpio2 23 GPIO_ACTIVE_LOW>; /* PCIe_CLKREQ */
+	status = "disabled";
 };
 
 &pwm1 {

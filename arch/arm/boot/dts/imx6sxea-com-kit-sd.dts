@@ -128,7 +128,7 @@
 			regulator-always-on;
 		};
 
-		usdhc2_pwrseq: usdhc1_pwrseq {			/* add construct for "fmac" to control WL_REG_ON signal */
+		usdhc2_pwrseq: usdhc2_pwrseq {			/* add construct for "fmac" to control WL_REG_ON signal */
 			compatible = "mmc-pwrseq-simple";
 			reset-gpios = <&gpio_buff 1 GPIO_ACTIVE_LOW>; /* WL REG ON */
 		};
@@ -280,8 +280,10 @@
 &pcie {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_pcie>;
-	reset-gpio = <&gpio6 1 GPIO_ACTIVE_HIGH>;	/* AL: Change?? */
-	status = "okay";
+	reset-gpio = <&gpio_buff 12 GPIO_ACTIVE_LOW>; /* PCIE_PERST_L */
+	disable-gpio = <&gpio_buff 1 GPIO_ACTIVE_LOW>; /* WL REG ON */
+	clkreq-gpio = <&gpio2 17 GPIO_ACTIVE_LOW>; /* PCIe_CLKREQ */
+	status = "disabled";
 };
 
 &pxp {
@@ -552,6 +554,16 @@
 			gpios = <9 0>;
 			output-high;
 		};
+		hog_AUD_CODEC_MUX_CTRL1 {
+			gpio-hog;
+			gpios = <10 0>;
+			output-high;
+		};
+		hog_AUD_CODEC_MUX_CTRL2 {
+			gpio-hog;
+			gpios = <11 0>;
+			output-high;
+		};
 		hog_VBAT_VSEL {
 			gpio-hog;
 			gpios = <14 0>; /* Possible conflict with SATA which needs this low */
@@ -699,7 +711,7 @@
 
 		pinctrl_pcie: pciegrp {
 			fsl,pins = <
-				MX6SX_PAD_SD1_CMD__GPIO6_IO_1 0x10b0	/* AL: Change?? */
+				MX6SX_PAD_KEY_ROW2__GPIO2_IO_17		0x17059
 			>;
 		};
 
@@ -763,7 +775,6 @@
 				MX6SX_PAD_SD2_DATA1__USDHC2_DATA1	0x17059
 				MX6SX_PAD_SD2_DATA2__USDHC2_DATA2	0x17059
 				MX6SX_PAD_SD2_DATA3__USDHC2_DATA3	0x17059
-				/*MX6SX_PAD_KEY_ROW1__GPIO2_IO_16		0x17059 / * CD */
 				MX6SX_PAD_SD1_CLK__GPIO6_IO_0		0x17059 /* WL_HOST_WAKE */
 			>;
 		};

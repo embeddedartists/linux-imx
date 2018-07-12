@@ -44,7 +44,7 @@
 
 	modem_reset: modem-reset {		/* Murata -- BT_REG_ON */
 		compatible = "gpio-reset";
-		reset-gpios = <&gpio4 17 GPIO_ACTIVE_LOW>;
+		reset-gpios = <&gpio_buff 0 GPIO_ACTIVE_LOW>;
 		reset-delay-us = <1000>;
 		#reset-cells = <0>;
 	};
@@ -99,10 +99,24 @@
 			enable-active-high;
 		};
 
-		usdhc1_pwrseq: usdhc1_pwrseq {			/* add construct for "fmac" to control WL_REG_ON signal */
-			compatible = "mmc-pwrseq-simple";
-			reset-gpios = <&gpio4 16 GPIO_ACTIVE_LOW>; /* WL REG ON */
- 		};
+		reg_sd1_vmmc: regulator@5 {
+			compatible = "regulator-fixed";
+			regulator-name = "VDD_SD1";
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+			/* gpio = <&gpio5 2 GPIO_ACTIVE_HIGH>; */
+			enable-active-high;
+			startup-delay-us = <200000>;
+		};
+
+		wlreg_on: fixedregulator@100 {
+			compatible = "regulator-fixed";
+			regulator-min-microvolt = <5000000>;
+			regulator-max-microvolt = <5000000>;
+			regulator-name = "wlreg_on";
+			gpio = <&gpio4 21 GPIO_ACTIVE_HIGH>;
+			enable-active-high;
+		};
 	};
 
         sound {
@@ -470,6 +484,17 @@
 			"SD_MUX_CTRL1", "AUD_CODEC_MUX_CTRL1",
 			"AUD_CODEC_MUX_CTRL2", "PCIE_PERST_L", "SD_MUX_CTRL2",
 			"VBAT_VSEL", "M2-E_WLAN_ENABLE";
+
+		hog_AUD_CODEC_MUX_CTRL1 {
+			gpio-hog;
+			gpios = <10 0>;
+			output-high;
+		};
+		hog_AUD_CODEC_MUX_CTRL2 {
+			gpio-hog;
+			gpios = <11 0>;
+			output-high;
+		};
 	};
 };
 
@@ -497,9 +522,10 @@
 		pinctrl_hog_1: hoggrp-1 {
 			fsl,pins = <
 				MX7D_PAD_UART3_CTS_B__GPIO4_IO7	0x14
-//				MX7D_PAD_GPIO1_IO08__SD1_VSELECT	0x59 /* VSELECT */
-				MX7D_PAD_GPIO1_IO08__GPIO1_IO8		0x59 /* Murata: select SD1 VIO */
-//				MX7D_PAD_SD1_RESET_B__GPIO5_IO2		0x59 /* VMMC RESET */
+				MX7D_PAD_ECSPI2_SS0__GPIO4_IO23	 0x80000000  /* bt reg on */
+				MX7D_PAD_GPIO1_IO08__SD1_VSELECT	0x59 /* VSELECT */
+				MX7D_PAD_SD1_CD_B__GPIO5_IO0		0x59 /* CD */
+				MX7D_PAD_SD1_RESET_B__GPIO5_IO2		0x59 /* vmmc */
 				MX7D_PAD_EPDC_SDCE3__GPIO2_IO23         0x59
 				MX7D_PAD_EPDC_DATA14__GPIO2_IO14        0x59 /* CAN_STBY */
 				MX7D_PAD_GPIO1_IO09__GPIO1_IO9          0x59 /* PMIC_INT_B */
@@ -683,7 +709,6 @@
                                 MX7D_PAD_UART2_RX_DATA__UART2_DCE_RX 0x79
 				MX7D_PAD_SAI2_TX_DATA__UART2_DCE_RTS 0x79
 				MX7D_PAD_SAI2_RX_DATA__UART2_DCE_CTS 0x79
-				MX7D_PAD_ECSPI1_MOSI__GPIO4_IO17     0x19  /* BT_REG_ON */
 			>;
 		};
 
@@ -703,8 +728,6 @@
 				MX7D_PAD_SD1_DATA1__SD1_DATA1	0x59
 				MX7D_PAD_SD1_DATA2__SD1_DATA2	0x59
 				MX7D_PAD_SD1_DATA3__SD1_DATA3	0x59
-				MX7D_PAD_ECSPI1_SCLK__GPIO4_IO16	0x19 /* WL_REG_ON */
-				MX7D_PAD_ECSPI1_MISO__GPIO4_IO18	0x19 /* WL_HOST_WAKE */
 				MX7D_PAD_SD1_CD_B__GPIO5_IO0		0x59 /* CD */
 			>;
 		};
@@ -739,6 +762,7 @@
 				MX7D_PAD_SD2_DATA1__SD2_DATA1   0x59
 				MX7D_PAD_SD2_DATA2__SD2_DATA2   0x59
 				MX7D_PAD_SD2_DATA3__SD2_DATA3   0x59
+				MX7D_PAD_ECSPI2_MOSI__GPIO4_IO21	0x59 /* WL_REG_ON */
 			>;
 		};
 
@@ -817,8 +841,7 @@
 
 		pinctrl_pcie: pciegrp {
 			fsl,pins = <
-				MX7D_PAD_EPDC_SDCE0__GPIO2_IO20         0x59
-				MX7D_PAD_EPDC_SDCE1__GPIO2_IO21         0x59
+				MX7D_PAD_EPDC_SDCE3__GPIO2_IO23         0x59
 			>;
 		};
 
@@ -922,9 +945,10 @@
 &pcie {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_pcie>;
-	reset-gpio = <&gpio2 21 GPIO_ACTIVE_LOW>;
-	disable-gpio = <&gpio2 20 GPIO_ACTIVE_LOW>;
-	status = "okay";
+	reset-gpio = <&gpio_buff 12 GPIO_ACTIVE_LOW>; /* PCIE_PERST_L */
+	disable-gpio = <&gpio_buff 1 GPIO_ACTIVE_LOW>; /* WL REG ON */
+	clkreq-gpio = <&gpio2 23 GPIO_ACTIVE_LOW>; /* PCIe_CLKREQ */
+	status = "disabled";
 };
 
 &pwm1 {
@@ -998,36 +1022,17 @@
 
 
 &usdhc1 {
-	#address-cells = <1>;
-	#size-cells = <0>;
 	pinctrl-names = "default", "state_100mhz", "state_200mhz";
 	pinctrl-0 = <&pinctrl_usdhc1>;
 	pinctrl-1 = <&pinctrl_usdhc1_100mhz>;
 	pinctrl-2 = <&pinctrl_usdhc1_200mhz>;
 	cd-gpios = <&gpio5 0 GPIO_ACTIVE_LOW>;
-	clocks = <&clks IMX7D_CLK_DUMMY>,
-		<&clks IMX7D_CLK_DUMMY>,
-		<&clks IMX7D_USDHC1_ROOT_CLK>;
-	clock-names = "ipg", "ahb", "per";
-	fsl,tuning-start-tap = <20>;
-	fsl,tuning-step= <2>;
+	tuning-step = <2>;
+	vmmc-supply = <&reg_sd1_vmmc>;
 	enable-sdio-wakeup;
+	no-1-8-v;
 	keep-power-in-suspend;
-	non-removable;
-	cd-broken;
-	pm-ignore-notify;
-	wifi-host;
 	status = "okay";
-//	no-1-8-v;	/* Murata: enable 1.8V VIO for SD1 by disabling 3.3V-only mode */
-	max-frequency = <100000000>; /* slow down UHS SDR104 clock */ 
-	mmc-pwrseq = <&usdhc1_pwrseq>;
-	brcmf: bcrmf@1 {
-		reg = <1>;
-		compatible = "brcm,bcm4329-fmac";
-		interrupt-parent = <&gpio4>;
-		interrupts = <18 IRQ_TYPE_LEVEL_HIGH>;  /* WL_HOST_WAKE = GPIO4_IO18 active high. Change to IRQ_TYPE_EDGE_RISING for 1BW and SN8000. */
-		interrupt-names = "host-wake";
-	};
 };
 /*
 &usdhc2 {
@@ -1071,6 +1076,4 @@
                 reg = <0>;
         };
 };
-
-
 

@@ -105,6 +105,7 @@
 			regulator-name = "VDD_SD1";
 			regulator-min-microvolt = <3300000>;
 			regulator-max-microvolt = <3300000>;
+			/* gpio = <&gpio5 2 GPIO_ACTIVE_HIGH>; */
 			enable-active-high;
 			startup-delay-us = <200000>;
 		};
@@ -175,7 +176,6 @@
         pinctrl-names = "default";
         pinctrl-0 = <&pinctrl_flexcan1>;
         xceiver-supply = <&reg_can>;
-        trx-stby-gpio = <&gpio2 23 GPIO_ACTIVE_LOW>;
         status = "okay";
 };
 
@@ -184,7 +184,6 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_flexcan2>;
 	xceiver-supply = <&reg_can>;
-	trx-stby-gpio = <&gpio2 23 GPIO_ACTIVE_LOW>;
 	status = "okay";
 };
 
@@ -260,9 +259,8 @@
                         };
 
                         vgen3_reg: vccsd {
-                                regulator-min-microvolt = <1800000>;  /* Murata: force 1.8V VIO for SD1 interface??? */
+                                regulator-min-microvolt = <2850000>;
                                 regulator-max-microvolt = <3300000>;
-				regulator-boot-on; /* Murata -- does this make difference? */
                                 regulator-always-on;
                         };
 
@@ -409,6 +407,16 @@
 			gpios = <8 0>;
 			output-high; /* High for J23 (Samtec PCIe), Low for J30 (M.2 PCIe) */
 		};
+		hog_AUD_CODEC_MUX_CTRL1 {
+			gpio-hog;
+			gpios = <10 0>;
+			output-high;
+		};
+		hog_AUD_CODEC_MUX_CTRL2 {
+			gpio-hog;
+			gpios = <11 0>;
+			output-high;
+		};
 	};
 };
 
@@ -436,10 +444,9 @@
 		pinctrl_hog_1: hoggrp-1 {
 			fsl,pins = <
 				MX7D_PAD_UART3_CTS_B__GPIO4_IO7	0x14
-				MX7D_PAD_SD1_RESET_B__GPIO5_IO2		0x59 /* vmmc */
-				MX7D_PAD_EPDC_SDCE3__GPIO2_IO23         0x59
+				MX7D_PAD_ECSPI2_SS0__GPIO4_IO23	 0x80000000  /* SSEL SPI2 */
+				MX7D_PAD_GPIO1_IO08__GPIO1_IO8		0x59 /* SD1_VSELECT */
 				MX7D_PAD_EPDC_DATA14__GPIO2_IO14        0x59  /* CAN_STBY */
-				MX7D_PAD_EPDC_SDCE3__GPIO2_IO23		0x59 /* PCIe CLKREQ */
 			>;
 		};
 
@@ -632,8 +639,8 @@
 				MX7D_PAD_SD1_DATA1__SD1_DATA1	0x59
 				MX7D_PAD_SD1_DATA2__SD1_DATA2	0x59
 				MX7D_PAD_SD1_DATA3__SD1_DATA3	0x59
-				MX7D_PAD_EPDC_SDCE0__GPIO2_IO20		0x59 /* WL_HOST_WAKE */
 				MX7D_PAD_SD1_CD_B__GPIO5_IO0		0x59 /* CD */
+//				MX7D_PAD_SD1_RESET_B__GPIO5_IO2		0x59 /* vmmc */
 			>;
 		};
 
@@ -773,6 +780,11 @@
                         >;
                 };
 
+		pinctrl_pcie: pciegrp {
+			fsl,pins = <
+				MX7D_PAD_EPDC_SDCE3__GPIO2_IO23		0x59 /* PCIe CLKREQ */
+			>;
+		};
 	};
 };
 
@@ -843,9 +855,8 @@
 
 &pcie {
 	pinctrl-names = "default";
-	/*reset-gpio = <&gpio2 21 GPIO_ACTIVE_LOW>;*/
+	pinctrl-0 = <&pinctrl_pcie>;
 	reset-gpio = <&gpio_buff 12 GPIO_ACTIVE_LOW>; /* PCIE_PERST_L */
-	/*disable-gpio = <&gpio2 22 GPIO_ACTIVE_LOW>;*/
 	disable-gpio = <&gpio_buff 1 GPIO_ACTIVE_LOW>; /* WL REG ON */
 	clkreq-gpio = <&gpio2 23 GPIO_ACTIVE_LOW>; /* PCIe_CLKREQ */
 	status = "okay";

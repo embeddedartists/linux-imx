@@ -108,7 +108,6 @@
 	status = "disabled";
 };
 
-
 &lcdif {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_lcdif_dat
@@ -341,6 +340,16 @@
 			gpios = <9 0>;
 			output-high;
 		};
+		hog_AUD_CODEC_MUX_CTRL1 {
+			gpio-hog;
+			gpios = <10 0>;
+			output-high;
+		};
+		hog_AUD_CODEC_MUX_CTRL2 {
+			gpio-hog;
+			gpios = <11 0>;
+			output-high;
+		};
 		hog_VBAT_VSEL {
 			gpio-hog;
 			gpios = <14 0>;
@@ -428,7 +437,6 @@
 				MX6UL_PAD_UART2_RX_DATA__UART2_DCE_RX	0x1b0b1
 				MX6UL_PAD_UART2_RTS_B__UART2_DCE_RTS	0x1b0b1
 				MX6UL_PAD_UART2_CTS_B__UART2_DCE_CTS	0x1b0b1
-				MX6UL_PAD_NAND_CE1_B__GPIO4_IO14	0x03029	  /* BT_REG_ON */
 			>;
 		};
 
@@ -448,8 +456,6 @@
 				MX6UL_PAD_SD1_DATA1__USDHC1_DATA1 0x17059
 				MX6UL_PAD_SD1_DATA2__USDHC1_DATA2 0x17059
 				MX6UL_PAD_SD1_DATA3__USDHC1_DATA3 0x17059
-				/*MX6UL_PAD_GPIO1_IO03__GPIO1_IO03  0x17059  / * CD */
-				/*MX6UL_PAD_NAND_CE0_B__GPIO4_IO13  0x03029  /* WL_REG_ON */
 				MX6UL_PAD_GPIO1_IO01__GPIO1_IO01 0x13041  /* WL_HOST_WAKE */
 			>;
 		};
