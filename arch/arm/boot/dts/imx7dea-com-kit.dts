@@ -387,15 +387,20 @@
 			"AUD_CODEC_MUX_CTRL2", "PCIE_PERST_L", "SD_MUX_CTRL2",
 			"VBAT_VSEL", "M2-E_WLAN_ENABLE";
 
+		hog_VDDIO_VSEL {
+			gpio-hog;
+			gpios = <6 0>;
+			output-low; /* Set default VIO to 1.8V (high only for PE9, change to low for PE10+) */
+		};
 		hog_AUD_CODEC_MUX_CTRL1 {
 			gpio-hog;
 			gpios = <10 0>;
-			output-high;
+			output-low;
 		};
 		hog_AUD_CODEC_MUX_CTRL2 {
 			gpio-hog;
 			gpios = <11 0>;
-			output-high;
+			output-low;
 		};
 	};
 };
@@ -425,7 +430,7 @@
 			fsl,pins = <
 				MX7D_PAD_UART3_CTS_B__GPIO4_IO7	0x14
 				MX7D_PAD_ECSPI2_SS0__GPIO4_IO23	 0x80000000  /* SSEL SPI2 */
-				MX7D_PAD_GPIO1_IO08__GPIO1_IO8		0x59 /* SD1_VSELECT */
+				MX7D_PAD_GPIO1_IO08__SD1_VSELECT        0x33 /* Murata: 5K pullup - MAX drive strength for SD1_VSELECT */
 				MX7D_PAD_EPDC_DATA14__GPIO2_IO14        0x59  /* CAN_STBY */
 			>;
 		};
