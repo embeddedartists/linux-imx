@@ -948,6 +948,10 @@ static void __init imx7d_clocks_init(struct device_node *ccm_node)
 	imx_clk_set_parent(clks[IMX7D_UART6_ROOT_SRC], clks[IMX7D_PLL_SYS_MAIN_240M_CLK]);
 	imx_clk_set_rate(clks[IMX7D_UART6_ROOT_DIV], 80000000);
 
+	/* Murata -- setup UART2 so it can support highspeed Bluetooth interface */
+	imx_clk_set_parent(clks[IMX7D_UART2_ROOT_SRC], clks[IMX7D_PLL_SYS_MAIN_240M_CLK]);
+	imx_clk_set_rate(clks[IMX7D_UART2_ROOT_DIV], 80000000);
+
 	imx_register_uart_clocks(uart_clks);
 }
 CLK_OF_DECLARE(imx7d, "fsl,imx7d-ccm", imx7d_clocks_init);
