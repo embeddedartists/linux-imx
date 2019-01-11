@@ -1,0 +1,42 @@
+/*
+ * Copyright (C) 2015 Freescale Semiconductor, Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+ 
+#include "imx6ulea-com-kit.dts"
+
+&lcdif {
+	status = "okay";
+};
+&t_lcd {
+	status = "okay";
+};
+&backlight_lcd {
+	status = "okay";
+};
+&display0 {
+	status = "okay";
+};
+&i2c1 {
+	ar1021_rgb@4d {
+		status = "disabled";
+	};
+	egalax_ts_rgb@04 {
+		status = "disabled";
+	};
+	edt-ft5x06_rgb@38 {
+		status = "disabled";
+	};
+	ilitek_aim_rgb@41 {
+		status = "disabled";
+	};
+        mxt1664_ts_rgb@4b {
+                status = "disabled";
+        };
+	sitronix_rgb@55 {
+                status = "disabled";
+	};
+};
