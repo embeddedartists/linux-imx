@@ -87,7 +87,7 @@
 #include <linux/irq.h>
 #include <linux/cdev.h>
 #include <linux/of_gpio.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/version.h>
 #include <linux/regulator/consumer.h>
 #include <linux/wait.h>
@@ -224,7 +224,7 @@ static int ilitek_file_open(struct inode*, struct file*);
 	static int  ilitek_file_ioctl(struct inode *inode, struct file *filp, unsigned int cmd, unsigned long arg);
 #endif
 static int ilitek_file_open(struct inode*, struct file*);
-static ssize_t ilitek_file_write(struct file*, const char*, size_t, loff_t*);
+static ssize_t ilitek_file_write(struct file*, const char __user*, size_t, loff_t*);
 static ssize_t ilitek_file_read(struct file*, char*, size_t, loff_t*);
 static int ilitek_file_close(struct inode*, struct file*);
 
@@ -449,10 +449,11 @@ return
 */
 static ssize_t
 ilitek_file_write(
-	struct file *filp, const char *buf, size_t count, loff_t *f_pos)
+	struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
 {
 	int ret;
 	unsigned char buffer[128]={0};
+	unsigned long length;
 
 	// before sending data to touch device, we need to check whether the device is working or not
 	if(i2c.valid_i2c_register == 0){
@@ -460,14 +461,10 @@ ilitek_file_write(
 		return -1;
 	}
 
-	// check the buffer size whether it exceeds the local buffer size or not
-	if(count > 128){
-		printk(ILITEK_ERROR_LEVEL "%s, buffer exceed 128 bytes\n", __func__);
-		return -1;
-	}
+	length = count > 128 ? 128 : count;
 
 	// copy data from user space
-	ret = copy_from_user(buffer, buf, count-1);
+	ret = copy_from_user(buffer, buf, length);
 	if(ret < 0){
 		printk(ILITEK_ERROR_LEVEL "%s, copy data from user space, failed", __func__);
 		return -1;
@@ -1459,12 +1456,14 @@ static int ilitek_i2c_process_and_report(void)
     return ret;
 }
 
+#ifndef CLOCK_INTERRUPT
 static void ilitek_i2c_timer(unsigned long handle)
 {
     struct i2c_data *priv = (void *)handle;
 
     schedule_work(&priv->irq_work);
 }
+#endif
 /*
 description
 	work queue function for irq use

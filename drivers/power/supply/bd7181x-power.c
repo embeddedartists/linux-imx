@@ -18,6 +18,7 @@
 #include <linux/power_supply.h>
 #include <linux/mfd/bd7181x.h>
 #include <linux/delay.h>
+#include <linux/uaccess.h>
 
 #define JITTER_DEFAULT		1000		/* hope 3s is enough */
 #define JITTER_REPORT_CAP	10000		/* 10 seconds */

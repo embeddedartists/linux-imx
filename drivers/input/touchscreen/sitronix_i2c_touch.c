@@ -28,7 +28,7 @@
 #include "sitronix_i2c_touch.h"
 #ifdef SITRONIX_FW_UPGRADE_FEATURE
 #include <linux/cdev.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #ifdef SITRONIX_PERMISSION_THREAD
 #include <linux/fs.h>
 #include <linux/fcntl.h>
