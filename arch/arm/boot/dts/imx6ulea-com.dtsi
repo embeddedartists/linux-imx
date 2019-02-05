@@ -215,7 +215,6 @@
 		pinctrl_hog_1: hoggrp-1 {
 			fsl,pins = <
 				MX6UL_PAD_LCD_RESET__WDOG1_WDOG_ANY    0x30b0
-				MX6UL_PAD_GPIO1_IO05__USDHC1_VSELECT	0x17059 /* SD1 VSELECT */
 				MX6UL_PAD_GPIO1_IO09__GPIO1_IO09        0x17059 /* SD1 RESET */
 				MX6UL_PAD_SNVS_TAMPER1__GPIO5_IO01      0x17059 /* CAN Regulator */
 			>;

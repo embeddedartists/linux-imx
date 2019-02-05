@@ -42,6 +42,13 @@
 		status = "okay";
 	};
 
+	modem_reset: modem-reset {		/* Murata -- BT_REG_ON */
+		compatible = "gpio-reset";
+		reset-gpios = <&gpio_buff 0 GPIO_ACTIVE_LOW>;
+		reset-delay-us = <1000>;
+		#reset-cells = <0>;
+	};
+
 	regulators {
 		compatible = "simple-bus";
 		#address-cells = <1>;
@@ -93,23 +100,18 @@
 			enable-active-high;
 		};
 
-		reg_sd1_vmmc: regulator@5 {
+		reg_sd2_vmmc: regulator@5 {
 			compatible = "regulator-fixed";
-			regulator-name = "VDD_SD1";
+			regulator-name = "VDD_SD2";
 			regulator-min-microvolt = <3300000>;
 			regulator-max-microvolt = <3300000>;
-			/* gpio = <&gpio5 2 GPIO_ACTIVE_HIGH>; */
 			enable-active-high;
 			startup-delay-us = <200000>;
 		};
-
-		wlreg_on: fixedregulator@100 {
-			compatible = "regulator-fixed";
-			regulator-min-microvolt = <5000000>;
-			regulator-max-microvolt = <5000000>;
-			regulator-name = "wlreg_on";
-			gpio = <&gpio4 21 GPIO_ACTIVE_HIGH>;
-			enable-active-high;
+		usdhc1_pwrseq: usdhc1_pwrseq {			/* add construct for "fmac" to control WL_REG_ON signal */
+			compatible = "mmc-pwrseq-simple";
+			reset-gpios = <&gpio_buff 1 GPIO_ACTIVE_LOW>; /* WL REG ON */
+			status = "okay";
 		};
 	};
 
@@ -123,7 +125,15 @@
                 audio-routing = "LOUT", "ROUT", "LLINEIN", "RLINEIN";
         };
 
+	gpio-keys {
+		compatible = "gpio-keys";
 
+		user_btn {
+			label = "User Button";
+			gpios = <&gpio_buff 13 GPIO_ACTIVE_LOW>;
+			linux,code = <103>; /* 103 = numpad 7 */
+		};
+	};
 };
 
 &adc1 {
@@ -178,7 +188,6 @@
         pinctrl-names = "default";
         pinctrl-0 = <&pinctrl_flexcan1>;
         xceiver-supply = <&reg_can>;
-        trx-stby-gpio = <&gpio2 23 GPIO_ACTIVE_LOW>;
         status = "okay";
 };
 
@@ -187,7 +196,6 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_flexcan2>;
 	xceiver-supply = <&reg_can>;
-	trx-stby-gpio = <&gpio2 23 GPIO_ACTIVE_LOW>;
 	status = "okay";
 };
 
@@ -263,8 +271,9 @@
                         };
 
                         vgen3_reg: vccsd {
-                                regulator-min-microvolt = <2850000>;
+                                regulator-min-microvolt = <1800000>;  /* Murata: VIO for SDIO interface */
                                 regulator-max-microvolt = <3300000>;
+				regulator-boot-on; /* Murata -- does this make difference? */
                                 regulator-always-on;
                         };
 
@@ -367,6 +376,10 @@
                 interrupt-parent = <&gpio5>;
                 interrupts = <9 IRQ_TYPE_EDGE_FALLING>;
         };
+	rtc: pcf8523@68 {
+		compatible = "nxp,pcf8523";
+		reg = <0x68>;
+	};
 };
 
 &i2c2 {
@@ -374,6 +387,49 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_i2c2>;
 	status = "okay";
+
+	gpio_buff: pca6416@20 {
+		compatible = "ti,tca6416";
+		reg = <0x20>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		gpio-line-names = "BT_REG_ON", "WL_REG_ON", "VBAT_VSEL",
+			"BT_DEV_WAKE", "", "AUD_CODEC_MUX_CTRL1",
+			"VDDIO_VSEL", "PCIE_PERST_L", "",
+			"DIR_WL_DEV_WAKE", "PCIE_CLK_MUX_CTRL", "AUD_CODEC_MUX_CTRL2",
+			"DIR_BT_AUD_WS_CLK", "USER_BTN", "USER_LED1", "USER_LED2";
+
+		hog_VBAT_VSEL {
+			gpio-hog;
+			gpios = <2 0>;
+			output-low; /* LOW = 3.3V, HIGH = 3.6V */
+		};
+		hog_AUD_CODEC_MUX_CTRL1 {
+			gpio-hog;
+			gpios = <5 0>;
+			output-low;
+		};
+		hog_VDDIO_VSEL {
+			gpio-hog;
+			gpios = <6 0>;
+			output-low; /* LOW = 1.8V, HIGH = 3.3V */
+		};
+		hog_DIR_WL_DEV_WAKE {
+			gpio-hog;
+			gpios = <9 0>;
+			output-low;
+		};
+		hog_PCIE_CLK_MUX_CTRL {
+			gpio-hog;
+			gpios = <10 0>;
+			output-high; /* LOW = External Reference Clock, HIGH = i.MX Generated Clock */
+		};
+		hog_AUD_CODEC_MUX_CTRL2 {
+			gpio-hog;
+			gpios = <11 0>;
+			output-low;
+		};
+	};
 };
 
 &i2c3 {
@@ -394,17 +450,12 @@
 
 &iomuxc {
 	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_hog_1>;
+	pinctrl-0 = <&pinctrl_hog_1>, <&pinctrl_exp_conn>;
 
 	imx7d-sdb {
 		pinctrl_hog_1: hoggrp-1 {
 			fsl,pins = <
-				MX7D_PAD_UART3_CTS_B__GPIO4_IO7	0x14
-				MX7D_PAD_GPIO1_IO08__GPIO1_IO8		0x59 
-				MX7D_PAD_SD1_CD_B__GPIO5_IO0		0x59 /* CD */
-				MX7D_PAD_SD1_RESET_B__GPIO5_IO2		0x59 /* vmmc */
-				MX7D_PAD_EPDC_SDCE3__GPIO2_IO23         0x59
-				MX7D_PAD_EPDC_DATA14__GPIO2_IO14        0x59  /* CAN_STBY */
+				MX7D_PAD_GPIO1_IO08__GPIO1_IO8		0x0B /* Murata - VSELECT for WLAN SDIO interface */
 			>;
 		};
 
@@ -465,20 +516,6 @@
 				MX7D_PAD_ENET1_RGMII_RX_CTL__ENET1_RGMII_RX_CTL	0x1
 				MX7D_PAD_ENET1_COL__GPIO7_IO15                  0x1
 				MX7D_PAD_ENET1_RX_CLK__GPIO7_IO13               0x1
-			>;
-		};
-
-		pinctrl_ecspi3_cs: ecspi3_cs_grp {
-			fsl,pins = <
-				MX7D_PAD_SD2_CD_B__GPIO5_IO9	0x80000000
-			>;
-		};
-
-		pinctrl_ecspi3: ecspi3grp {
-			fsl,pins = <
-				MX7D_PAD_SAI2_TX_SYNC__ECSPI3_MISO	0x2
-				MX7D_PAD_SAI2_TX_BCLK__ECSPI3_MOSI	0x2
-				MX7D_PAD_SAI2_RX_DATA__ECSPI3_SCLK	0x2
 			>;
 		};
 
@@ -576,6 +613,8 @@
                         fsl,pins = <
                                 MX7D_PAD_UART2_TX_DATA__UART2_DCE_TX 0x79
                                 MX7D_PAD_UART2_RX_DATA__UART2_DCE_RX 0x79
+				MX7D_PAD_SAI2_TX_DATA__UART2_DCE_RTS 0x79
+				MX7D_PAD_SAI2_RX_DATA__UART2_DCE_CTS 0x79
                         >;
                 };
 
@@ -595,17 +634,18 @@
 				MX7D_PAD_SD1_DATA1__SD1_DATA1	0x59
 				MX7D_PAD_SD1_DATA2__SD1_DATA2	0x59
 				MX7D_PAD_SD1_DATA3__SD1_DATA3	0x59
+				MX7D_PAD_EPDC_SDCE0__GPIO2_IO20	0x19 /* WL_HOST_WAKE */
 			>;
 		};
 
 		pinctrl_usdhc1_100mhz: usdhc1grp_100mhz {
 			fsl,pins = <
-				MX7D_PAD_SD1_CMD__SD1_CMD	0x5a
-				MX7D_PAD_SD1_CLK__SD1_CLK	0x1a
-				MX7D_PAD_SD1_DATA0__SD1_DATA0	0x5a
-				MX7D_PAD_SD1_DATA1__SD1_DATA1	0x5a
-				MX7D_PAD_SD1_DATA2__SD1_DATA2	0x5a
-				MX7D_PAD_SD1_DATA3__SD1_DATA3	0x5a
+				MX7D_PAD_SD1_CMD__SD1_CMD	0x5b
+				MX7D_PAD_SD1_CLK__SD1_CLK	0x1b
+				MX7D_PAD_SD1_DATA0__SD1_DATA0	0x5b
+				MX7D_PAD_SD1_DATA1__SD1_DATA1	0x5b
+				MX7D_PAD_SD1_DATA2__SD1_DATA2	0x5b
+				MX7D_PAD_SD1_DATA3__SD1_DATA3	0x5b
 			>;
 		};
 
@@ -622,35 +662,13 @@
 
 		pinctrl_usdhc2: usdhc2grp {
 			fsl,pins = <
-				MX7D_PAD_SD2_CMD__SD2_CMD       0x59
-				MX7D_PAD_SD2_CLK__SD2_CLK       0x19
-				MX7D_PAD_SD2_DATA0__SD2_DATA0   0x59
-				MX7D_PAD_SD2_DATA1__SD2_DATA1   0x59
-				MX7D_PAD_SD2_DATA2__SD2_DATA2   0x59
-				MX7D_PAD_SD2_DATA3__SD2_DATA3   0x59
-				MX7D_PAD_ECSPI2_MOSI__GPIO4_IO21	0x59 /* WL_REG_ON */
-			>;
-		};
-
-		pinctrl_usdhc2_100mhz: usdhc2grp_100mhz {
-			fsl,pins = <
 				MX7D_PAD_SD2_CMD__SD2_CMD       0x5a
 				MX7D_PAD_SD2_CLK__SD2_CLK       0x1a
 				MX7D_PAD_SD2_DATA0__SD2_DATA0   0x5a
 				MX7D_PAD_SD2_DATA1__SD2_DATA1   0x5a
 				MX7D_PAD_SD2_DATA2__SD2_DATA2   0x5a
 				MX7D_PAD_SD2_DATA3__SD2_DATA3   0x5a
-			>;
-		};
-
-		pinctrl_usdhc2_200mhz: usdhc2grp_200mhz {
-			fsl,pins = <
-				MX7D_PAD_SD2_CMD__SD2_CMD       0x5b
-				MX7D_PAD_SD2_CLK__SD2_CLK       0x1b
-				MX7D_PAD_SD2_DATA0__SD2_DATA0   0x5b
-				MX7D_PAD_SD2_DATA1__SD2_DATA1   0x5b
-				MX7D_PAD_SD2_DATA2__SD2_DATA2   0x5b
-				MX7D_PAD_SD2_DATA3__SD2_DATA3   0x5b
+				MX7D_PAD_SD1_CD_B__GPIO5_IO0    0x5a /* CD */
 			>;
 		};
 
@@ -735,6 +753,50 @@
                         >;
                 };
 
+		pinctrl_pcie: pciegrp {
+			fsl,pins = <
+				MX7D_PAD_EPDC_SDCE2__GPIO2_IO22		0x59 /* PCIe CLKREQ */
+			>;
+		};
+
+		/* Expansion Board */
+		pinctrl_exp_conn: expconngrp {
+			fsl,pins = <
+				MX7D_PAD_ENET1_CRS__GPIO7_IO14		0x1b /* GPIO_H */
+				MX7D_PAD_LPSR_GPIO1_IO02__GPIO1_IO2	0x1b /* GPIO_J */
+				/*MX7D_PAD_GPIO1_IO08__GPIO1_IO8	0x1b    GPIO_K shared with SD1_VSELECT */
+				MX7D_PAD_UART3_CTS_B__GPIO4_IO7		0x1b /* GPIO_P */
+
+				/*MX7D_PAD_EPDC_DATA00__GPIO2_IO0	0x1b    GPIO_Q shared with QSPI_A */
+				/*MX7D_PAD_EPDC_DATA01__GPIO2_IO1	0x1b    GPIO_R shared with QSPI_A */
+				/*MX7D_PAD_EPDC_DATA02__GPIO2_IO2	0x1b    GPIO_S shared with QSPI_A */
+				/*MX7D_PAD_EPDC_DATA03__GPIO2_IO3	0x1b    GPIO_T shared with QSPI_A */
+				MX7D_PAD_EPDC_DATA04__GPIO2_IO4		0x1b /* GPIO_U */
+				/*MX7D_PAD_EPDC_DATA05__GPIO2_IO5	0x1b    GPIO_V shared with QSPI_A */
+				/*MX7D_PAD_EPDC_DATA06__GPIO2_IO6	0x1b    GPIO_W shared with QSPI_A */
+				MX7D_PAD_EPDC_DATA07__GPIO2_IO7		0x1b /* GPIO_X */
+				MX7D_PAD_EPDC_DATA08__GPIO2_IO8		0x1b /* GPIO_Y */
+				MX7D_PAD_EPDC_DATA09__GPIO2_IO9		0x1b /* GPIO_Z */
+				MX7D_PAD_EPDC_DATA10__GPIO2_IO10	0x1b /* GPIO_AA */
+				MX7D_PAD_EPDC_DATA11__GPIO2_IO11	0x1b /* GPIO_AB */
+				MX7D_PAD_EPDC_DATA12__GPIO2_IO12	0x1b /* GPIO_AC */
+				MX7D_PAD_EPDC_DATA13__GPIO2_IO13	0x1b /* GPIO_AD */
+				MX7D_PAD_EPDC_DATA14__GPIO2_IO14	0x1b /* GPIO_AE */
+				MX7D_PAD_EPDC_DATA15__GPIO2_IO15	0x1b /* GPIO_AF */
+				MX7D_PAD_EPDC_SDCLK__GPIO2_IO16		0x1b /* GPIO_AG */
+				MX7D_PAD_EPDC_SDLE__GPIO2_IO17		0x1b /* GPIO_AH */
+				MX7D_PAD_EPDC_SDOE__GPIO2_IO18		0x1b /* GPIO_AJ */
+				MX7D_PAD_EPDC_PWR_COM__GPIO2_IO30	0x1b /* GPIO_AK */
+				MX7D_PAD_EPDC_PWR_STAT__GPIO2_IO31	0x1b /* GPIO_AL */
+				MX7D_PAD_SD1_WP__GPIO5_IO1		0x1b /* GPIO_AP */
+				/* GPIO_AQ Used by SNCS_TAMPER3 */
+				/* GPIO_AR Used by SNCS_TAMPER4 */
+				/* GPIO_AS Used by SNCS_TAMPER5 */
+				/* GPIO_AT Used by SNCS_TAMPER6 */
+				/* GPIO_AU Used by SNCS_TAMPER7 */
+				/* GPIO_AV Used by SNCS_TAMPER8 */
+			>;
+		};
 	};
 };
 
@@ -805,9 +867,11 @@
 
 &pcie {
 	pinctrl-names = "default";
-	reset-gpio = <&gpio2 21 GPIO_ACTIVE_LOW>;
-	disable-gpio = <&gpio2 22 GPIO_ACTIVE_LOW>;
-	status = "okay";
+	pinctrl-0 = <&pinctrl_pcie>;
+	reset-gpio = <&gpio_buff 7 GPIO_ACTIVE_LOW>; /* PCIE_PERST_L */
+	disable-gpio = <&gpio_buff 1 GPIO_ACTIVE_LOW>; /* WL REG ON */
+	clkreq-gpio = <&gpio2 22 GPIO_ACTIVE_LOW>; /* PCIe_CLKREQ */
+	status = "disabled";
 };
 
 &pwm1 {
@@ -848,11 +912,14 @@
 	status = "okay";
 };
 
+/* Bluetooth UART */
 &uart2 {
         pinctrl-names = "default";
         pinctrl-0 = <&pinctrl_uart2>;
         assigned-clocks = <&clks IMX7D_UART2_ROOT_SRC>;
-        assigned-clock-parents = <&clks IMX7D_OSC_24M_CLK>;
+        assigned-clock-parents = <&clks IMX7D_PLL_SYS_MAIN_240M_CLK>;
+	fsl,uart-has-rtscts;
+	resets = <&modem_reset>;
 	status = "okay";
 };
 
@@ -878,33 +945,66 @@
 	status = "okay";
 };
 
+&gpio1 {
+	/* Murata - This hog forces SD1_VSELECT high; SD1 VIO = 1.8V */
+	sd1_vselect_gpio {
+		gpio-hog;
+		gpios = <8 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "SD1 VSELECT";
+	};
+};
 
 &usdhc1 {
+	#address-cells = <1>;
+	#size-cells = <0>;
 	pinctrl-names = "default", "state_100mhz", "state_200mhz";
 	pinctrl-0 = <&pinctrl_usdhc1>;
 	pinctrl-1 = <&pinctrl_usdhc1_100mhz>;
 	pinctrl-2 = <&pinctrl_usdhc1_200mhz>;
+//	fsl,tuning-start-tap = <20>;	/* Murata: default is 20 */
+//	fsl,tuning-step= <4>;		/* Murata: default is 2 */
+//	fsl,delay-line = 0; 	/* Murata: default value, used to handle longer SDIO traces -- check into. */
+	enable-sdio-wakeup;
+//	wakeup-source;  /* Murata: not required given OOB IRQ configuration */
+	keep-power-in-suspend;
+	non-removable;
+	cd-broken;
+	pm-ignore-notify;
+	wifi-host;
+//	cap-power-off-card;
+//	no-1-8-v;  /* Murata: use to disable UHS negotation -- needed to reconfigure Type 1LV */
+	//max-frequency = <50000000>; /* slow down UHS SDR104 clock */
+	mmc-pwrseq = <&usdhc1_pwrseq>;
+
+	status = "okay";
+
+	brcmf: bcrmf@1 {
+		reg = <1>;
+		compatible = "brcm,bcm4329-fmac";
+		interrupt-parent = <&gpio2>;
+		interrupts = <20 IRQ_TYPE_LEVEL_LOW>;  /* WL_HOST_WAKE */
+		interrupt-names = "host-wake";
+		brcm,broken_sg_support;
+		brcm,sd_sgentry_align =/bits/ 16 <16>;
+	};
+};
+
+/* For uSD socket on COM Carrier Board */
+&usdhc2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_usdhc2>;
 	cd-gpios = <&gpio5 0 GPIO_ACTIVE_LOW>;
+	enable-sdio-wakeup;
+	keep-power-in-suspend;
 	tuning-step = <2>;
-	vmmc-supply = <&reg_sd1_vmmc>;
+	vmmc-supply = <&reg_sd2_vmmc>;
 	enable-sdio-wakeup;
 	no-1-8-v;
-	keep-power-in-suspend;
 	status = "okay";
 };
-/*
-&usdhc2 {
-	pinctrl-names = "default", "state_100mhz", "state_200mhz";
-	pinctrl-0 = <&pinctrl_usdhc2>;
-	pinctrl-1 = <&pinctrl_usdhc2_100mhz>;
-	pinctrl-2 = <&pinctrl_usdhc2_200mhz>;
-	enable-sdio-wakeup;
-	keep-power-in-suspend;
-	tuning-step = <2>;
-	wifi-host;
-	status = "okay";
-};
-*/
+
+/* eMMC */
 &usdhc3 {
 	pinctrl-names = "default", "state_100mhz", "state_200mhz";
 	pinctrl-0 = <&pinctrl_usdhc3>;

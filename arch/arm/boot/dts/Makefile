@@ -410,6 +410,10 @@ dtb-$(CONFIG_SOC_IMX6Q) += \
         imx6dlea-com-kit-ov5647.dtb \
         imx6dlea-com-kit-ov5640.dtb \
         imx6dlea-com-kit-ov5640-pl.dtb \
+        imx6dlea-com-kit_v2.dtb \
+        imx6dlea-com-kit_v2-ov5640.dtb \
+        imx6dlea-com-kit_v2-ov5640-pl.dtb \
+        imx6dlea-com-kit_v2-pcie.dtb \
         imx6dlea-com-ptp.dtb \
 	imx6dqscm-1gb-qwks-rev2-fix-ldo.dtb \
 	imx6dqscm-1gb-qwks-rev2-interleave-android-ldo.dtb \
@@ -496,6 +500,10 @@ dtb-$(CONFIG_SOC_IMX6Q) += \
         imx6qea-com-kit-ov5647.dtb \
         imx6qea-com-kit-ov5640.dtb \
         imx6qea-com-kit-ov5640-pl.dtb \
+        imx6qea-com-kit_v2.dtb \
+        imx6qea-com-kit_v2-ov5640.dtb \
+        imx6qea-com-kit_v2-ov5640-pl.dtb \
+        imx6qea-com-kit_v2-pcie.dtb \
         imx6qea-com-ptp.dtb \
 	imx6qp-nitrogen6_max.dtb \
 	imx6qp-nitrogen6_som2.dtb \
@@ -549,9 +557,13 @@ dtb-$(CONFIG_SOC_IMX6SX) += \
         imx6sxea-com-kit.dtb \
         imx6sxea-com-kit-m4.dtb \
         imx6sxea-com-kit-ov5640-pl.dtb \
-        imx6sxea-com-ptp.dtb \
         imx6sxea-com-kit-lvds.dtb \
-        imx6sxea-com-kit-rgb.dtb
+        imx6sxea-com-kit-rgb.dtb \
+        imx6sxea-com-kit_v2.dtb \
+        imx6sxea-com-kit_v2-m4.dtb \
+        imx6sxea-com-kit_v2-ov5640-pl.dtb \
+        imx6sxea-com-kit_v2-pcie.dtb \
+        imx6sxea-com-ptp.dtb
 dtb-$(CONFIG_SOC_IMX6UL) += \
 	imx6ul-14x14-evk.dtb \
 	imx6ul-14x14-evk-btwifi.dtb \
@@ -586,9 +598,11 @@ dtb-$(CONFIG_SOC_IMX6UL) += \
 	imx6ul-9x9-evk-btwifi-oob.dtb \
 	imx6ul-9x9-evk-ldo.dtb \
         imx6ulea-com-kit.dtb \
-        imx6ulea-com-ptp.dtb \
         imx6ulea-com-kit-rf.dtb \
-        imx6ulea-com-kit-ov5640-pl.dtb
+        imx6ulea-com-kit-ov5640-pl.dtb \
+        imx6ulea-com-kit_v2.dtb \
+        imx6ulea-com-kit_v2-ov5640-pl.dtb \
+        imx6ulea-com-ptp.dtb
 dtb-$(CONFIG_SOC_IMX6ULL) += \
 	imx6ull-14x14-ddr3-arm2.dtb \
 	imx6ull-14x14-ddr3-arm2-adc.dtb \
@@ -669,13 +683,21 @@ dtb-$(CONFIG_SOC_IMX7D) += \
         imx7dea-ucom-kit-ov5647.dtb \
         imx7dea-ucom-kit-ov5640.dtb \
         imx7dea-ucom-kit-lvds.dtb \
-        imx7dea-ucom-ptp.dtb \
         imx7dea-ucom-kit-m4.dtb \
+        imx7dea-ucom-kit_v2.dtb \
+        imx7dea-ucom-kit_v2-m4.dtb \
+        imx7dea-ucom-kit_v2-ov5640.dtb \
+        imx7dea-ucom-kit_v2-pcie.dtb \
+        imx7dea-ucom-ptp.dtb \
         imx7dea-com-kit.dtb \
         imx7dea-com-kit-ov5647.dtb \
         imx7dea-com-kit-ov5640.dtb \
-        imx7dea-com-ptp.dtb \
-        imx7dea-com-kit-m4.dtb
+        imx7dea-com-kit-m4.dtb \
+        imx7dea-com-kit_v2.dtb \
+        imx7dea-com-kit_v2-m4.dtb \
+        imx7dea-com-kit_v2-ov5640.dtb \
+        imx7dea-com-kit_v2-pcie.dtb \
+        imx7dea-com-ptp.dtb
 dtb-$(CONFIG_SOC_IMX7ULP) += \
 	imx7ulp-14x14-arm2.dtb \
 	imx7ulp-evk.dtb \

@@ -40,6 +40,13 @@
 		status = "okay";
 	};
 
+	modem_reset: modem-reset {		/* Murata -- BT_REG_ON */
+		compatible = "gpio-reset";
+		reset-gpios = <&gpio_buff 0 GPIO_ACTIVE_LOW>;
+		reset-delay-us = <1000>;
+		#reset-cells = <0>;
+	};
+
 	regulators {
 		compatible = "simple-bus";
 		#address-cells = <1>;
@@ -51,16 +58,6 @@
 			regulator-name = "can-3v3";
 			regulator-min-microvolt = <3300000>;
 			regulator-max-microvolt = <3300000>;
-			gpios = <&gpio5 1 GPIO_ACTIVE_LOW>;
-		};
-
-		reg_sd1_vmmc: regulator@1 {
-			compatible = "regulator-fixed";
-			regulator-name = "VSD_3V3";
-			regulator-min-microvolt = <3300000>;
-			regulator-max-microvolt = <3300000>;
-			gpio = <&gpio1 9 GPIO_ACTIVE_HIGH>;
-			enable-active-high;
 		};
 
 		reg_3v3: regulator@2 {
@@ -71,6 +68,10 @@
 			regulator-max-microvolt = <3300000>;
 		};
 
+		usdhc1_pwrseq: usdhc1_pwrseq {			/* add construct for "fmac" to control WL_REG_ON signal */
+			compatible = "mmc-pwrseq-simple";
+			reset-gpios = <&gpio_buff 1 GPIO_ACTIVE_LOW>; /* WL REG ON */
+		};
 	};
 
 	sound {
@@ -84,32 +85,36 @@
 		gpr = <&gpr 0x4 20>;
 	};
 
+	gpio-keys {
+		compatible = "gpio-keys";
 
+		user_btn {
+			label = "User Button";
+			gpios = <&gpio_buff 13 GPIO_ACTIVE_LOW>;
+			linux,code = <103>; /* 103 = numpad 7 */
+		};
+	};
 };
-
 
 &clks {
 	assigned-clocks = <&clks IMX6UL_CLK_PLL4_AUDIO_DIV>;
 	assigned-clock-rates = <860160000>;
 };
 
-
 &can1 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_flexcan1>;
 	xceiver-supply = <&reg_can_3v3>;
-	trx-stby-gpio = <&gpio5 1 GPIO_ACTIVE_LOW>;
 	status = "okay";
 };
 
+/* FlexCAN2 shares pins with UART2 (BT) so it is disabled */
 &can2 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_flexcan2>;
 	xceiver-supply = <&reg_can_3v3>;
-	trx-stby-gpio = <&gpio5 1 GPIO_ACTIVE_LOW>;
-	status = "okay";
+	status = "disabled";
 };
-
 
 &lcdif {
 	pinctrl-names = "default";
@@ -167,16 +172,18 @@
 	status = "okay";
 };
 
-
 &uart1 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_uart1>;
 	status = "okay";
 };
 
+/* Bluetooth UART. Shares pins with FlexCAN2 which is disabled */
 &uart2 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_uart2>;
+	fsl,uart-has-rtscts;
+	resets = <&modem_reset>;
 	status = "okay";
 };
 
@@ -197,20 +204,43 @@
 	status = "okay";
 };
 
-
 &usdhc1 {
+	#address-cells = <1>;
+	#size-cells = <0>;
 	pinctrl-names = "default", "state_100mhz", "state_200mhz";
 	pinctrl-0 = <&pinctrl_usdhc1>;
 	pinctrl-1 = <&pinctrl_usdhc1_100mhz>;
 	pinctrl-2 = <&pinctrl_usdhc1_200mhz>;
-	cd-gpios = <&gpio1 3 GPIO_ACTIVE_LOW>;
-	keep-power-in-suspend;
-	no-1-8-v;
+//	cd-gpios = <&gpio1 3 GPIO_ACTIVE_LOW>;
 	enable-sdio-wakeup;
-	vmmc-supply = <&reg_sd1_vmmc>;
+	fsl,tuning-start-tap = <20>;	/* Murata: i.MX default tuning-start-tap */
+	fsl,tuning-step= <2>;		/* Murata: change default step value from 2 to 4 for 1BB */
+	keep-power-in-suspend;
+	non-removable;
+	cd-broken;
+	pm-ignore-notify;
+	wifi-host;
 	status = "okay";
+	//no-1-8-v;	/* Murata: enable 1.8V VIO for SD1 by disabling 3.3V-only mode */
+	max-frequency = <150000000>; /* slow down UHS SDR104 clock */
+	mmc-pwrseq = <&usdhc1_pwrseq>;
+	brcmf: bcrmf@1 {
+		reg = <1>;
+		compatible = "brcm,bcm4329-fmac";
+		interrupt-parent = <&gpio1>;
+		interrupts = <1 IRQ_TYPE_LEVEL_LOW>;  /* WL_HOST_WAKE */
+		interrupt-names = "host-wake";
+	};
 };
 
+&gpio1 {
+	sd1_vselect-gpio {
+		gpio-hog;
+		gpios = <5 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "SD1 VSELECT";
+	};
+};
 
 &i2c1 {
 
@@ -291,14 +321,56 @@
 		interrupt-parent = <&gpio4>;
 		interrupts = <24 IRQ_TYPE_EDGE_FALLING>;
 	};
+	rtc: pcf8523@68 {
+		compatible = "nxp,pcf8523";
+		reg = <0x68>;
+	};
 };
 
+&i2c2 {
+	gpio_buff: pca6416@20 {
+		compatible = "ti,tca6416";
+		reg = <0x20>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		gpio-line-names = "BT_REG_ON", "WL_REG_ON", "VBAT_VSEL",
+			"BT_DEV_WAKE", "", "AUD_CODEC_MUX_CTRL1",
+			"VDDIO_VSEL", "PCIE_PERST_L", "",
+			"DIR_WL_DEV_WAKE", "PCIE_CLK_MUX_CTRL", "AUD_CODEC_MUX_CTRL2",
+			"DIR_BT_AUD_WS_CLK", "USER_BTN", "USER_LED1", "USER_LED2";
 
+		hog_VBAT_VSEL {
+			gpio-hog;
+			gpios = <2 0>;
+			output-low; /* LOW = 3.3V, HIGH = 3.6V */
+		};
+		hog_AUD_CODEC_MUX_CTRL1 {
+			gpio-hog;
+			gpios = <5 0>;
+			output-low;
+		};
+		hog_VDDIO_VSEL {
+			gpio-hog;
+			gpios = <6 0>;
+			output-low; /* LOW = 1.8V, HIGH = 3.3V */
+		};
+		hog_DIR_WL_DEV_WAKE {
+			gpio-hog;
+			gpios = <9 0>;
+			output-low;
+		};
+		hog_AUD_CODEC_MUX_CTRL2 {
+			gpio-hog;
+			gpios = <11 0>;
+			output-low;
+		};
+	};
+};
 
 &iomuxc {
 
 	imx6ulea-com-kit {
-
+		pinctrl-0 = <&pinctrl_exp_conn>;
 
 		pinctrl_flexcan1: flexcan1grp{
 			fsl,pins = <
@@ -371,7 +443,9 @@
 		pinctrl_uart2: uart2grp {
 			fsl,pins = <
 				MX6UL_PAD_UART2_TX_DATA__UART2_DCE_TX	0x1f0b1
-				MX6UL_PAD_UART2_RX_DATA__UART2_DCE_RX	0x1f0b1
+				MX6UL_PAD_UART2_RX_DATA__UART2_DCE_RX	0x1b0b1
+				MX6UL_PAD_UART2_RTS_B__UART2_DCE_RTS	0x1b0b1
+				MX6UL_PAD_UART2_CTS_B__UART2_DCE_CTS	0x1b0b1
 			>;
 		};
 
@@ -385,14 +459,13 @@
 
 		pinctrl_usdhc1: usdhc1grp {
 			fsl,pins = <
-				MX6UL_PAD_SD1_CMD__USDHC1_CMD     0x17059
-				MX6UL_PAD_SD1_CLK__USDHC1_CLK     0x10071
-				MX6UL_PAD_SD1_DATA0__USDHC1_DATA0 0x17059
-				MX6UL_PAD_SD1_DATA1__USDHC1_DATA1 0x17059
-				MX6UL_PAD_SD1_DATA2__USDHC1_DATA2 0x17059
-				MX6UL_PAD_SD1_DATA3__USDHC1_DATA3 0x17059
-				MX6UL_PAD_GPIO1_IO03__GPIO1_IO03  0x17059
-				MX6UL_PAD_GPIO1_IO05__USDHC1_VSELECT	0x17059 /* SD1 VSELECT */
+				MX6UL_PAD_SD1_CMD__USDHC1_CMD     0x17079
+				MX6UL_PAD_SD1_CLK__USDHC1_CLK     0x10077
+				MX6UL_PAD_SD1_DATA0__USDHC1_DATA0 0x17079
+				MX6UL_PAD_SD1_DATA1__USDHC1_DATA1 0x17079
+				MX6UL_PAD_SD1_DATA2__USDHC1_DATA2 0x17079
+				MX6UL_PAD_SD1_DATA3__USDHC1_DATA3 0x17079
+				MX6UL_PAD_GPIO1_IO01__GPIO1_IO01  0x17079 /* WL_HOST_WAKE */
 			>;
 		};
 
@@ -435,5 +508,42 @@
 			>;
 		};
 
+		/* Expansion Board */
+		pinctrl_exp_conn: expconngrp {
+			fsl,pins = <
+				/* GPIO_H Not Connected */
+				/* GPIO_J Not Connected */
+				/* GPIO_K Not Connected */
+				MX6UL_PAD_NAND_WP_B__GPIO4_IO11		0x130b1 /* GPIO_P */
+				/* GPIO_Q Not Connected */
+				/* GPIO_R Used by BOOT_MODE0 */
+				/* GPIO_S Used by BOOT_MODE1 */
+				/*MX6UL_PAD_ENET2_TX_DATA0__GPIO2_IO11	0x130b1    GPIO_T shared with ENET2 */
+				/*MX6UL_PAD_ENET2_TX_DATA1__GPIO2_IO12	0x130b1    GPIO_U shared with ENET2 */
+				/*MX6UL_PAD_ENET2_TX_EN__GPIO2_IO13	0x130b1    GPIO_V shared with ENET2 */
+				/*MX6UL_PAD_ENET2_TX_CLK__GPIO2_IO14	0x130b1    GPIO_W shared with ENET2 */
+				/*MX6UL_PAD_ENET2_RX_DATA0__GPIO2_IO08	0x130b1    GPIO_X shared with ENET2 */
+				/*MX6UL_PAD_ENET2_RX_DATA1__GPIO2_IO09	0x130b1    GPIO_Y shared with ENET2 */
+				/*MX6UL_PAD_ENET2_RX_ER__GPIO2_IO15	0x130b1    GPIO_Z shared with ENET2 */
+				/*MX6UL_PAD_UART5_TX_DATA__ENET2_CRS	0x130b1    GPIO_AA shared with I2C2 */
+				/*MX6UL_PAD_GPIO1_IO06__GPIO1_IO06	0x130b1    GPIO_AB shared with ENET */
+				/*MX6UL_PAD_GPIO1_IO07__GPIO1_IO07	0x130b1    GPIO_AC shared with ENET */
+				/*MX6UL_PAD_ENET1_RX_DATA0__GPIO2_IO00	0x130b1    GPIO_AD shared with ENET1 */
+				/*MX6UL_PAD_ENET1_RX_DATA1__GPIO2_IO00	0x130b1    GPIO_AE shared with ENET1 */
+				/*MX6UL_PAD_UART2_CTS_B__GPIO1_IO22	0x130b1    GPIO_AF shared with FlexCAN2 */
+				/*MX6UL_PAD_ENET1_RX_ER__GPIO2_IO07	0x130b1    GPIO_AG shared with ENET1 */
+				/*MX6UL_PAD_ENET1_TX_DATA0__GPIO2_IO03	0x130b1    GPIO_AH shared with ENET1 */
+				/*MX6UL_PAD_ENET1_TX_DATA1__GPIO2_IO04	0x130b1    GPIO_AJ shared with ENET1 */
+				/*MX6UL_PAD_ENET1_TX_EN__GPIO2_IO05	0x130b1    GPIO_AK shared with ENET1 */
+				/*MX6UL_PAD_ENET1_TX_CLK__GPIO2_IO06	0x130b1    GPIO_AL shared with ENET1 */
+				/* GPIO_AP Used by SNVS_TAMPER5 */
+				/* GPIO_AQ Used by SNVS_TAMPER6 */
+				/* GPIO_AR Used by SNVS_TAMPER7 */
+				/* GPIO_AS Used by SNVS_TAMPER8 */
+				/* GPIO_AT Used by SNVS_TAMPER9 */
+				/* GPIO_AU Not Connected */
+				/* GPIO_AV Not Connected */
+			>;
+		};
 	};
 };
