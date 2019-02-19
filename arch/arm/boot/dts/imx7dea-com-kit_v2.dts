@@ -46,6 +46,7 @@
 		compatible = "gpio-reset";
 		reset-gpios = <&gpio_buff 0 GPIO_ACTIVE_LOW>;
 		reset-delay-us = <1000>;
+		initially-in-reset; 
 		#reset-cells = <0>;
 	};
 
@@ -625,7 +626,6 @@
                         >;
                 };
 
-
 		pinctrl_usdhc1: usdhc1grp {
 			fsl,pins = <
 				MX7D_PAD_SD1_CMD__SD1_CMD	0x59
@@ -634,18 +634,18 @@
 				MX7D_PAD_SD1_DATA1__SD1_DATA1	0x59
 				MX7D_PAD_SD1_DATA2__SD1_DATA2	0x59
 				MX7D_PAD_SD1_DATA3__SD1_DATA3	0x59
-				MX7D_PAD_EPDC_SDCE0__GPIO2_IO20	0x19 /* WL_HOST_WAKE */
+				MX7D_PAD_EPDC_SDCE0__GPIO2_IO20	0x59 /* WL_HOST_WAKE */
 			>;
 		};
 
 		pinctrl_usdhc1_100mhz: usdhc1grp_100mhz {
 			fsl,pins = <
-				MX7D_PAD_SD1_CMD__SD1_CMD	0x5b
-				MX7D_PAD_SD1_CLK__SD1_CLK	0x1b
-				MX7D_PAD_SD1_DATA0__SD1_DATA0	0x5b
-				MX7D_PAD_SD1_DATA1__SD1_DATA1	0x5b
-				MX7D_PAD_SD1_DATA2__SD1_DATA2	0x5b
-				MX7D_PAD_SD1_DATA3__SD1_DATA3	0x5b
+				MX7D_PAD_SD1_CMD__SD1_CMD	0x5a
+				MX7D_PAD_SD1_CLK__SD1_CLK	0x1a
+				MX7D_PAD_SD1_DATA0__SD1_DATA0	0x5a
+				MX7D_PAD_SD1_DATA1__SD1_DATA1	0x5a
+				MX7D_PAD_SD1_DATA2__SD1_DATA2	0x5a
+				MX7D_PAD_SD1_DATA3__SD1_DATA3	0x5a
 			>;
 		};
 
@@ -962,28 +962,17 @@
 	pinctrl-0 = <&pinctrl_usdhc1>;
 	pinctrl-1 = <&pinctrl_usdhc1_100mhz>;
 	pinctrl-2 = <&pinctrl_usdhc1_200mhz>;
-//	fsl,tuning-start-tap = <20>;	/* Murata: default is 20 */
-//	fsl,tuning-step= <4>;		/* Murata: default is 2 */
-//	fsl,delay-line = 0; 	/* Murata: default value, used to handle longer SDIO traces -- check into. */
-	enable-sdio-wakeup;
-//	wakeup-source;  /* Murata: not required given OOB IRQ configuration */
 	keep-power-in-suspend;
 	non-removable;
-	cd-broken;
 	pm-ignore-notify;
-	wifi-host;
-//	cap-power-off-card;
-//	no-1-8-v;  /* Murata: use to disable UHS negotation -- needed to reconfigure Type 1LV */
-	//max-frequency = <50000000>; /* slow down UHS SDR104 clock */
+	cap-power-off; 
 	mmc-pwrseq = <&usdhc1_pwrseq>;
-
 	status = "okay";
-
 	brcmf: bcrmf@1 {
 		reg = <1>;
 		compatible = "brcm,bcm4329-fmac";
 		interrupt-parent = <&gpio2>;
-		interrupts = <20 IRQ_TYPE_LEVEL_LOW>;  /* WL_HOST_WAKE */
+		interrupts = <20 IRQ_TYPE_LEVEL_LOW>; /* WL_HOST_WAKE = GPIO2_IO20 active low for M.2. */
 		interrupt-names = "host-wake";
 		brcm,broken_sg_support;
 		brcm,sd_sgentry_align =/bits/ 16 <16>;

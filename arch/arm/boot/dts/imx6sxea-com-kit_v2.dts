@@ -37,6 +37,7 @@
 		compatible = "gpio-reset";
 		reset-gpios = <&gpio_buff 0 GPIO_ACTIVE_LOW>;
 		reset-delay-us = <1000>;
+		initially-in-reset;
 		#reset-cells = <0>;
 	};
 
@@ -339,10 +340,9 @@
 &uart2 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_uart2>;
-	status = "okay";
-
 	fsl,uart-has-rtscts;
 	resets = <&modem_reset>;
+	status = "okay";
 };
 
 &uart5 {
@@ -365,32 +365,23 @@
 };
 
 &usdhc2 {
+	#address-cells = <1>;
+	#size-cells = <0>;
 	pinctrl-names = "default", "state_100mhz", "state_200mhz";
 	pinctrl-0 = <&pinctrl_usdhc2>;
 	pinctrl-1 = <&pinctrl_usdhc2_100mhz>;
 	pinctrl-2 = <&pinctrl_usdhc2_200mhz>;
-
-	#address-cells = <1>;
-	#size-cells = <0>;
-	fsl,tuning-start-tap = <20>; /* Murata: default is not 20 for SX -- check into. This value fixes "std tuning" */
-	fsl,tuning-step = <2>;  /* Murata: default is 1 */
-	enable-sdio-wakeup;
 	keep-power-in-suspend;
 	non-removable;
-	cd-broken;
 	pm-ignore-notify;
-	wifi-host;
-	//no-1-8-v; /* Removed to trick interface into UHS (Ultra High Speed) */
-	//max-frequency = <12500000>; /* slow down UHS SDR104 clock */
+	cap-power-off; 
 	mmc-pwrseq = <&usdhc2_pwrseq>;
-
 	status = "okay";
-
 	brcmf: bcrmf@1 {
 		reg = <1>;
 		compatible = "brcm,bcm4329-fmac";
 		interrupt-parent = <&gpio6>;
-		interrupts = <0 IRQ_TYPE_LEVEL_LOW>;  /* WL_HOST_WAKE */
+		interrupts = <0 IRQ_TYPE_LEVEL_LOW>;  /* WL_HOST_WAKE = GPIO6_IO00 active low for M.2. */
 		interrupt-names = "host-wake";
 		brcm,broken_sg_support;
 		brcm,sd_sgentry_align =/bits/ 16 <16>;
@@ -804,13 +795,13 @@
 
 		pinctrl_usdhc2: usdhc2grp {
 			fsl,pins = <
-				MX6SX_PAD_SD2_CMD__USDHC2_CMD		0x17071  /* Murata - default is 0x17059 including data lines */  
+				MX6SX_PAD_SD2_CMD__USDHC2_CMD		0x17069  /* Murata - default is 0x17059 including data lines */  
 				MX6SX_PAD_SD2_CLK__USDHC2_CLK		0x10071  /* Murata - default is 0x10059 */
-				MX6SX_PAD_SD2_DATA0__USDHC2_DATA0	0x17071
-				MX6SX_PAD_SD2_DATA1__USDHC2_DATA1	0x17071
-				MX6SX_PAD_SD2_DATA2__USDHC2_DATA2	0x17071
-				MX6SX_PAD_SD2_DATA3__USDHC2_DATA3	0x17071
-				MX6SX_PAD_SD1_CLK__GPIO6_IO_0		0x17059 /* WL_HOST_WAKE */
+				MX6SX_PAD_SD2_DATA0__USDHC2_DATA0	0x17069
+				MX6SX_PAD_SD2_DATA1__USDHC2_DATA1	0x17069
+				MX6SX_PAD_SD2_DATA2__USDHC2_DATA2	0x17069
+				MX6SX_PAD_SD2_DATA3__USDHC2_DATA3	0x17069
+				MX6SX_PAD_SD1_CLK__GPIO6_IO_0		0x13041 /* WL_HOST_WAKE */
 			>;
 		};
 
