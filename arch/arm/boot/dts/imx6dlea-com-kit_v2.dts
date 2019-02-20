@@ -975,8 +975,6 @@
 		interrupt-parent = <&gpio1>;
 		interrupts = <4 IRQ_TYPE_LEVEL_LOW>;  /* WL_HOST_WAKE */
 		interrupt-names = "host-wake";
-		brcm,broken_sg_support;
-		brcm,sd_sgentry_align =/bits/ 16 <16>;
 	};
 };
 

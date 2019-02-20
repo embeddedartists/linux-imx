@@ -218,14 +218,13 @@
 	cap-power-off; 
 	mmc-pwrseq = <&usdhc1_pwrseq>;
 	status = "okay";
+	max-frequency = <150000000>; /* slow down UHS SDR104 clock */
 	brcmf: bcrmf@1 {
 		reg = <1>;
 		compatible = "brcm,bcm4329-fmac";
 		interrupt-parent = <&gpio1>;
 		interrupts = <1 IRQ_TYPE_LEVEL_LOW>;  /* WL_HOST_WAKE = GPIO1_IO01 active low for M.2. */
 		interrupt-names = "host-wake";
-		brcm,broken_sg_support;
-		brcm,sd_sgentry_align =/bits/ 16 <16>;
 	};
 };
 
