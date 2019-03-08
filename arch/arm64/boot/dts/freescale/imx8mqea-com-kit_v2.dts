@@ -31,20 +31,6 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		/* TODO: determine what this is used for */
-		reg_gpio_dvfs: regulator-gpio {
-			compatible = "regulator-gpio";
-			pinctrl-names = "default";
-			pinctrl-0 = <&pinctrl_dvfs>;
-			regulator-min-microvolt = <900000>;
-			regulator-max-microvolt = <1000000>;
-			regulator-name = "gpio_dvfs";
-			regulator-type = "voltage";
-			/* TODO: 1.13 is USB_OTG_OC on EA. Connected to LED on NXP */
-			gpios = <&gpio1 13 GPIO_ACTIVE_HIGH>;
-			states = <900000 0x1 1000000 0x0>;
-		};
-
 		/* add construct for "fmac" to control WL_REG_ON signal */
 		usdhc2_pwrseq: usdhc2_pwrseq {
 			compatible = "mmc-pwrseq-simple";
@@ -70,7 +56,6 @@
 		audio-routing = "LOUT", "ROUT", "LLINEIN", "RLINEIN";
 	};
 
-	/* TODO: keep this? */
 	sound-hdmi {
 		compatible = "fsl,imx8mq-evk-cdnhdmi",
 				"fsl,imx-audio-cdnhdmi";
@@ -115,18 +100,9 @@
 
 &iomuxc {
 	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_hog>, <&pinctrl_exp_conn>;
+	pinctrl-0 = <&pinctrl_exp_conn>;
 
 	imx8mqea-com {
-		pinctrl_hog: hoggrp {
-			fsl,pins = <
-				/* TODO: 
-				 * LVDS1_BL_PWR_EN on carrier board: We don't have LVDS?? 
-				 * Also on expansion connector
-				 */
-				MX8MQ_IOMUXC_NAND_WP_B_GPIO3_IO18		0x19
-			>;
-		};
 
 		pinctrl_fec1: fec1grp {
 			fsl,pins = <
@@ -171,7 +147,6 @@
 
 		pinctrl_pcie0: pcie0grp {
 			fsl,pins = <
-				/* TODO: on imx6q this is treated as GPIO nad used by clkreg-qpio in pcie node */
 				MX8MQ_IOMUXC_I2C4_SCL_PCIE1_CLKREQ_B	0x76 /* open drain, pull up */
 			>;
 		};
@@ -270,6 +245,7 @@
 				MX8MQ_IOMUXC_SD2_DATA1_USDHC2_DATA1		0xc3
 				MX8MQ_IOMUXC_SD2_DATA2_USDHC2_DATA2		0xc3
 				MX8MQ_IOMUXC_SD2_DATA3_USDHC2_DATA3		0xc3
+				MX8MQ_IOMUXC_GPIO1_IO04_USDHC2_VSELECT          0xc1
 			>;
 		};
 
@@ -281,6 +257,7 @@
 				MX8MQ_IOMUXC_SD2_DATA1_USDHC2_DATA1		0xcd
 				MX8MQ_IOMUXC_SD2_DATA2_USDHC2_DATA2		0xcd
 				MX8MQ_IOMUXC_SD2_DATA3_USDHC2_DATA3		0xcd
+				MX8MQ_IOMUXC_GPIO1_IO04_USDHC2_VSELECT          0xc1
 			>;
 		};
 
@@ -292,6 +269,7 @@
 				MX8MQ_IOMUXC_SD2_DATA1_USDHC2_DATA1		0xdf
 				MX8MQ_IOMUXC_SD2_DATA2_USDHC2_DATA2		0xdf
 				MX8MQ_IOMUXC_SD2_DATA3_USDHC2_DATA3		0xdf
+				MX8MQ_IOMUXC_GPIO1_IO04_USDHC2_VSELECT          0xc1
 			>;
 		};
 
@@ -392,7 +370,6 @@
 	pinctrl-0 = <&pinctrl_i2c1>;
 	status = "okay";
 
-	/* TODO: copied from imx8mm. Check if valid for imx8mq */
 	pmic: bd71837@4b {
 		reg = <0x4b>;
 		compatible = "rohm,bd71840", "rohm,bd71837";
@@ -400,6 +377,7 @@
 		pinctrl-0 = <&pinctrl_pmic>;
 		gpio_intr = <&gpio1 3 GPIO_ACTIVE_LOW>;
 
+		/* TODO: investigate how this is used in driver */
 		gpo {
 			rohm,drv = <0x0C>;	/* 0b0000_1100 all gpos with cmos output mode */
 		};
@@ -411,50 +389,50 @@
 			bd71837,pmic-buck2-uses-i2c-dvs;
 			bd71837,pmic-buck2-dvs-voltage = <1000000>, <900000>, <0>; /* VDD_ARM: Run-Idle */
 
-			buck1_reg: regulator@0 {
+			buck1_reg: regulator@0 { /* VDD_SOC_0V9 */
 				reg = <0>;
 				regulator-compatible = "buck1";
 				regulator-min-microvolt = <700000>;
-				regulator-max-microvolt = <1300000>;
+				regulator-max-microvolt = <1100000>;
 				regulator-boot-on;
 				regulator-always-on;
 				regulator-ramp-delay = <1250>;
 			};
 
-			buck2_reg: regulator@1 {
+			buck2_reg: regulator@1 { /* VDD_ARM_0V9 */
 				reg = <1>;
 				regulator-compatible = "buck2";
 				regulator-min-microvolt = <700000>;
-				regulator-max-microvolt = <1300000>;
+				regulator-max-microvolt = <1100000>;
 				regulator-boot-on;
 				regulator-always-on;
 				regulator-ramp-delay = <1250>;
 			};
 
-			buck3_reg: regulator@2 {
+			buck3_reg: regulator@2 { /* VDD_GPU_0V9 */
 				reg = <2>;
 				regulator-compatible = "buck3";
 				regulator-min-microvolt = <700000>;
-				regulator-max-microvolt = <1300000>;
+				regulator-max-microvolt = <1100000>;
 			};
 
-			buck4_reg: regulator@3 {
+			buck4_reg: regulator@3 { /* VDD_VPU_0V9 */
 				reg = <3>;
 				regulator-compatible = "buck4";
 				regulator-min-microvolt = <700000>;
-				regulator-max-microvolt = <1300000>;
+				regulator-max-microvolt = <1100000>;
 			};
 
-			buck5_reg: regulator@4 {
+			buck5_reg: regulator@4 { /* VDD_DRAM_0V9 */
 				reg = <4>;
 				regulator-compatible = "buck5";
-				regulator-min-microvolt = <700000>;
-				regulator-max-microvolt = <1350000>;
+				regulator-min-microvolt = <900000>;
+				regulator-max-microvolt = <900000>;
 				regulator-boot-on;
 				regulator-always-on;
 			};
 
-			buck6_reg: regulator@5 {
+			buck6_reg: regulator@5 { /* NVCC_3V3 */
 				reg = <5>;
 				regulator-compatible = "buck6";
 				regulator-min-microvolt = <3000000>;
@@ -463,7 +441,7 @@
 				regulator-always-on;
 			};
 
-			buck7_reg: regulator@6 {
+			buck7_reg: regulator@6 { /* NVCC_1V8 */
 				reg = <6>;
 				regulator-compatible = "buck7";
 				regulator-min-microvolt = <1605000>;
@@ -472,16 +450,16 @@
 				regulator-always-on;
 			};
 
-			buck8_reg: regulator@7 {
+			buck8_reg: regulator@7 { /* NVCC_DRAM_1V1 */
 				reg = <7>;
 				regulator-compatible = "buck8";
-				regulator-min-microvolt = <800000>;
-				regulator-max-microvolt = <1400000>;
+				regulator-min-microvolt = <1100000>;
+				regulator-max-microvolt = <1100000>;
 				regulator-boot-on;
 				regulator-always-on;
 			};
 
-			ldo1_reg: regulator@8 {
+			ldo1_reg: regulator@8 { /* NVCC_SNVS_3V3 */
 				reg = <8>;
 				regulator-compatible = "ldo1";
 				regulator-min-microvolt = <3000000>;
@@ -490,7 +468,7 @@
 				regulator-always-on;
 			};
 
-			ldo2_reg: regulator@9 {
+			ldo2_reg: regulator@9 { /* NVCC_SNVS_0V9 */
 				reg = <9>;
 				regulator-compatible = "ldo2";
 				regulator-min-microvolt = <900000>;
@@ -499,7 +477,7 @@
 				regulator-always-on;
 			};
 
-			ldo3_reg: regulator@10 {
+			ldo3_reg: regulator@10 { /* VDDA_1V8 */
 				reg = <10>;
 				regulator-compatible = "ldo3";
 				regulator-min-microvolt = <1800000>;
@@ -508,7 +486,7 @@
 				regulator-always-on;
 			};
 
-			ldo4_reg: regulator@11 {
+			ldo4_reg: regulator@11 { /* VDDA_0P9 */
 				reg = <11>;
 				regulator-compatible = "ldo4";
 				regulator-min-microvolt = <900000>;
@@ -517,14 +495,32 @@
 				regulator-always-on;
 			};
 
-			ldo6_reg: regulator@13 {
+                        ldo5_reg: regulator@12 { /* VDD_PHY_1V8 */
+                                reg = <12>;
+                                regulator-compatible = "ldo5";
+                                regulator-min-microvolt = <1800000>;
+                                regulator-max-microvolt = <1800000>;
+                                regulator-boot-on;
+                                regulator-always-on;
+                        };
+
+			ldo6_reg: regulator@13 { /* VDD_PHY_0V9 */
 				reg = <13>;
 				regulator-compatible = "ldo6";
 				regulator-min-microvolt = <900000>;
-				regulator-max-microvolt = <1800000>;
+				regulator-max-microvolt = <900000>;
 				regulator-boot-on;
 				regulator-always-on;
 			};
+
+                        ldo7_reg: regulator@14 { /* VDD_PHY_3V3 */
+                                reg = <14>;
+                                regulator-compatible = "ldo7";
+                                regulator-min-microvolt = <3300000>;
+                                regulator-max-microvolt = <3300000>;
+                                regulator-boot-on;
+                                regulator-always-on;
+                        };
 		};
 	};
 
@@ -612,9 +608,8 @@
 	pinctrl-0 = <&pinctrl_pcie0>;
 	reset-gpio = <&gpio_buff 7 GPIO_ACTIVE_LOW>;   /* PCIE_PERST_L */
 	disable-gpio = <&gpio_buff 1 GPIO_ACTIVE_LOW>; /* WL REG ON */
-	/* TODO: is this valid for our board? */
 	ext_osc = <1>;
-	/* TODO: what does this mean? */
+	/* TODO: what does this mean? Check with driver! */
 	hard-wired = <1>;
 	status = "disabled";
 };
@@ -680,12 +675,6 @@
 	pm-ignore-notify;
 	wifi-host;
 
-	/* TODO: needed? Different Murata comments for different boards */
-	/*no-1-8-v;*/
-
-	/* TODO: is max-frequency needed. Below used for Quad */
-	/*max-frequency = <104000000>;*/ /* slow down UHS SDR104 clock */
-
 	mmc-pwrseq = <&usdhc2_pwrseq>;
 	status = "okay";
 
@@ -694,11 +683,7 @@
 		compatible = "brcm,bcm4329-fmac";
 		interrupt-parent = <&gpio1>;
 		interrupts = <6 IRQ_TYPE_LEVEL_LOW>;  /* WL_HOST_WAKE */
-		interrupt-names = "host-wake";
-	
-		/* TODO: is this needed? Used for Quad and iMX7D, but e.g. not UL */
-		brcm,broken_sg_support;
-		brcm,sd_sgentry_align =/bits/ 16 <16>;		
+		interrupt-names = "host-wake";	
 	};
 
 };
@@ -753,17 +738,15 @@
 	status = "okay";
 };
 
-/* TODO: Which regulator should be used with new PMIC
 &gpu_pd {
-	power-supply = <&sw1a_reg>;
+	power-supply = <&buck3_reg>;
 };
-*/
 
-/* TODO: Which regulator should be used with new PMIC
+
 &vpu_pd {
-	power-supply = <&sw1c_reg>;
+	power-supply = <&buck4_reg>;
 };
-*/
+
 
 
 &gpu {
@@ -771,8 +754,7 @@
 };
 
 &vpu {
-	/* TODO: which regulator to use? 
-	regulator-supply = <&sw1c_reg>;*/
+	regulator-supply = <&buck4_reg>;
 	status = "okay";
 };
 
@@ -805,7 +787,7 @@
 		1000000 900000
 		800000  900000
 	>;
-	dc-supply = <&reg_gpio_dvfs>;
+	arm-supply = <&buck2_reg>;
 };
 
 
