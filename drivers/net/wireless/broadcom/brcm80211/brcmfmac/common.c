@@ -79,8 +79,8 @@ static int brcmf_eap_restrict;
 module_param_named(eap_restrict, brcmf_eap_restrict, int, 0400);
 MODULE_PARM_DESC(eap_restrict, "Block non-802.1X frames until auth finished");
 
-static int brcmf_sdio_wq_highpri = 1;
-module_param_named(sdio_wq_highpri, brcmf_sdio_wq_highpri, int, 0);
+static int brcmf_sdio_wq_highpri;
+module_param_named(sdio_wq_highpri, brcmf_sdio_wq_highpri, int, 0400);
 MODULE_PARM_DESC(sdio_wq_highpri, "SDIO workqueue is set to high priority");
 
 #ifdef DEBUG
