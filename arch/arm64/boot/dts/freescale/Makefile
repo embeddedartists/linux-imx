@@ -115,6 +115,7 @@ dtb-$(CONFIG_ARCH_FSL_IMX8MQ) += fsl-imx8mq-ddr3l-arm2.dtb \
 				 fsl-imx8mq-evk-dp.dtb \
 				 fsl-imx8mq-evk-edp.dtb \
 				 fsl-imx8mq-ea-com-kit_v2.dtb \
+				 fsl-imx8mq-ea-com-kit_v2-mfg.dtb \
 				 fsl-imx8mq-ea-com-kit_v2-m4.dtb \
 				 fsl-imx8mq-ea-com-kit_v2-pcie.dtb \
 				 fsl-imx8mq-ea-com-kit_v2-ov5640.dtb

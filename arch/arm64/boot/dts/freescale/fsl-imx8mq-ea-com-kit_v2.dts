@@ -92,15 +92,14 @@
 
 };
 
-/* TODO: need to verify clock settings for audio */
 &clk {
 	assigned-clocks = <&clk IMX8MQ_AUDIO_PLL1>, <&clk IMX8MQ_AUDIO_PLL2>;
-	assigned-clock-rates = <786432000>, <722534400>;
+	assigned-clock-rates = <722534400>, <722534400>;
 };
 
 &iomuxc {
 	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_exp_conn>;
+	pinctrl-0 = <&pinctrl_exp_conn>, <&pinctrl_usb1>;
 
 	imx8mqea-com {
 
@@ -131,6 +130,13 @@
 			>;
 		};
 
+		pinctrl_usb1: usb1grp {
+			fsl,pins = <
+				MX8MQ_IOMUXC_GPIO1_IO12_USB1_OTG_PWR		0x19
+				MX8MQ_IOMUXC_GPIO1_IO13_USB1_OTG_OC		0x19
+			>;
+		};
+
 		pinctrl_i2c2: i2c2grp {
 			fsl,pins = <
 				MX8MQ_IOMUXC_I2C2_SCL_I2C2_SCL			0x40000067
@@ -148,12 +154,6 @@
 		pinctrl_pcie0: pcie0grp {
 			fsl,pins = <
 				MX8MQ_IOMUXC_I2C4_SCL_PCIE1_CLKREQ_B	0x76 /* open drain, pull up */
-			>;
-		};
-
-		pinctrl_dvfs: dvfsgrp {
-			fsl,pins = <
-				MX8MQ_IOMUXC_GPIO1_IO13_GPIO1_IO13	0x16
 			>;
 		};
 
@@ -245,7 +245,8 @@
 				MX8MQ_IOMUXC_SD2_DATA1_USDHC2_DATA1		0xc3
 				MX8MQ_IOMUXC_SD2_DATA2_USDHC2_DATA2		0xc3
 				MX8MQ_IOMUXC_SD2_DATA3_USDHC2_DATA3		0xc3
-				MX8MQ_IOMUXC_GPIO1_IO04_USDHC2_VSELECT          0xc1
+				/*MX8MQ_IOMUXC_GPIO1_IO04_USDHC2_VSELECT          0xc1*/
+				MX8MQ_IOMUXC_GPIO1_IO04_GPIO1_IO4               0xc1
 			>;
 		};
 
@@ -257,7 +258,8 @@
 				MX8MQ_IOMUXC_SD2_DATA1_USDHC2_DATA1		0xcd
 				MX8MQ_IOMUXC_SD2_DATA2_USDHC2_DATA2		0xcd
 				MX8MQ_IOMUXC_SD2_DATA3_USDHC2_DATA3		0xcd
-				MX8MQ_IOMUXC_GPIO1_IO04_USDHC2_VSELECT          0xc1
+				/*MX8MQ_IOMUXC_GPIO1_IO04_USDHC2_VSELECT          0xc1*/
+				MX8MQ_IOMUXC_GPIO1_IO04_GPIO1_IO4               0xc1
 			>;
 		};
 
@@ -269,7 +271,8 @@
 				MX8MQ_IOMUXC_SD2_DATA1_USDHC2_DATA1		0xdf
 				MX8MQ_IOMUXC_SD2_DATA2_USDHC2_DATA2		0xdf
 				MX8MQ_IOMUXC_SD2_DATA3_USDHC2_DATA3		0xdf
-				MX8MQ_IOMUXC_GPIO1_IO04_USDHC2_VSELECT          0xc1
+				/*MX8MQ_IOMUXC_GPIO1_IO04_USDHC2_VSELECT          0xc1*/
+				MX8MQ_IOMUXC_GPIO1_IO04_GPIO1_IO4               0xc1
 			>;
 		};
 
@@ -377,6 +380,15 @@
 		pinctrl-0 = <&pinctrl_pmic>;
 		gpio_intr = <&gpio1 3 GPIO_ACTIVE_LOW>;
 
+		bd71837,pmic-buck1-uses-i2c-dvs;
+		bd71837,pmic-buck1-dvs-voltage = <900000>, <850000>, <800000>; /* VDD_SOC */
+		bd71837,pmic-buck2-uses-i2c-dvs;
+		bd71837,pmic-buck2-dvs-voltage = <1000000>, <900000>, <0>; /* VDD_ARM: Run-Idle */
+		bd71837,pmic-buck3-uses-i2c-dvs;
+		bd71837,pmic-buck3-dvs-voltage = <1000000>, <0>, <0>; /* VDD_GPU */
+		bd71837,pmic-buck4-uses-i2c-dvs;
+		bd71837,pmic-buck4-dvs-voltage = <1000000>, <0>, <0>; /* VDD_VPU */
+
 		/* TODO: investigate how this is used in driver */
 		gpo {
 			rohm,drv = <0x0C>;	/* 0b0000_1100 all gpos with cmos output mode */
@@ -386,8 +398,6 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 
-			bd71837,pmic-buck2-uses-i2c-dvs;
-			bd71837,pmic-buck2-dvs-voltage = <1000000>, <900000>, <0>; /* VDD_ARM: Run-Idle */
 
 			buck1_reg: regulator@0 { /* VDD_SOC_0V9 */
 				reg = <0>;
@@ -414,6 +424,7 @@
 				regulator-compatible = "buck3";
 				regulator-min-microvolt = <700000>;
 				regulator-max-microvolt = <1100000>;
+				regulator-boot-on;
 			};
 
 			buck4_reg: regulator@3 { /* VDD_VPU_0V9 */
@@ -421,6 +432,7 @@
 				regulator-compatible = "buck4";
 				regulator-min-microvolt = <700000>;
 				regulator-max-microvolt = <1100000>;
+				regulator-boot-on;
 			};
 
 			buck5_reg: regulator@4 { /* VDD_DRAM_0V9 */
@@ -575,7 +587,7 @@
 		hog_VDDIO_VSEL {
 			gpio-hog;
 			gpios = <6 0>;
-			output-high; /* LOW = 1.8V, HIGH = 3.3V */
+			output-low; /* LOW = 1.8V, HIGH = 3.3V */
 		};
 		hog_DIR_WL_DEV_WAKE {
 			gpio-hog;
@@ -585,7 +597,7 @@
 		hog_PCIE_CLK_MUX_CTRL {
 			gpio-hog;
 			gpios = <10 0>;
-			output-high; /* LOW = External Reference Clock, HIGH = i.MX Generated Clock */
+			output-low; /* LOW = External Reference Clock, HIGH = i.MX Generated Clock */
 		};
 		hog_AUD_CODEC_MUX_CTRL2 {
 			gpio-hog;
@@ -661,13 +673,6 @@
 	pinctrl-1 = <&pinctrl_usdhc2_100mhz>, <&pinctrl_usdhc2_gpio>;
 	pinctrl-2 = <&pinctrl_usdhc2_200mhz>, <&pinctrl_usdhc2_gpio>;
 
-	/* 
-	 * TODO: which tuning values to use for iMX8? 
-	 * Values below are already default in .dtsi.
-	 */
-	fsl,tuning-start-tap = <20>;	/* Murata: i.MX default tuning-start-tap */
-	fsl,tuning-step= <2>;		/* Murata: change default step value from 2 to 4 for 1BB */
-
 	enable-sdio-wakeup;
 	keep-power-in-suspend;
 	non-removable;
@@ -685,7 +690,16 @@
 		interrupts = <6 IRQ_TYPE_LEVEL_LOW>;  /* WL_HOST_WAKE */
 		interrupt-names = "host-wake";	
 	};
+};
 
+&gpio1 {
+	/* Murata - This hog forces SD2_VSELECT high; SD2 VIO = 1.8V */
+	sd1_vselect_gpio {
+		gpio-hog;
+		gpios = <4 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "SD2 VSELECT";
+	};
 };
 
 &usb3_phy0 {
@@ -722,7 +736,7 @@
 	pinctrl-0 = <&pinctrl_sai2>;
 	assigned-clocks = <&clk IMX8MQ_CLK_SAI2>;
 	assigned-clock-parents = <&clk IMX8MQ_AUDIO_PLL1_OUT>;
-	assigned-clock-rates = <24576000>;
+	assigned-clock-rates = <11289600>;
 	status = "okay";
 };
 
@@ -738,6 +752,13 @@
 	status = "okay";
 };
 
+/*
+ * The current bd71837 PMIC driver doesn't support buck3/4 to be
+ * enabled / disabled. Because of this these regulators are set
+ * as boot-on and we don't assign a power supply to gpu/vpu below.
+ * Change this when the bd71837-regulator.c driver has been
+ * upgraded to support enable/disable.
+ *
 &gpu_pd {
 	power-supply = <&buck3_reg>;
 };
@@ -746,7 +767,7 @@
 &vpu_pd {
 	power-supply = <&buck4_reg>;
 };
-
+*/
 
 
 &gpu {
@@ -799,5 +820,6 @@
 };
 
 &hdmi {
+	fsl,no_edid;
 	status = "okay";
 };
