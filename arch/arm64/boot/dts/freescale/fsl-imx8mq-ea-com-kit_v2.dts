@@ -304,6 +304,12 @@
 			>;
 		};
 
+		pinctrl_pwm1: pwm1grp {
+			fsl,pins = <
+				MX8MQ_IOMUXC_SPDIF_EXT_CLK_PWM1_OUT		0xC3
+			>;
+		};
+
 		/* Expansion Board */
 		pinctrl_exp_conn: expconngrp {
 			fsl,pins = <
@@ -819,5 +825,11 @@
 
 &hdmi {
 	fsl,no_edid;
+	status = "okay";
+};
+
+&pwm1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_pwm1>;
 	status = "okay";
 };
