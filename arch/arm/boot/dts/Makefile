@@ -710,7 +710,8 @@ dtb-$(CONFIG_SOC_IMX7ULP) += \
 	imx7ulp-evk-qspi.dtb \
 	imx7ulp-evk-wm8960.dtb \
 	imx7ulp-evk-mipi.dtb \
-	imx7ulp-evk-sensors-to-i2c5.dtb
+	imx7ulp-evk-sensors-to-i2c5.dtb \
+	imx7ulpea-ucom-kit_v2.dtb
 dtb-$(CONFIG_SOC_LS1021A) += \
 	ls1021a-qds.dtb \
 	ls1021a-twr.dtb
