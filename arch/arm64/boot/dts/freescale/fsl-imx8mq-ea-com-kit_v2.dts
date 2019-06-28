@@ -26,6 +26,11 @@
 		stdout-path = &uart1;
 	};
 
+	memory@40000000 {
+		device_type = "memory";
+		reg = <0x00000000 0x40000000 0 0x40000000>;
+	};
+
 	regulators {
 		compatible = "simple-bus";
 		#address-cells = <1>;
@@ -90,6 +95,16 @@
 		};
         };
 
+};
+
+&resmem {
+	/* global autoconfigured region for contiguous allocations */
+	linux,cma {
+		compatible = "shared-dma-pool";
+		reusable;
+		size = <0 0x1e000000>;
+		alloc-ranges = <0 0x40000000 0 0x40000000>;
+	};
 };
 
 &clk {
