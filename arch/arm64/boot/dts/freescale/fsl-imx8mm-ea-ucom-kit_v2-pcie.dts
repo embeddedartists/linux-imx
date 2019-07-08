@@ -11,7 +11,7 @@
 
 /dts-v1/;
  
-#include "fsl-imx8mm-ea-com-kit_v2.dts"
+#include "fsl-imx8mm-ea-ucom-kit_v2.dts"
 
 &gpio_buff {
 	hog_DIR_WL_DEV_WAKE {
