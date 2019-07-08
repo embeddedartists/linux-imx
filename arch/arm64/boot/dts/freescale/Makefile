@@ -133,6 +133,7 @@ dtb-$(CONFIG_ARCH_FSL_IMX8MM) += fsl-imx8mm-evk.dtb \
 				 fsl-imx8mm-evk-revb-rm67191.dtb \
 				 fsl-imx8mm-ddr4-evk-rm67191.dtb \
 				 fsl-imx8mm-ea-com-kit_v2.dtb \
+				 fsl-imx8mm-ea-com-kit_v2-1mw.dtb \
 				 fsl-imx8mm-ea-com-kit_v2-m4.dtb \
 				 fsl-imx8mm-ea-com-kit_v2-pcie.dtb
 always		:= $(dtb-y)

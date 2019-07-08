@@ -27,7 +27,7 @@
 
 	modem_reset: modem-reset {
 		compatible = "gpio-reset";
-		reset-gpios = <&gpio_buff 0 GPIO_ACTIVE_LOW>;
+		reset-gpios = <&gpio2 6 GPIO_ACTIVE_LOW>;
 		reset-delay-us = <1000>;
 		#reset-cells = <0>;
 	};
@@ -50,7 +50,7 @@
 		/* add construct for "fmac" to control WL_REG_ON signal */
 		usdhc1_pwrseq: usdhc1_pwrseq {
 			compatible = "mmc-pwrseq-simple";
-			reset-gpios = <&gpio_buff 1 GPIO_ACTIVE_LOW>; /* WL REG ON */
+			reset-gpios = <&gpio2 10 GPIO_ACTIVE_LOW>; /* WL REG ON */
 			status = "okay";
 		};
 
@@ -177,7 +177,9 @@
 		pinctrl_usdhc1_gpio: usdhc1grpgpio {
 			fsl,pins = <
 				MX8MM_IOMUXC_SD1_DATA7_GPIO2_IO9	0x1c4
-
+				MX8MM_IOMUXC_SD1_RESET_B_GPIO2_IO10	0x1c4 /* WL_REG_ON */
+				MX8MM_IOMUXC_SD1_DATA4_GPIO2_IO6        0x1c4 /* BT_REG_ON */
+				MX8MM_IOMUXC_SD1_DATA5_GPIO2_IO7	0xC6  /* BT_DEV_WAKE */
 			>;
 		};
 
@@ -216,6 +218,7 @@
 
 		pinctrl_usdhc2_gpio: usdhc2grpgpio {
 			fsl,pins = <
+				MX8MM_IOMUXC_SD2_RESET_B_GPIO2_IO19     0x41
 				MX8MM_IOMUXC_SD2_CD_B_GPIO2_IO12	0x1c4
 			>;
 		};
@@ -322,7 +325,7 @@
 										/* GPIO_H Not Connected */
 										/* GPIO_J Not Connected */
 				/*MX8MM_IOMUXC_GPIO1_IO00_GPIO1_IO0	0xC6       GPIO_K ADV7535 INT (on adapter board) */
-				/*MX8MM_IOMUXC_GPIO1_IO08_GPIO1_IO8	0xC6	   GPIO_P MIPI_DSI_EN */
+				MX8MM_IOMUXC_GPIO1_IO08_GPIO1_IO8	0xC6 	/* GPIO_P */
 										/* GPIO_Q Not Connected */
 										/* GPIO_R Not Connected */
 										/* GPIO_S Not Connected */
@@ -343,7 +346,7 @@
 										/* GPIO_AH Not Connected */
 
 				MX8MM_IOMUXC_SD1_RESET_B_GPIO2_IO10	0xC6	/* GPIO_AJ */
-				MX8MM_IOMUXC_SD1_DATA5_GPIO2_IO7	0xC6	/* GPIO_AK */
+				/*MX8MM_IOMUXC_SD1_DATA5_GPIO2_IO7	0xC6	   GPIO_AK BT_DEV_WAKE */
 				MX8MM_IOMUXC_SD1_DATA4_GPIO2_IO6	0xC6	/* GPIO_AL */
 
 				/*MX8MM_IOMUXC_SD2_WP_GPIO2_IO20	0xC6	   GPIO_AP MIDI DSI (on adapter board) */
