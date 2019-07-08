@@ -16,13 +16,40 @@
 	model = "Embedded Artists i.MX7ULP uCOM Kit";
 	compatible = "fsl,imx7ulpea-ucom", "fsl,imx7ulp", "Generic DT based system";
 
+	aliases {
+		gpio4 = &rpmsg_gpio0;
+		gpio5 = &rpmsg_gpio1;
+	};
+
 	chosen {
-		stdout-path = &lpuart6;
+		stdout-path = &lpuart4;
 	};
 
 	memory {
 		device_type = "memory";
 		reg = <0x60000000 0x40000000>;
+	};
+
+	backlight {
+		compatible = "pwm-backlight";
+		pwms = <&pwm0 1 50000>;
+		brightness-levels = <0 20 25 30 35 40 100>;
+		default-brightness-level = <6>;
+		status = "okay";
+	};
+
+	mipi_dsi_reset: mipi-dsi-reset {
+		compatible = "gpio-reset";
+		reset-gpios = <&gpio_ptc 19 GPIO_ACTIVE_LOW>;
+		reset-delay-us = <1000>;
+		#reset-cells = <0>;
+	};
+
+	modem_reset: modem-reset {
+		compatible = "gpio-reset";
+		reset-gpios = <&rpmsg_gpio0 15 GPIO_ACTIVE_LOW>;
+		reset-delay-us = <1000>;
+		#reset-cells = <0>;
 	};
 
 	regulators {
@@ -58,6 +85,7 @@
 
 	pf1550-rpmsg {
 		compatible = "rohm,bd70528-rpmsg";
+		status = "disabled";
 		sw1_reg: SW1 {
 				regulator-name = "SW1";
 				regulator-min-microvolt = <1200000>;
@@ -106,6 +134,81 @@
 		};
 	};
 
+	rpmsg_i2s: rpmsg-i2s {
+		compatible = "fsl,imx7ulp-rpmsg-i2s";
+		/* the audio device index in m4 domain */
+		fsl,audioindex = <0> ;
+		status = "okay";
+	};
+
+	rpmsg_gpio0: rpmsg-gpio0 {
+		compatible = "fsl,imx-rpmsg-gpio";
+		port_idx = <0>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		#interrupt-cells = <2>;
+		interrupt-controller;
+		interrupt-parent = <&rpmsg_gpio0>;
+		status = "okay";
+	};
+
+	rpmsg_gpio1: rpmsg-gpio1 {
+		compatible = "fsl,imx-rpmsg-gpio";
+		port_idx = <1>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		#interrupt-cells = <2>;
+		interrupt-controller;
+		interrupt-parent = <&rpmsg_gpio1>;
+		status = "okay";
+	};
+
+	rpmsg_keys: rpmsg-keys {
+		compatible = "fsl,rpmsg-keys";
+
+		volume-up {
+			label = "Volume Up";
+			linux,code = <KEY_VOLUMEUP>;
+		};
+
+		volume-down {
+			label = "Volume Down";
+			linux,code = <KEY_VOLUMEDOWN>;
+		};
+
+		power-on {
+			label = "PowerOn";
+			linux,code = <KEY_POWER>;
+			rpmsg-key,wakeup;
+		};
+	};
+
+	rpmsg_sensor: rpmsg-sensor {
+		compatible = "fsl,rpmsg-input";
+	};
+
+	sound-rpmsg {
+		compatible = "fsl,imx-audio-rpmsg";
+		model = "rpmsg-audio";
+		cpu-dai = <&rpmsg_i2s>;
+		rpmsg-out;
+		rpmsg-in;
+		audio-routing =
+			"Headphone Jack", "HP_L",
+			"Headphone Jack", "HP_R",
+			"Ext Spk", "SPK_LP",
+			"Ext Spk", "SPK_LN",
+			"Ext Spk", "SPK_RP",
+			"Ext Spk", "SPK_RN",
+			"LINPUT2", "Mic Jack",
+			"LINPUT3", "Mic Jack",
+			"RINPUT1", "Main MIC",
+			"RINPUT2", "Main MIC",
+			"Mic Jack", "MICB",
+			"Main MIC", "MICB",
+			"Playback", "CPU-Playback",
+			"CPU-Capture", "Capture";
+	};
 };
 
 &cpu0 {
@@ -121,20 +224,32 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_hog_1>;
 
-	imx7ulp-evk {
+	imx7ulpea-ucom {
 		pinctrl_hog_1: hoggrp-1 {
 			fsl,pins = <
 				IMX7ULP_PAD_PTC1__PTC1		0x20000
 			>;
 		};
-/* TODO
-		pinctrl_lpi2c3: lpi2c3grp {
+
+		pinctrl_lpi2c5: lpi2c5grp {
 			fsl,pins = <
-				IMX7ULP_PAD_PTB12__LPI2C3_SCL	0x27
-				IMX7ULP_PAD_PTB13__LPI2C3_SDA	0x27
+				IMX7ULP_PAD_PTC4__LPI2C5_SCL	0x27
+				IMX7ULP_PAD_PTC5__LPI2C5_SDA	0x27
 			>;
 		};
-*/
+
+		pinctrl_lpi2c7: lpi2c7grp {
+			fsl,pins = <
+				IMX7ULP_PAD_PTF12__LPI2C7_SCL	0x27
+				IMX7ULP_PAD_PTF13__LPI2C7_SDA	0x27
+			>;
+		};
+
+		pinctrl_mipi_dsi_reset: mipi_dsi_reset_grp {
+			fsl,pins = <
+				IMX7ULP_PAD_PTC19__PTC19	0x20003
+			>;
+		};
 
 		pinctrl_lpuart4: lpuart4grp {
 			fsl,pins = <
@@ -182,6 +297,47 @@
 			>;
 		};
 
+                pinctrl_usdhc1: usdhc1grp {
+                        fsl,pins = <
+				IMX7ULP_PAD_PTE2__SDHC1_CLK	0x10042
+				IMX7ULP_PAD_PTE3__SDHC1_CMD	0x43
+				IMX7ULP_PAD_PTE1__SDHC1_D0	0x43
+				IMX7ULP_PAD_PTE0__SDHC1_D1	0x43
+				IMX7ULP_PAD_PTE5__SDHC1_D2	0x43
+				IMX7ULP_PAD_PTE4__SDHC1_D3	0x43
+                        >;
+                };
+
+                pinctrl_usdhc1_100mhz: usdhc1grp100mhz {
+                        fsl,pins = <
+				IMX7ULP_PAD_PTE2__SDHC1_CLK	0x10042
+				IMX7ULP_PAD_PTE3__SDHC1_CMD	0x43
+				IMX7ULP_PAD_PTE1__SDHC1_D0	0x43
+				IMX7ULP_PAD_PTE0__SDHC1_D1	0x43
+				IMX7ULP_PAD_PTE5__SDHC1_D2	0x43
+				IMX7ULP_PAD_PTE4__SDHC1_D3	0x43
+                        >;
+                };
+
+                pinctrl_usdhc1_200mhz: usdhc1grp200mhz {
+                        fsl,pins = <
+				IMX7ULP_PAD_PTE2__SDHC1_CLK	0x10042
+				IMX7ULP_PAD_PTE3__SDHC1_CMD	0x43
+				IMX7ULP_PAD_PTE1__SDHC1_D0	0x43
+				IMX7ULP_PAD_PTE0__SDHC1_D1	0x43
+				IMX7ULP_PAD_PTE5__SDHC1_D2	0x43
+				IMX7ULP_PAD_PTE4__SDHC1_D3	0x43
+                        >;
+                };
+
+		pinctrl_usdhc1_gpio: usdhc1grp_gpio {
+			fsl,pins = <
+				IMX7ULP_PAD_PTE13__PTE13	0x10003	/* BT_REG_ON */
+				IMX7ULP_PAD_PTE12__PTE12	0x10003	/* BT_DEV_WAKE */
+				IMX7ULP_PAD_PTC12__PTC12        0x43    /* WL_HOST_WAKE */
+			>;
+		};
+
 		pinctrl_usbotg1_vbus: otg1vbusgrp {
 			fsl,pins = <
 				IMX7ULP_PAD_PTC0__PTC0		0x20000
@@ -213,6 +369,49 @@
                         >;
                 };
 
+                pinctrl_pwm1: pwm1grp {
+                        fsl,pins = <
+                                IMX7ULP_PAD_PTC9__PTC9                0x06
+                        >;
+                };
+
+                /* Expansion Board */
+                pinctrl_exp_conn: expconngrp {
+                        fsl,pins = <
+                                                                                /* GPIO_H Not Connected */
+                                                                                /* GPIO_J Not Connected */
+                                /*IMX7ULP_PAD_PTC8__PTC8                  0xC6       GPIO_K ADV7535 INT (on adapter board) */
+                                IMX7ULP_PAD_PTA24__PTA24                0xC6    /* GPIO_P */
+                                                                                /* GPIO_Q Not Connected */
+                                                                                /* GPIO_R Not Connected */
+                                                                                /* GPIO_S Not Connected */
+                                                                                /* GPIO_T Not Connected */
+                                                                                /* GPIO_U Not Connected */
+                                                                                /* GPIO_V Not Connected */
+                                                                                /* GPIO_W Not Connected */
+                                                                                /* GPIO_X Not Connected */
+                                                                                /* GPIO_Y Not Connected */
+                                                                                /* GPIO_Z Not Connected */
+                                                                                /* GPIO_AA Not Connected */
+                                                                                /* GPIO_AB Not Connected */
+                                                                                /* GPIO_AC Not Connected */
+                                                                                /* GPIO_AD Not Connected */
+                                                                                /* GPIO_AE Not Connected */
+                                                                                /* GPIO_AF Not Connected */
+                                                                                /* GPIO_AG Not Connected */
+                                                                                /* GPIO_AH Not Connected */
+                                IMX7ULP_PAD_PTE6__PTE6                  0xC6    /* GPIO_AJ WL_REG_ON */
+                                IMX7ULP_PAD_PTE12__PTE12                0xC6    /* GPIO_AK BT_DEV_WAKE */
+                                IMX7ULP_PAD_PTE13__PTE13                0xC6    /* GPIO_AL BT_REG_ON */
+                                                                                /* GPIO_AP Not Connected */
+                                                                                /* GPIO_AQ Not Connected */
+                                                                                /* GPIO_AR Not Connected */
+                                                                                /* GPIO_AS Not Connected */
+                                                                                /* GPIO_AT Not Connected */
+                                                                                /* GPIO_AU Not Connected */
+                                                                                /* GPIO_AV Not Connected */
+                        >;
+                };
 
 	};
 };
@@ -249,32 +448,47 @@
 };
 
 
-/* TODO */
-/*&lpi2c3 {
+/* I2C-A */
+&lpi2c5 {
 	#address-cells = <1>;
 	#size-cells = <0>;
 	pinctrl-names = "default", "sleep";
-	pinctrl-0 = <&pinctrl_lpi2c3>;
-	pinctrl-1 = <&pinctrl_lpi2c3>;
+	pinctrl-0 = <&pinctrl_lpi2c5>;
+	pinctrl-1 = <&pinctrl_lpi2c5>;
 	status = "okay";
+
+        at24@55 {
+                compatible = "at,24c64";
+                pagesize = <32>;
+                reg = <0x55>;
+        };
 
 	adv7535: adv7535@3d {
 		compatible = "adi,adv7535";
-		reg = <0x3d>; / * PD pin is low * /
+		reg = <0x3d>; /* PD pin is low */
 		pinctrl-names = "default";
 		pinctrl-0 = <&pinctrl_dsi_hdmi>;
 		interrupt-parent = <&gpio_ptc>;
 		interrupts = <18 IRQ_TYPE_EDGE_FALLING>;
-		video-mode = <1>; / *
-						   * Only support CEA modes.
-						   * Reference mxc_edid.c
-						   * /
+		video-mode = <1>; /*
+				   * Only support CEA modes.
+				   * Reference mxc_edid.c
+				   */
 		dsi-traffic-mode = <0>;
 		bpp = <24>;
 		status = "disabled";
 	};
 };
-*/
+
+/* I2C-D */
+&lpi2c7 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&pinctrl_lpi2c7>;
+	pinctrl-1 = <&pinctrl_lpi2c7>;
+	status = "okay";
+};
 
 &qspi1 {
         pinctrl-names = "default";
@@ -290,7 +504,6 @@
         };
 };
 
-/* TODO
 &adv7535 {
 	status = "okay";
 
@@ -311,16 +524,15 @@
 		};
 	};
 };
-*/
 
-&lpuart4 { 
+&lpuart4 { /* console */ 
 	pinctrl-names = "default", "sleep";
 	pinctrl-0 = <&pinctrl_lpuart4>;
 	pinctrl-1 = <&pinctrl_lpuart4>;
 	status = "okay";
 };
 
-&lpuart6 { /* console */
+&lpuart6 {
 	pinctrl-names = "default", "sleep";
 	pinctrl-0 = <&pinctrl_lpuart6>;
 	pinctrl-1 = <&pinctrl_lpuart6>;
@@ -342,6 +554,7 @@
 	vbus-supply = <&reg_usb_otg1_vbus>;
 	pinctrl-names = "default", "sleep";
 	pinctrl-0 = <&pinctrl_usbotg1_id>;
+	pinctrl-1 = <&pinctrl_usbotg1_id>;
 	srp-disable;
 	hnp-disable;
 	adp-disable;
@@ -352,6 +565,7 @@
 	fsl,tx-d-cal = <88>;
 };
 
+/* eMMC */
 &usdhc0 {
 	pinctrl-names = "default", "state_100mhz", "state_200mhz", "sleep";
 	pinctrl-0 = <&pinctrl_usdhc0_8bit>;
@@ -361,5 +575,33 @@
 	non-removable;
 	bus-width = <8>;
 	status = "okay";
+};
+
+/* M.2 connector */
+&usdhc1 {
+        #address-cells = <1>;
+        #size-cells = <0>;
+        pinctrl-names = "default", "state_100mhz", "state_200mhz";
+        pinctrl-0 = <&pinctrl_usdhc1>, <&pinctrl_usdhc1_gpio>;
+        pinctrl-1 = <&pinctrl_usdhc1_100mhz>, <&pinctrl_usdhc1_gpio>;
+        pinctrl-2 = <&pinctrl_usdhc1_200mhz>, <&pinctrl_usdhc1_gpio>;
+
+        enable-sdio-wakeup;
+        keep-power-in-suspend;
+        non-removable;
+        cd-broken;
+        pm-ignore-notify;
+        wifi-host;
+
+        /*mmc-pwrseq = <&usdhc1_pwrseq>;*/
+        status = "okay";
+
+        brcmf: bcrmf@1 {
+                reg = <1>;
+                compatible = "brcm,bcm4329-fmac";
+                interrupt-parent = <&gpio_ptc>;
+                interrupts = <12 IRQ_TYPE_LEVEL_LOW>;  /* WL_HOST_WAKE = GPIO2_IO09 active low for M.2. */
+                interrupt-names = "host-wake";
+        };
 };
 
