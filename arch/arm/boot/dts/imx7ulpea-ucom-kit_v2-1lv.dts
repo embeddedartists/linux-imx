@@ -160,6 +160,13 @@
 		interrupt-controller;
 		interrupt-parent = <&rpmsg_gpio1>;
 		status = "okay";
+
+		wl_dev_wake_gpio {
+			gpio-hog;
+			gpios = <9 GPIO_ACTIVE_HIGH>;
+			output-high;
+			line-name = "WL_DEV_WAKE";
+		};
 	};
 
 	rpmsg_keys: rpmsg-keys {
@@ -227,6 +234,7 @@
 		pinctrl_hog_1: hoggrp-1 {
 			fsl,pins = <
 				IMX7ULP_PAD_PTC1__PTC1		0x20000
+                                IMX7ULP_PAD_PTE6__PTE6          0xC6     /* WL_REG_ON */
 			>;
 		};
 
@@ -399,7 +407,7 @@
                                                                                 /* GPIO_AF Not Connected */
                                                                                 /* GPIO_AG Not Connected */
                                                                                 /* GPIO_AH Not Connected */
-                                IMX7ULP_PAD_PTE6__PTE6                  0xC6    /* GPIO_AJ WL_REG_ON */
+                                /*IMX7ULP_PAD_PTE6__PTE6                  0xC6     GPIO_AJ WL_REG_ON */
                                 IMX7ULP_PAD_PTE12__PTE12                0xC6    /* GPIO_AK BT_DEV_WAKE */
                                 IMX7ULP_PAD_PTE13__PTE13                0xC6    /* GPIO_AL BT_REG_ON */
                                                                                 /* GPIO_AP Not Connected */
@@ -604,3 +612,11 @@
         };
 };
 
+&gpio_pte {
+	wl_reg_on_gpio {
+		gpio-hog;
+		gpios = <6 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "WL_REG_ON";
+	};
+};
