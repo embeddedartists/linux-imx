@@ -19,6 +19,7 @@
 	aliases {
 		gpio4 = &rpmsg_gpio0;
 		gpio5 = &rpmsg_gpio1;
+		pca6416_gpio = &rpmsg_gpio2;
 	};
 
 	chosen {
@@ -45,10 +46,11 @@
 		#reset-cells = <0>;
 	};
 
-	modem_reset: modem-reset {
+	modem_reset: modem-reset { /* Murata -- BT_REG_ON */
 		compatible = "gpio-reset";
-		reset-gpios = <&gpio_pte 12 GPIO_ACTIVE_LOW>;
+		reset-gpios = <&rpmsg_gpio2 0 GPIO_ACTIVE_LOW>;
 		reset-delay-us = <1000>;
+		initially-in-reset;
 		#reset-cells = <0>;
 	};
 
@@ -66,7 +68,8 @@
 			regulator-name = "usb_otg1_vbus";
 			regulator-min-microvolt = <5000000>;
 			regulator-max-microvolt = <5000000>;
-			gpio = <&gpio_ptc 0 GPIO_ACTIVE_HIGH>;
+			gpio = <&gpio_pte 15 GPIO_ACTIVE_HIGH>;
+			off-on-delay = <20000>;
 			enable-active-high;
 		};
 
@@ -162,6 +165,48 @@
 		status = "okay";
 	};
 
+	rpmsg_gpio2: rpmsg-gpio2 {
+		compatible = "fsl,imx-rpmsg-gpio";
+		port_idx = <2>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		#interrupt-cells = <2>;
+		interrupt-controller;
+		interrupt-parent = <&rpmsg_gpio2>;
+		status = "okay";
+
+		hog_VBAT_VSEL {
+			gpio-hog;
+			gpios = <2 0>;
+			output-low; /* LOW = 3.3V, HIGH = 3.6V */
+		};
+		hog_AUD_CODEC_MUX_CTRL1 {
+			gpio-hog;
+			gpios = <5 0>;
+			output-low;
+		};
+		hog_VDDIO_VSEL {
+			gpio-hog;
+			gpios = <6 0>;
+			output-low; /* LOW = 1.8V, HIGH = 3.3V */
+		};
+		hog_DIR_WL_DEV_WAKE {
+			gpio-hog;
+			gpios = <9 0>;
+			output-low;
+		};
+		hog_PCIE_CLK_MUX_CTRL {
+			gpio-hog;
+			gpios = <10 0>;
+			output-high; /* LOW = External Reference Clock, HIGH = i.MX Generated Clock */
+		};
+		hog_AUD_CODEC_MUX_CTRL2 {
+			gpio-hog;
+			gpios = <11 0>;
+			output-low;
+		};
+	};
+
 	rpmsg_keys: rpmsg-keys {
 		compatible = "fsl,rpmsg-keys";
 
@@ -180,10 +225,6 @@
 			linux,code = <KEY_POWER>;
 			rpmsg-key,wakeup;
 		};
-	};
-
-	rpmsg_sensor: rpmsg-sensor {
-		compatible = "fsl,rpmsg-input";
 	};
 
 	sound-rpmsg {
@@ -207,6 +248,12 @@
 			"Main MIC", "MICB",
 			"Playback", "CPU-Playback",
 			"CPU-Capture", "Capture";
+	};
+
+	usdhc1_pwrseq: usdhc1_pwrseq {
+		compatible = "mmc-pwrseq-simple";
+		reset-gpios = <&rpmsg_gpio2 1 GPIO_ACTIVE_LOW>; /* WL_REG_ON */
+		status = "okay";
 	};
 };
 
@@ -298,12 +345,12 @@
 
                 pinctrl_usdhc1: usdhc1grp {
                         fsl,pins = <
-				IMX7ULP_PAD_PTE2__SDHC1_CLK	0x10042
-				IMX7ULP_PAD_PTE3__SDHC1_CMD	0x43
-				IMX7ULP_PAD_PTE1__SDHC1_D0	0x43
-				IMX7ULP_PAD_PTE0__SDHC1_D1	0x43
-				IMX7ULP_PAD_PTE5__SDHC1_D2	0x43
-				IMX7ULP_PAD_PTE4__SDHC1_D3	0x43
+				IMX7ULP_PAD_PTE2__SDHC1_CLK	0x2
+				IMX7ULP_PAD_PTE3__SDHC1_CMD	0x3
+				IMX7ULP_PAD_PTE1__SDHC1_D0	0x3
+				IMX7ULP_PAD_PTE0__SDHC1_D1	0x3
+				IMX7ULP_PAD_PTE5__SDHC1_D2	0x3
+				IMX7ULP_PAD_PTE4__SDHC1_D3	0x3
                         >;
                 };
 
@@ -339,19 +386,20 @@
 
 		pinctrl_usbotg1_vbus: otg1vbusgrp {
 			fsl,pins = <
-				IMX7ULP_PAD_PTC0__PTC0		0x20000
+				IMX7ULP_PAD_PTE15__PTE15	0x20000
 			>;
 		};
 
 		pinctrl_usbotg1_id: otg1idgrp {
 			fsl,pins = <
+				IMX7ULP_PAD_PTE14__USB0_OC	0x10003
 				IMX7ULP_PAD_PTC13__USB0_ID	0x10003
 			>;
 		};
 
 		pinctrl_dsi_hdmi: dsi_hdmi_grp {
 			fsl,pins = <
-				IMX7ULP_PAD_PTC18__PTC18	0x10003	/* DSI_HDMI_INT */
+				IMX7ULP_PAD_PTC8__PTC8		0x10003	/* DSI_HDMI_INT */
 			>;
 		};
 
@@ -370,7 +418,7 @@
 
                 pinctrl_pwm1: pwm1grp {
                         fsl,pins = <
-                                IMX7ULP_PAD_PTC9__PTC9                0x06
+                                IMX7ULP_PAD_PTC9__PTC9			0x06
                         >;
                 };
 
@@ -475,7 +523,6 @@
 				   */
 		dsi-traffic-mode = <0>;
 		bpp = <24>;
-		status = "disabled";
 	};
 };
 
@@ -536,6 +583,9 @@
 	pinctrl-0 = <&pinctrl_lpuart6>;
 	pinctrl-1 = <&pinctrl_lpuart6>;
 	status = "okay";
+
+	fsl,uart-has-rtscts;
+	resets = <&modem_reset>;
 };
 
 &rpmsg{
@@ -585,14 +635,16 @@
         pinctrl-1 = <&pinctrl_usdhc1_100mhz>, <&pinctrl_usdhc1_gpio>;
         pinctrl-2 = <&pinctrl_usdhc1_200mhz>, <&pinctrl_usdhc1_gpio>;
 
-        enable-sdio-wakeup;
+        /*enable-sdio-wakeup;*/
         keep-power-in-suspend;
         non-removable;
-        cd-broken;
+        /*cd-broken;*/
         pm-ignore-notify;
-        wifi-host;
+        /*wifi-host;*/
+        cap-power-off;
+        max-frequency = <150000000>; /* slow down UHS SDR104 clock */
 
-        /*mmc-pwrseq = <&usdhc1_pwrseq>;*/
+        mmc-pwrseq = <&usdhc1_pwrseq>;
         status = "okay";
 
         brcmf: bcrmf@1 {
@@ -603,4 +655,3 @@
                 interrupt-names = "host-wake";
         };
 };
-
