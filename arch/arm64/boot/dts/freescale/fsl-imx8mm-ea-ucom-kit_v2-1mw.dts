@@ -28,7 +28,9 @@
 	modem_reset: modem-reset {
 		compatible = "gpio-reset";
 		reset-gpios = <&gpio2 6 GPIO_ACTIVE_LOW>;
-		reset-delay-us = <1000>;
+		initially-in-reset;
+		reset-delay-us = <2000>;
+		reset-post-delay-ms = <100>;
 		#reset-cells = <0>;
 	};
 
@@ -43,6 +45,16 @@
 			regulator-min-microvolt = <3300000>;
 			regulator-max-microvolt = <3300000>;
 			gpio = <&gpio2 19 GPIO_ACTIVE_HIGH>;
+			off-on-delay = <20000>;
+			enable-active-high;
+		};
+
+		reg_usbotg1_vbus: regulator-usbotg1 {
+			compatible = "regulator-fixed";
+			regulator-name = "usbotg_vbus";
+			regulator-min-microvolt = <5000000>;
+			regulator-max-microvolt = <5000000>;
+			gpio = <&gpio1 12 GPIO_ACTIVE_HIGH>;
 			off-on-delay = <20000>;
 			enable-active-high;
 		};
@@ -316,6 +328,13 @@
 		pinctrl_pwm1: pwm1grp {
 			fsl,pins = <
 				MX8MM_IOMUXC_GPIO1_IO01_PWM1_OUT		0x06
+			>;
+		};
+
+		pinctrl_usbotg1: usbotg1grp {
+			fsl,pins = <
+				MX8MM_IOMUXC_GPIO1_IO12_GPIO1_IO12		0x1d6
+				MX8MM_IOMUXC_GPIO1_IO13_USB1_OTG_OC		0x1d6
 			>;
 		};
 
@@ -676,6 +695,9 @@
 	pinctrl-0 = <&pinctrl_uart1>;
 	status = "okay";
 
+	assigned-clocks = <&clk IMX8MM_CLK_UART1_SRC>;
+	assigned-clock-parents = <&clk IMX8MM_SYS_PLL1_80M>;
+
 	resets = <&modem_reset>;
 	fsl,uart-has-rtscts;
 };
@@ -695,6 +717,10 @@
 	picophy,pre-emp-curr-control = <3>;
 	picophy,dc-vol-level-adjust = <7>;
 	status = "okay";
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_usbotg1>;
+	vbus-supply = <&reg_usbotg1_vbus>;
 };
 
 &usbotg2 {
@@ -729,6 +755,15 @@
 		interrupt-parent = <&gpio2>;
 		interrupts = <9 IRQ_TYPE_LEVEL_LOW>;  /* WL_HOST_WAKE = GPIO2_IO09 active low for M.2. */
 		interrupt-names = "host-wake";
+	};
+};
+
+&gpio2 {
+	bt_dev_wake_gpio { /* TODO: Could likely remove this but it needs to be verified */
+		gpio-hog;
+		gpios = <7 GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "BT_DEV_WAKE";
 	};
 };
 
