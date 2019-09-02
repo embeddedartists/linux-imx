@@ -214,12 +214,7 @@
 };
 
 &cpu0 {
-	arm-supply= <&sw3_reg>;
-	operating-points = <
-		/* KHz	uV */
-		720000	1200000
-		500210	1200000
-	>;
+	fsl,ldo-enabled-mode;
 };
 
 &iomuxc1 {
