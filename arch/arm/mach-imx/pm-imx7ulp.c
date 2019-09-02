@@ -785,8 +785,17 @@ void __init imx7ulp_pm_common_init(const struct imx7ulp_pm_socdata
 
 void __init imx7ulp_pm_init(void)
 {
+	unsigned int reg;
+
 	imx7ulp_pm_common_init(&imx7ulp_lpddr3_pm_data);
 	imx7ulp_set_lpm(RUN);
+
+
+	reg = readl_relaxed(pmc0_base + PMC0_CTRL);
+	if (reg & BM_CTRL_LDOEN)
+		pr_info("PMC1: Running in LDO enabled mode\n");
+	else
+		pr_info("PMC1: Running in LDO disabled mode\n");
 }
 
 static irqreturn_t imx7ulp_nmi_isr(int irq, void *param)
