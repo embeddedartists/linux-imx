@@ -157,8 +157,10 @@ static int imx7ulp_cpufreq_probe(struct platform_device *pdev)
 	}
 
 	/* Do not register cpufreq in LDO enabled mode */
-	if (of_property_read_bool(np, "fsl,ldo-enabled-mode"))
-		return -EINVAL;
+	if (of_property_read_bool(np, "fsl,ldo-enabled-mode")) {
+		dev_err(&pdev->dev, "cpufreq not supported in LDO enabled mode\n");
+		return -ENOTSUPP;
+	}
 
 	arm_clk = clk_get(cpu_dev, "arm");
 	sys_sel = clk_get(cpu_dev, "sys_sel");
