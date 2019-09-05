@@ -114,7 +114,7 @@
 
 		vldo1_reg: LDO1 {
 				regulator-name = "LDO1";
-				regulator-min-microvolt = <1650000>;
+				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <3300000>;
 				regulator-boot-on;
 				regulator-always-on;
@@ -400,10 +400,8 @@
 
 		pinctrl_qspi1_1: qspi1grp_1 {
 			fsl,pins = <
-				/* TODO: IMX7ULP_PAD_PTB7__QSPIA_SS1_B   0x43*/ /* SS1 */
 				IMX7ULP_PAD_PTB8__QSPIA_SS0_B   0x43 /* SS0 */
 				IMX7ULP_PAD_PTB15__QSPIA_SCLK   0x43 /* SCLK */
-				/* TODO: IMX7ULP_PAD_PTB9__QSPIA_DQS     0x43*/ /* DQS */
 				IMX7ULP_PAD_PTB16__QSPIA_DATA3  0x43 /* D3 */
 				IMX7ULP_PAD_PTB17__QSPIA_DATA2  0x43 /* D2 */
 				IMX7ULP_PAD_PTB18__QSPIA_DATA1  0x43 /* D1 */
@@ -640,6 +638,7 @@
         max-frequency = <150000000>; /* slow down UHS SDR104 clock */
 
         mmc-pwrseq = <&usdhc1_pwrseq>;
+	vqmmc-supply = <&vldo1_reg>;
         status = "okay";
 
         brcmf: bcrmf@1 {
