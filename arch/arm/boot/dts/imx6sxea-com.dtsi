@@ -82,7 +82,7 @@
 &fec1 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_enet1>;
-	pinctrl-assert-gpios = <&gpio4 26 GPIO_ACTIVE_HIGH>, <&gpio2 0 GPIO_ACTIVE_LOW>;
+	pinctrl-assert-gpios = <&gpio2 0 GPIO_ACTIVE_LOW>;
 	phy-mode = "rgmii";
 	local-mac-address = [00 1a f1 01 7f 28]; 
 	status = "okay";
@@ -307,7 +307,6 @@
 				MX6SX_PAD_RGMII1_RD2__ENET1_RX_DATA_2	0x3081
 				MX6SX_PAD_RGMII1_RD3__ENET1_RX_DATA_3	0x3081
 				MX6SX_PAD_RGMII1_RX_CTL__ENET1_RX_EN	0x3081
-				MX6SX_PAD_QSPI1A_DATA0__GPIO4_IO_16	0x80000000
 				MX6SX_PAD_ENET1_COL__GPIO2_IO_0 	0x80000000
 				MX6SX_PAD_ENET2_RX_CLK__ENET2_REF_CLK_25M	0x91
 			>;
