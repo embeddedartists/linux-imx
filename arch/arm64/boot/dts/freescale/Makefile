@@ -135,7 +135,8 @@ dtb-$(CONFIG_ARCH_FSL_IMX8MM) += fsl-imx8mm-evk.dtb \
 				 fsl-imx8mm-ea-ucom-kit_v2.dtb \
 				 fsl-imx8mm-ea-ucom-kit_v2-1mw.dtb \
 				 fsl-imx8mm-ea-ucom-kit_v2-m4.dtb \
-				 fsl-imx8mm-ea-ucom-kit_v2-pcie.dtb
+				 fsl-imx8mm-ea-ucom-kit_v2-pcie.dtb \
+				 fsl-imx8mm-ea-ucom-kit_v2-ov5640.dtb
 always		:= $(dtb-y)
 subdir-y	:= $(dts-dirs)
 clean-files	:= *.dtb

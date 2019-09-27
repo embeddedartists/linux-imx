@@ -49,14 +49,11 @@
 		status = "okay";
 		pinctrl-names = "default";
 		pinctrl-0 = <&pinctrl_ov5640>;
-		clocks = <&clk IMX8MQ_CLK_CLKO2>;
+		clocks = <&clk IMX8MQ_CLK_DUMMY>;
 		clock-names = "csi_mclk";
-		assigned-clocks = <&clk IMX8MQ_CLK_CLKO2>;
-		assigned-clock-parents = <&clk IMX8MQ_SYS2_PLL_200M>;
-		assigned-clock-rates = <12000000>;
 		csi_id = <0>;
-		pwn-gpios = <&gpio3 23 GPIO_ACTIVE_HIGH>;
-		rst-gpios = <&gpio3 24 GPIO_ACTIVE_HIGH>;
+		pwn-gpios = <&gpio3 24 GPIO_ACTIVE_HIGH>;
+		rst-gpios = <&gpio3 23 GPIO_ACTIVE_HIGH>;
 		mclk = <12000000>;
 		mclk_source = <0>;
 		port {
