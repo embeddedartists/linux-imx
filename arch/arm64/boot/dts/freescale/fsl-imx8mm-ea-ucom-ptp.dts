@@ -39,6 +39,15 @@
 			off-on-delay = <20000>;
 			enable-active-high;
 		};
+		reg_usbotg2_vbus: regulator-usbotg2 {
+			compatible = "regulator-fixed";
+			regulator-name = "usbotg_vbus";
+			regulator-min-microvolt = <5000000>;
+			regulator-max-microvolt = <5000000>;
+			gpio = <&gpio1 15 GPIO_ACTIVE_HIGH>;
+			off-on-delay = <20000>;
+			enable-active-high;
+		};
 	};
 };
 
@@ -54,6 +63,9 @@
 	imx8mmea-ucom {
 		pinctrl_test: tstgrp {
 			fsl,pins = <
+				/* From: was not in original dts */
+				MX8MM_IOMUXC_SD1_DATA6_GPIO2_IO8	0xC6
+
 				/* From: pinctrl_usdhc1: usdhc1grp */
 				MX8MM_IOMUXC_SD1_CLK_GPIO2_IO0		0xC6
 				MX8MM_IOMUXC_SD1_CMD_GPIO2_IO1		0xC6
@@ -61,6 +73,9 @@
 				MX8MM_IOMUXC_SD1_DATA1_GPIO2_IO3	0xC6
 				MX8MM_IOMUXC_SD1_DATA2_GPIO2_IO4	0xC6
 				MX8MM_IOMUXC_SD1_DATA3_GPIO2_IO5	0xC6
+
+				/* From: pinctrl_usdhc1_gpio: usdhc1grpgpio */
+				MX8MM_IOMUXC_SD1_DATA7_GPIO2_IO9	0x1c4
 
 				/* From: pinctrl_usdhc2_gpio: usdhc2grpgpio */
 				MX8MM_IOMUXC_SD2_RESET_B_GPIO2_IO19	0xC6
@@ -201,13 +216,6 @@
 			>;
 		};
 
-		pinctrl_usdhc1_gpio: usdhc1grpgpio {
-			fsl,pins = <
-				MX8MM_IOMUXC_SD1_DATA7_GPIO2_IO9	0x1c4
-
-			>;
-		};
-
 		pinctrl_usdhc3: usdhc3grp {
 			fsl,pins = <
 				MX8MM_IOMUXC_NAND_WE_B_USDHC3_CLK		0x190
@@ -220,7 +228,7 @@
 				MX8MM_IOMUXC_NAND_CE2_B_USDHC3_DATA5		0x1d0
 				MX8MM_IOMUXC_NAND_CE3_B_USDHC3_DATA6		0x1d0
 				MX8MM_IOMUXC_NAND_CLE_USDHC3_DATA7		0x1d0
-				MX8MM_IOMUXC_NAND_CE1_B_USDHC3_STROBE 		0x190
+				MX8MM_IOMUXC_NAND_CE1_B_USDHC3_STROBE		0x190
 			>;
 		};
 
@@ -269,6 +277,12 @@
 			>;
 		};
 
+		pinctrl_usbotg2: usbotg2grp {
+			fsl,pins = <
+				/*MX8MM_IOMUXC_GPIO1_IO14_GPIO1_IO14		0x1d6*/
+				MX8MM_IOMUXC_GPIO1_IO15_GPIO1_IO15		0x1d6
+			>;
+		};
 
 	};
 };
@@ -573,6 +587,10 @@
 	picophy,pre-emp-curr-control = <3>;
 	picophy,dc-vol-level-adjust = <7>;
 	status = "okay";
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_usbotg2>;
+	vbus-supply = <&reg_usbotg2_vbus>;
 };
 
 /* M.2 connector */
