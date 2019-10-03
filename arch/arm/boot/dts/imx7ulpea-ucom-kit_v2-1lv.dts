@@ -351,7 +351,7 @@
 
 		pinctrl_dsi_hdmi: dsi_hdmi_grp {
 			fsl,pins = <
-				IMX7ULP_PAD_PTC18__PTC18	0x10003	/* DSI_HDMI_INT */
+				IMX7ULP_PAD_PTC8__PTC8		0x10003	/* DSI_HDMI_INT */
 			>;
 		};
 
@@ -451,11 +451,11 @@
 
 	adv7535: adv7535@3d {
 		compatible = "adi,adv7535";
-		reg = <0x3d>; /* PD pin is low */
+		reg = <0x3d>; /* PD pin is high */
 		pinctrl-names = "default";
 		pinctrl-0 = <&pinctrl_dsi_hdmi>;
 		interrupt-parent = <&gpio_ptc>;
-		interrupts = <18 IRQ_TYPE_EDGE_FALLING>;
+		interrupts = <8 IRQ_TYPE_EDGE_FALLING>;
 		video-mode = <1>; /*
 				   * Only support CEA modes.
 				   * Reference mxc_edid.c

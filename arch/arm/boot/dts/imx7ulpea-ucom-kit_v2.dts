@@ -491,21 +491,6 @@
                 pagesize = <32>;
                 reg = <0x55>;
         };
-
-	adv7535: adv7535@3d {
-		compatible = "adi,adv7535";
-		reg = <0x3d>; /* PD pin is low */
-		pinctrl-names = "default";
-		pinctrl-0 = <&pinctrl_dsi_hdmi>;
-		interrupt-parent = <&gpio_ptc>;
-		interrupts = <18 IRQ_TYPE_EDGE_FALLING>;
-		video-mode = <1>; /*
-				   * Only support CEA modes.
-				   * Reference mxc_edid.c
-				   */
-		dsi-traffic-mode = <0>;
-		bpp = <24>;
-	};
 };
 
 /* I2C-D */
@@ -516,6 +501,21 @@
 	pinctrl-0 = <&pinctrl_lpi2c7>;
 	pinctrl-1 = <&pinctrl_lpi2c7>;
 	status = "okay";
+
+	adv7535: adv7535@3d {
+		compatible = "adi,adv7535";
+		reg = <0x3d>; /* PD pin is high */
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_dsi_hdmi>;
+		interrupt-parent = <&gpio_ptc>;
+		interrupts = <8 IRQ_TYPE_EDGE_FALLING>;
+		video-mode = <1>; /*
+				   * Only support CEA modes.
+				   * Reference mxc_edid.c
+				   */
+		dsi-traffic-mode = <0>;
+		bpp = <24>;
+	};
 };
 
 &adv7535 {
