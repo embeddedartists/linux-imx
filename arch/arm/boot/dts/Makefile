@@ -712,6 +712,7 @@ dtb-$(CONFIG_SOC_IMX7ULP) += \
 	imx7ulp-evk-mipi.dtb \
 	imx7ulp-evk-sensors-to-i2c5.dtb \
 	imx7ulpea-ucom-ptp.dtb \
+	imx7ulpea-ucom-ptp-1lv.dtb \
 	imx7ulpea-ucom-kit_v2.dtb \
 	imx7ulpea-ucom-kit_v2-1lv.dtb
 dtb-$(CONFIG_SOC_LS1021A) += \
