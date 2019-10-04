@@ -274,7 +274,6 @@
 				IMX7ULP_PAD_PTD8__SDHC0_D2	0x43
 				IMX7ULP_PAD_PTD9__SDHC0_D1	0x43
 				IMX7ULP_PAD_PTD10__SDHC0_D0	0x43
-				IMX7ULP_PAD_PTC10__PTC10	0x10000	/* USDHC0 CD */
 				IMX7ULP_PAD_PTD0__PTD0		0x20000	/* USDHC0 RST */
 			>;
 		};
@@ -448,6 +447,16 @@
                 pagesize = <32>;
                 reg = <0x55>;
         };
+};
+
+/* I2C-D */
+&lpi2c7 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&pinctrl_lpi2c7>;
+	pinctrl-1 = <&pinctrl_lpi2c7>;
+	status = "okay";
 
 	adv7535: adv7535@3d {
 		compatible = "adi,adv7535";
@@ -462,18 +471,8 @@
 				   */
 		dsi-traffic-mode = <0>;
 		bpp = <24>;
-		status = "disabled";
+		status = "okay";
 	};
-};
-
-/* I2C-D */
-&lpi2c7 {
-	#address-cells = <1>;
-	#size-cells = <0>;
-	pinctrl-names = "default", "sleep";
-	pinctrl-0 = <&pinctrl_lpi2c7>;
-	pinctrl-1 = <&pinctrl_lpi2c7>;
-	status = "okay";
 };
 
 &adv7535 {
