@@ -23,9 +23,9 @@
 		mxcfb3 = &mxcfb4;
 
 		/* Aliases to allow u-boot to modify the device tree */
-		fb_hdmi = &mxcfb2;
+		fb_hdmi = &mxcfb1;
 		fb_rgb = &mxcfb3;
-		fb_lvds0 = &mxcfb1;
+		fb_lvds0 = &mxcfb2;
 		fb_lvds1 = &mxcfb4;
 		t_rgb = &t_lcd;
 		t_lvds0 = &t_lvds;
@@ -110,23 +110,23 @@
 
 	mxcfb1: fb@0 {
 		compatible = "fsl,mxc_sdc_fb";
-		disp_dev = "ldb";
-		interface_pix_fmt = "RGB666";
-		default_bpp = <16>;
-		int_clk = <0>;
-		late_init = <0>;
-		dispctrl-gpios = <&gpio3 20 GPIO_ACTIVE_HIGH>, <&gpio2 27 GPIO_ACTIVE_HIGH>;
-		status = "disabled";
-	};
-
-	mxcfb2: fb@1 {
-		compatible = "fsl,mxc_sdc_fb";
 		disp_dev = "hdmi";
 		interface_pix_fmt = "RGB24";
 		mode_str ="1920x1080M@60";
 		default_bpp = <24>;
 		int_clk = <0>;
 		late_init = <0>;
+		status = "disabled";
+	};
+
+	mxcfb2: fb@1 {
+		compatible = "fsl,mxc_sdc_fb";
+		disp_dev = "ldb";
+		interface_pix_fmt = "RGB666";
+		default_bpp = <16>;
+		int_clk = <0>;
+		late_init = <0>;
+		dispctrl-gpios = <&gpio3 20 GPIO_ACTIVE_HIGH>, <&gpio2 27 GPIO_ACTIVE_HIGH>;
 		status = "disabled";
 	};
 
