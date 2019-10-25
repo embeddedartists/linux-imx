@@ -162,7 +162,7 @@
                                                                                 /* GPIO_AF Not Connected */
                                                                                 /* GPIO_AG Not Connected */
                                                                                 /* GPIO_AH Not Connected */
-				/*IMX7ULP_PAD_PTE6__PTE6			0xC6	 GPIO_AJ WL_REG_ON */
+				                                                /* GPIO_AJ Not Connected */
 				/*IMX7ULP_PAD_PTE12__PTE12			0xC6	 GPIO_AK BT_DEV_WAKE */
 				/*IMX7ULP_PAD_PTE13__PTE13			0xC6	 GPIO_AL BT_REG_ON */
                                                                                 /* GPIO_AP Not Connected */

@@ -19,7 +19,6 @@
 	aliases {
 		gpio4 = &rpmsg_gpio0;
 		gpio5 = &rpmsg_gpio1;
-		pca6416_gpio = &rpmsg_gpio2;
 	};
 
 	chosen {
@@ -48,7 +47,7 @@
 
 	modem_reset: modem-reset { /* Murata -- BT_REG_ON */
 		compatible = "gpio-reset";
-		reset-gpios = <&rpmsg_gpio2 0 GPIO_ACTIVE_LOW>;
+		reset-gpios = <&gpio_buff 0 GPIO_ACTIVE_LOW>;
 		reset-delay-us = <1000>;
 		initially-in-reset;
 		#reset-cells = <0>;
@@ -165,48 +164,6 @@
 		status = "okay";
 	};
 
-	rpmsg_gpio2: rpmsg-gpio2 {
-		compatible = "fsl,imx-rpmsg-gpio";
-		port_idx = <2>;
-		gpio-controller;
-		#gpio-cells = <2>;
-		#interrupt-cells = <2>;
-		interrupt-controller;
-		interrupt-parent = <&rpmsg_gpio2>;
-		status = "okay";
-
-		hog_VBAT_VSEL {
-			gpio-hog;
-			gpios = <2 0>;
-			output-low; /* LOW = 3.3V, HIGH = 3.6V */
-		};
-		hog_AUD_CODEC_MUX_CTRL1 {
-			gpio-hog;
-			gpios = <5 0>;
-			output-low;
-		};
-		hog_VDDIO_VSEL {
-			gpio-hog;
-			gpios = <6 0>;
-			output-low; /* LOW = 1.8V, HIGH = 3.3V */
-		};
-		hog_DIR_WL_DEV_WAKE {
-			gpio-hog;
-			gpios = <9 0>;
-			output-low;
-		};
-		hog_PCIE_CLK_MUX_CTRL {
-			gpio-hog;
-			gpios = <10 0>;
-			output-high; /* LOW = External Reference Clock, HIGH = i.MX Generated Clock */
-		};
-		hog_AUD_CODEC_MUX_CTRL2 {
-			gpio-hog;
-			gpios = <11 0>;
-			output-low;
-		};
-	};
-
 	rpmsg_keys: rpmsg-keys {
 		compatible = "fsl,rpmsg-keys";
 
@@ -252,7 +209,7 @@
 
 	usdhc1_pwrseq: usdhc1_pwrseq {
 		compatible = "mmc-pwrseq-simple";
-		reset-gpios = <&rpmsg_gpio2 1 GPIO_ACTIVE_LOW>; /* WL_REG_ON */
+		reset-gpios = <&gpio_buff 1 GPIO_ACTIVE_LOW>; /* WL_REG_ON */
 		status = "okay";
 	};
 };
@@ -339,7 +296,7 @@
 
                 pinctrl_usdhc1: usdhc1grp {
                         fsl,pins = <
-				IMX7ULP_PAD_PTE2__SDHC1_CLK	0x2
+				IMX7ULP_PAD_PTE2__SDHC1_CLK	0x10042
 				IMX7ULP_PAD_PTE3__SDHC1_CMD	0x3
 				IMX7ULP_PAD_PTE1__SDHC1_D0	0x3
 				IMX7ULP_PAD_PTE0__SDHC1_D1	0x3
@@ -351,29 +308,27 @@
                 pinctrl_usdhc1_100mhz: usdhc1grp100mhz {
                         fsl,pins = <
 				IMX7ULP_PAD_PTE2__SDHC1_CLK	0x10042
-				IMX7ULP_PAD_PTE3__SDHC1_CMD	0x43
-				IMX7ULP_PAD_PTE1__SDHC1_D0	0x43
-				IMX7ULP_PAD_PTE0__SDHC1_D1	0x43
-				IMX7ULP_PAD_PTE5__SDHC1_D2	0x43
-				IMX7ULP_PAD_PTE4__SDHC1_D3	0x43
+				IMX7ULP_PAD_PTE3__SDHC1_CMD	0x3
+				IMX7ULP_PAD_PTE1__SDHC1_D0	0x3
+				IMX7ULP_PAD_PTE0__SDHC1_D1	0x3
+				IMX7ULP_PAD_PTE5__SDHC1_D2	0x3
+				IMX7ULP_PAD_PTE4__SDHC1_D3	0x3
                         >;
                 };
 
                 pinctrl_usdhc1_200mhz: usdhc1grp200mhz {
                         fsl,pins = <
 				IMX7ULP_PAD_PTE2__SDHC1_CLK	0x10042
-				IMX7ULP_PAD_PTE3__SDHC1_CMD	0x43
-				IMX7ULP_PAD_PTE1__SDHC1_D0	0x43
-				IMX7ULP_PAD_PTE0__SDHC1_D1	0x43
-				IMX7ULP_PAD_PTE5__SDHC1_D2	0x43
-				IMX7ULP_PAD_PTE4__SDHC1_D3	0x43
+				IMX7ULP_PAD_PTE3__SDHC1_CMD	0x3
+				IMX7ULP_PAD_PTE1__SDHC1_D0	0x3
+				IMX7ULP_PAD_PTE0__SDHC1_D1	0x3
+				IMX7ULP_PAD_PTE5__SDHC1_D2	0x3
+				IMX7ULP_PAD_PTE4__SDHC1_D3	0x3
                         >;
                 };
 
 		pinctrl_usdhc1_gpio: usdhc1grp_gpio {
 			fsl,pins = <
-				IMX7ULP_PAD_PTE13__PTE13	0x10003	/* BT_REG_ON */
-				IMX7ULP_PAD_PTE12__PTE12	0x10003	/* BT_DEV_WAKE */
 				IMX7ULP_PAD_PTC12__PTC12        0x43    /* WL_HOST_WAKE */
 			>;
 		};
@@ -514,6 +469,50 @@
 				   */
 		dsi-traffic-mode = <0>;
 		bpp = <24>;
+		status = "okay";
+	};
+
+	gpio_buff: pca6416@20 {
+		compatible = "ti,tca6416";
+		reg = <0x20>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		gpio-line-names = "BT_REG_ON", "WL_REG_ON", "VBAT_VSEL",
+			"BT_DEV_WAKE", "", "AUD_CODEC_MUX_CTRL1",
+			"VDDIO_VSEL", "PCIE_PERST_L", "",
+			"DIR_WL_DEV_WAKE", "PCIE_CLK_MUX_CTRL", "AUD_CODEC_MUX_CTRL2",
+			"DIR_BT_AUD_WS_CLK", "USER_BTN", "USER_LED1", "USER_LED2";
+
+		hog_VBAT_VSEL {
+			gpio-hog;
+			gpios = <2 0>;
+			output-low; /* LOW = 3.3V, HIGH = 3.6V */
+		};
+		hog_AUD_CODEC_MUX_CTRL1 {
+			gpio-hog;
+			gpios = <5 0>;
+			output-low;
+		};
+		hog_VDDIO_VSEL {
+			gpio-hog;
+			gpios = <6 0>;
+			output-low; /* LOW = 1.8V, HIGH = 3.3V */
+		};
+		hog_DIR_WL_DEV_WAKE {
+			gpio-hog;
+			gpios = <9 0>;
+			output-high;
+		};
+		hog_PCIE_CLK_MUX_CTRL {
+			gpio-hog;
+			gpios = <10 0>;
+			output-high; /* LOW = External Reference Clock, HIGH = i.MX Generated Clock */
+		};
+		hog_AUD_CODEC_MUX_CTRL2 {
+			gpio-hog;
+			gpios = <11 0>;
+			output-low;
+		};
 	};
 };
 
@@ -602,12 +601,12 @@
         pinctrl-1 = <&pinctrl_usdhc1_100mhz>, <&pinctrl_usdhc1_gpio>;
         pinctrl-2 = <&pinctrl_usdhc1_200mhz>, <&pinctrl_usdhc1_gpio>;
 
-        /*enable-sdio-wakeup;*/
+        enable-sdio-wakeup;
         keep-power-in-suspend;
         non-removable;
-        /*cd-broken;*/
+        cd-broken;
         pm-ignore-notify;
-        /*wifi-host;*/
+        wifi-host;
         cap-power-off;
         max-frequency = <150000000>; /* slow down UHS SDR104 clock */
 
