@@ -111,8 +111,8 @@
 	assigned-clock-rates = <0>;
 
 	display1: display@1 {
-		bits-per-pixel = <16>;
-		bus-width = <18>;
+		bits-per-pixel = <32>;
+		bus-width = <24>;
 	};
 };
 
@@ -121,7 +121,7 @@
 
 	lvds-channel@0 {
 		fsl,data-mapping = "spwg";
-		fsl,data-width = <18>;
+		fsl,data-width = <24>;
 		crtc = "lcdif2";
 		status = "okay";
 
