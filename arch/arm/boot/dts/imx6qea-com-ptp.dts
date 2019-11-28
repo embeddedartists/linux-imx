@@ -160,9 +160,9 @@
 				MX6QDL_PAD_CSI0_DAT6__GPIO5_IO24	0x1f099
 				MX6QDL_PAD_GPIO_19__GPIO4_IO05		0x1f099
 
-				/* From pinctrl_uart4: uart4grp */
-				MX6QDL_PAD_CSI0_DAT12__GPIO5_IO30	0x1f099
-				MX6QDL_PAD_CSI0_DAT13__GPIO5_IO31	0x1f099
+				/* From pinctrl_uart1: uart1grp */
+				MX6QDL_PAD_CSI0_DAT10__GPIO5_IO28	0x1f099
+				MX6QDL_PAD_CSI0_DAT11__GPIO5_IO29	0x1f099
 
 				/* From: pinctrl_uart5: uart5grp */
 				MX6QDL_PAD_CSI0_DAT14__GPIO6_IO00	0x1f099
@@ -324,10 +324,10 @@
 			>;
 		};
 
-		pinctrl_uart1: uart1grp {
+		pinctrl_uart4: uart4grp {
 			fsl,pins = <
-				MX6QDL_PAD_CSI0_DAT10__UART1_TX_DATA	0x1b0b1
-				MX6QDL_PAD_CSI0_DAT11__UART1_RX_DATA	0x1b0b1
+				MX6QDL_PAD_CSI0_DAT12__UART4_TX_DATA	0x1b0b1
+				MX6QDL_PAD_CSI0_DAT13__UART4_RX_DATA	0x1b0b1
 			>;
 		};
 
@@ -462,9 +462,7 @@
 };
 
 &uart1 {
-	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_uart1>;
-	status = "okay";
+	status = "disabled";
 };
 
 &uart2 {
@@ -476,7 +474,9 @@
 };
 
 &uart4 {
-	status = "disabled";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart4>;
+	status = "okay";
 };
 
 &uart5 {
