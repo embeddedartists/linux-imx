@@ -48,6 +48,15 @@
 		#reset-cells = <0>;
 	};
 
+	sii902x_reset: sii902x-reset {
+		compatible = "gpio-reset";
+		reset-gpios = <&gpio4 16 GPIO_ACTIVE_LOW>;
+		reset-delay-us = <10000>;
+		initially-in-reset;
+		#reset-cells = <0>;
+		status = "disabled";
+	};
+
 	regulators {
 		compatible = "simple-bus";
 		#address-cells = <1>;
@@ -320,6 +329,18 @@
 		compatible = "nxp,pcf8523";
 		reg = <0x68>;
 	};
+	sii902x: sii902x@39 {
+		compatible = "SiI,sii902x";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_rgb_connector>;
+		interrupt-parent = <&gpio4>;
+		interrupts = <24 IRQ_TYPE_EDGE_FALLING>;
+		resets = <&sii902x_reset>;
+		mode_str ="800x600M@60";
+		bits-per-pixel = <24>;
+		reg = <0x39>;
+		status = "disbled";
+	};
 };
 
 &i2c2 {
@@ -500,6 +521,7 @@
 		pinctrl_rgb_connector: rgb_connector_grp {
 			fsl,pins = <
 				MX6UL_PAD_CSI_DATA03__GPIO4_IO24       0x1b0b0
+				MX6UL_PAD_NAND_DQS__GPIO4_IO16         0x1b0b0
 			>;
 		};
 
