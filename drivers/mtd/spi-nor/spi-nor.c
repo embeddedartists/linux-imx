@@ -287,6 +287,7 @@ static inline int set_4byte(struct spi_nor *nor, const struct flash_info *info,
 		/* Some Micron need WREN command; all will accept it */
 		need_wren = true;
 	case SNOR_MFR_MACRONIX:
+	case CFI_MFR_PMC: /* The ISSI/PMC is25lp256d use the same register/setting */
 	case SNOR_MFR_WINBOND:
 		if (need_wren)
 			write_enable(nor);
@@ -1024,6 +1025,8 @@ static const struct flash_info spi_nor_ids[] = {
 
 	/* ISSI */
 	{ "is25cd512", INFO(0x7f9d20, 0, 32 * 1024,   2, SECT_4K) },
+	{ "is25lp064a", INFO(0x9d6017, 0, 64 * 1024,   128, SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ) },
+	{ "is25lp256d", INFO(0x9d6019, 0, 64 * 1024,   512, SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ) },
 	{ "is25wp032", INFO(0x9d7016, 0, 64 * 1024,  64,
 			SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ) },
 	{ "is25wp064", INFO(0x9d7017, 0, 64 * 1024, 128,
@@ -2470,6 +2473,7 @@ static int spi_nor_init_params(struct spi_nor *nor,
 				   SNOR_HWCAPS_PP_QUAD)) {
 		switch (JEDEC_MFR(info)) {
 		case SNOR_MFR_MACRONIX:
+		case CFI_MFR_PMC: /* The ISSI/PMC is25lp064a use the same register/setting */
 			params->quad_enable = macronix_quad_enable;
 			break;
 
