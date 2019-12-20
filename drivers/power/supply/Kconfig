@@ -624,4 +624,10 @@ config CHARGER_RT9455
 	help
 	  Say Y to enable support for Richtek RT9455 battery charger.
 
+config BD7181X_POWER
+	tristate "ROHM BD71815/BD71817 Charger for Battery and Adapter Power"
+	depends on MFD_BD7181X
+	help
+	  Say Y to enable support for the BD71815/BD71817 charger.
+
 endif # POWER_SUPPLY

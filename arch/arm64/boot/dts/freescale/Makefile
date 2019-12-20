@@ -117,12 +117,12 @@ dtb-$(CONFIG_ARCH_FSL_IMX8MQ) += fsl-imx8mq-ddr3l-arm2.dtb \
 				 fsl-imx8mq-evk-inmate.dtb \
 				 fsl-imx8mq-evk-dp.dtb \
 				 fsl-imx8mq-evk-edp.dtb \
-                                 fsl-imx8mq-ea-com-ptp.dtb \
-                                 fsl-imx8mq-ea-com-kit_v2.dtb \
-                                 fsl-imx8mq-ea-com-kit_v2-mfg.dtb \
-                                 fsl-imx8mq-ea-com-kit_v2-m4.dtb \
-                                 fsl-imx8mq-ea-com-kit_v2-pcie.dtb \
-                                 fsl-imx8mq-ea-com-kit_v2-ov5640.dtb
+				 fsl-imx8mq-ea-com-ptp.dtb \
+				 fsl-imx8mq-ea-com-kit_v2.dtb \
+				 fsl-imx8mq-ea-com-kit_v2-mfg.dtb \
+				 fsl-imx8mq-ea-com-kit_v2-m4.dtb \
+				 fsl-imx8mq-ea-com-kit_v2-pcie.dtb \
+				 fsl-imx8mq-ea-com-kit_v2-ov5640.dtb
 dtb-$(CONFIG_ARCH_FSL_IMX8MM) += fsl-imx8mm-evk.dtb \
 				 fsl-imx8mm-evk-drm.dtb \
 				 fsl-imx8mm-evk-ak4497.dtb \
@@ -139,13 +139,13 @@ dtb-$(CONFIG_ARCH_FSL_IMX8MM) += fsl-imx8mm-evk.dtb \
 				 fsl-imx8mm-evk-revb-rm67191.dtb \
 				 fsl-imx8mm-ddr4-evk-rm67191.dtb \
 				 fsl-imx8mm-ddr4-qca9377-evk.dtb \
-                                 fsl-imx8mm-ea-ucom-kit_v2.dtb \
-                                 fsl-imx8mm-ea-ucom-kit_v2-1mw.dtb \
-                                 fsl-imx8mm-ea-ucom-kit_v2-m4.dtb \
-                                 fsl-imx8mm-ea-ucom-kit_v2-pcie.dtb \
-                                 fsl-imx8mm-ea-ucom-kit_v2-ov5640.dtb \
-                                 fsl-imx8mm-ea-ucom-ptp.dtb \
-                                 fsl-imx8mm-ea-ucom-ptp-1mw.dtb
+				 fsl-imx8mm-ea-ucom-kit_v2.dtb \
+				 fsl-imx8mm-ea-ucom-kit_v2-1mw.dtb \
+				 fsl-imx8mm-ea-ucom-kit_v2-m4.dtb \
+				 fsl-imx8mm-ea-ucom-kit_v2-pcie.dtb \
+				 fsl-imx8mm-ea-ucom-kit_v2-ov5640.dtb \
+				 fsl-imx8mm-ea-ucom-ptp.dtb \
+				 fsl-imx8mm-ea-ucom-ptp-1mw.dtb
 dtb-$(CONFIG_ARCH_FSL_IMX8MN) += fsl-imx8mn-ddr4-evk.dtb \
 				 fsl-imx8mn-ddr4-evk-rpmsg.dtb \
 				 fsl-imx8mn-ddr4-evk-rm67191.dtb \
