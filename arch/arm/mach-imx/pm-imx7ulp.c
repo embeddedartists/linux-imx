@@ -470,6 +470,9 @@ static int imx7ulp_suspend_finish(unsigned long val)
 
 static int imx7ulp_pm_enter(suspend_state_t state)
 {
+	unsigned int reg;
+	bool ldo_enabled;
+
 	switch (state) {
 	case PM_SUSPEND_STANDBY:
 		if (psci_ops.cpu_suspend) {
@@ -503,6 +506,13 @@ static int imx7ulp_pm_enter(suspend_state_t state)
 			if (!console_suspend_enabled)
 				imx7ulp_lpuart_save();
 			imx7ulp_iomuxc_save();
+			reg = readl_relaxed(pmc0_base + PMC0_CTRL);
+			if (reg & BM_CTRL_LDOEN) {
+				ldo_enabled = true;
+				/* Clear LDOEN */
+				reg &= ~BM_CTRL_LDOEN;
+				writel_relaxed(reg, pmc0_base + PMC0_CTRL);
+			}
 			imx7ulp_set_lpm(VLLS);
 
 			/* Zzz ... */
@@ -515,6 +525,12 @@ static int imx7ulp_pm_enter(suspend_state_t state)
 			imx7ulp_set_dgo(0);
 			imx7ulp_tpm_restore();
 			imx7ulp_set_lpm(RUN);
+			if (ldo_enabled) {
+				/* Set LDOEN */
+				reg = readl_relaxed(pmc0_base + PMC0_CTRL);
+				reg |= BM_CTRL_LDOEN;
+				writel_relaxed(reg, pmc0_base + PMC0_CTRL);
+			}
 	}
 		break;
 	default:
