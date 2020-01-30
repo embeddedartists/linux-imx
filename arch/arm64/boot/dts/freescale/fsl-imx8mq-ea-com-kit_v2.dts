@@ -839,7 +839,6 @@
 };
 
 &hdmi {
-	fsl,no_edid;
 	status = "okay";
 };
 
