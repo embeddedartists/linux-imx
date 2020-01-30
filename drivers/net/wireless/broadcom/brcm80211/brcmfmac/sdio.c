@@ -53,7 +53,11 @@
 
 #define DEFAULT_F2_WATERMARK    0x8
 #define CY_4373_F2_WATERMARK    0x40
+#define CY_4373_F1_MESBUSYCTRL  (CY_4373_F2_WATERMARK | SBSDIO_MESBUSYCTRL_ENAB)
 #define CY_43012_F2_WATERMARK    0x60
+#define CY_43012_MES_WATERMARK  0x50
+#define CY_43012_MESBUSYCTRL    (CY_43012_MES_WATERMARK | \
+				 SBSDIO_MESBUSYCTRL_ENAB)
 #define CY_43455_F2_WATERMARK	0x60
 #define CY_43455_MES_WATERMARK	0x50
 #define CY_43455_MESBUSYCTRL	(CY_43455_MES_WATERMARK | \
@@ -61,6 +65,8 @@
 #define CY_4339_F2_WATERMARK	48
 #define CY_4339_MES_WATERMARK	80
 #define CY_4339_MESBUSYCTRL	(CY_4339_MES_WATERMARK | SBSDIO_MESBUSYCTRL_ENAB)
+#define CY_4359_F2_WATERMARK	0x40
+#define CY_4359_F1_MESBUSYCTRL	(CY_4359_F2_WATERMARK | SBSDIO_MESBUSYCTRL_ENAB)
 #ifdef DEBUG
 
 #define BRCMF_TRAP_INFO_SIZE	80
@@ -274,10 +280,11 @@ struct rte_console {
 #define I_HMB_HOST_INT	I_HMB_SW3	/* Miscellaneous Interrupt */
 
 /* tohostmailboxdata */
-#define HMB_DATA_NAKHANDLED	1	/* retransmit NAK'd frame */
-#define HMB_DATA_DEVREADY	2	/* talk to host after enable */
-#define HMB_DATA_FC		4	/* per prio flowcontrol update flag */
-#define HMB_DATA_FWREADY	8	/* fw ready for protocol activity */
+#define HMB_DATA_NAKHANDLED	0x0001	/* retransmit NAK'd frame */
+#define HMB_DATA_DEVREADY	0x0002	/* talk to host after enable */
+#define HMB_DATA_FC		0x0004	/* per prio flowcontrol update flag */
+#define HMB_DATA_FWREADY	0x0008	/* fw ready for protocol activity */
+#define HMB_DATA_FWHALT		0x0010	/* firmware halted */
 
 #define HMB_DATA_FCDATA_MASK	0xff000000
 #define HMB_DATA_FCDATA_SHIFT	24
@@ -333,6 +340,10 @@ struct rte_console {
 static void brcmf_sdio_firmware_callback(struct device *dev, int err,
 					 const struct firmware *code,
 					 void *nvram, u32 nvram_len);
+static int brcmf_sdio_f2_ready(struct brcmf_sdio *bus);
+static int brcmf_ulp_event_notify(struct brcmf_if *ifp,
+					 const struct brcmf_event_msg *evtmsg,
+					 void *data);
 
 #ifdef DEBUG
 /* Device console log buffer state */
@@ -627,6 +638,7 @@ BRCMF_FW_NVRAM_DEF(43430A1, "brcmfmac43430-sdio.bin", "brcmfmac43430-sdio.txt");
 BRCMF_FW_NVRAM_DEF(43455, "brcmfmac43455-sdio.bin", "brcmfmac43455-sdio.txt");
 BRCMF_FW_NVRAM_DEF(4354, "brcmfmac4354-sdio.bin", "brcmfmac4354-sdio.txt");
 BRCMF_FW_NVRAM_DEF(4356, "brcmfmac4356-sdio.bin", "brcmfmac4356-sdio.txt");
+BRCMF_FW_NVRAM_DEF(4359, "brcmfmac4359-sdio.bin", "brcmfmac4359-sdio.txt");
 BRCMF_FW_NVRAM_DEF(4373, "brcmfmac4373-sdio.bin", "brcmfmac4373-sdio.txt");
 BRCMF_FW_NVRAM_DEF(43012, "brcmfmac43012-sdio.bin", "brcmfmac43012-sdio.txt");
 
@@ -648,9 +660,12 @@ static struct brcmf_firmware_mapping brcmf_sdio_fwnames[] = {
 	BRCMF_FW_NVRAM_ENTRY(BRCM_CC_4345_CHIP_ID, 0xFFFFFFC0, 43455),
 	BRCMF_FW_NVRAM_ENTRY(BRCM_CC_4354_CHIP_ID, 0xFFFFFFFF, 4354),
 	BRCMF_FW_NVRAM_ENTRY(BRCM_CC_4356_CHIP_ID, 0xFFFFFFFF, 4356),
+	BRCMF_FW_NVRAM_ENTRY(BRCM_CC_4359_CHIP_ID, 0xFFFFFFFF, 4359),
 	BRCMF_FW_NVRAM_ENTRY(CY_CC_4373_CHIP_ID, 0xFFFFFFFF, 4373),
 	BRCMF_FW_NVRAM_ENTRY(CY_CC_43012_CHIP_ID, 0xFFFFFFFF, 43012)
 };
+
+#define TXCTL_CREDITS	2
 
 static void pkt_align(struct sk_buff *p, int len, int align)
 {
@@ -662,8 +677,17 @@ static void pkt_align(struct sk_buff *p, int len, int align)
 	__skb_trim(p, len);
 }
 
-/* To check if there's window offered */
+/* To check if there's window offered
+ * Reserve 3 credits for txctl
+ */
 static bool data_ok(struct brcmf_sdio *bus)
+{
+	return (u8)(bus->tx_max - bus->tx_seq) > TXCTL_CREDITS &&
+	       ((u8)(bus->tx_max - bus->tx_seq) & 0x80) == 0;
+}
+
+/* To check if there's window offered */
+static bool txctl_ok(struct brcmf_sdio *bus)
 {
 	return (u8)(bus->tx_max - bus->tx_seq) != 0 &&
 	       ((u8)(bus->tx_max - bus->tx_seq) & 0x80) == 0;
@@ -1096,7 +1120,7 @@ static void brcmf_sdio_get_console_addr(struct brcmf_sdio *bus)
 }
 #endif /* DEBUG */
 
-static u32 brcmf_sdio_hostmail(struct brcmf_sdio *bus)
+static u32 brcmf_sdio_hostmail(struct brcmf_sdio *bus, u32 *hmbd)
 {
 	u32 intstatus = 0;
 	u32 hmb_data;
@@ -1113,6 +1137,10 @@ static u32 brcmf_sdio_hostmail(struct brcmf_sdio *bus)
 		w_sdreg32(bus, SMB_INT_ACK,
 			  offsetof(struct sdpcmd_regs, tosbmailbox));
 	bus->sdcnt.f1regdata += 2;
+
+	/* dongle indicates the firmware has halted/crashed */
+	if (hmb_data & HMB_DATA_FWHALT)
+		brcmf_err("mailbox indicates firmware halted\n");
 
 	/* Dongle recomposed rx frames, accept them again */
 	if (hmb_data & HMB_DATA_NAKHANDLED) {
@@ -1171,9 +1199,13 @@ static u32 brcmf_sdio_hostmail(struct brcmf_sdio *bus)
 			 HMB_DATA_NAKHANDLED |
 			 HMB_DATA_FC |
 			 HMB_DATA_FWREADY |
+			 HMB_DATA_FWHALT |
 			 HMB_DATA_FCDATA_MASK | HMB_DATA_VERSION_MASK))
 		brcmf_err("Unknown mailbox data content: 0x%02x\n",
 			  hmb_data);
+		/* Populate hmb_data if argument is passed for DS1 check later */
+		if (hmbd)
+					*hmbd = hmb_data;
 
 	return intstatus;
 }
@@ -2566,21 +2598,20 @@ brcmf_sdio_ulp_preinit(struct device *dev)
 	struct brcmf_if *ifp = bus_if->drvr->iflist[0];
 	s32 err = 0;
 
-	brcmf_dbg(TRACE, "Enter\n");
+	brcmf_dbg(ULP, "Enter\n");
 
 	/* Query ulp_sdioctrl iovar to get the ULP related SHM offsets */
-	err = brcmf_fil_iovar_data_get(ifp, "ulp_sdioctrl", &sdiodev->shm_ulp,
-				       sizeof(sdiodev->shm_ulp));
-	if (err)
-		brcmf_dbg(TRACE, "ulp_sdioctrl iovar returned err = %d\n", err);
+	brcmf_fil_iovar_data_get(ifp, "ulp_sdioctrl",
+					 &sdiodev->fmac_ulp.ulp_shm_offset,
+					 sizeof(sdiodev->fmac_ulp.ulp_shm_offset));
 
 	sdiodev->ulp = false;
 
-	brcmf_dbg(TRACE, "m_ulp_ctrl_sdio[%x] m_ulp_wakeevt_ind [%x]\n",
-		  M_DS1_CTRL_SDIO(sdiodev->shm_ulp),
-		  M_WAKEEVENT_IND(sdiodev->shm_ulp));
-	brcmf_dbg(TRACE, "m_ulp_wakeind [%x]\n",
-		  M_ULP_WAKE_IND(sdiodev->shm_ulp));
+	brcmf_dbg(ULP, "m_ulp_ctrl_sdio[%x] m_ulp_wakeevt_ind [%x]\n",
+		  M_DS1_CTRL_SDIO(sdiodev->fmac_ulp),
+		  M_WAKEEVENT_IND(sdiodev->fmac_ulp));
+	brcmf_dbg(ULP, "m_ulp_wakeind [%x]\n",
+		  M_ULP_WAKE_IND(sdiodev->fmac_ulp));
 }
 
 /* Reinitialize ARM because In DS1 mode ARM got off */
@@ -2608,41 +2639,67 @@ brcmf_sdio_ulp_reinit_fw(struct brcmf_sdio *bus)
 
 /* Check if device is in DS1 mode and handshake with ULP UCODE */
 static bool
-brcmf_sdio_ulp_pre_redownload_check(struct brcmf_sdio *bus)
+brcmf_sdio_ulp_pre_redownload_check(struct brcmf_sdio *bus, u32 hmb_data)
 {
 	int err = 0;
 	u32 value = 0;
 	u32 val32, ulp_wake_ind, wowl_wake_ind;
 	int reg_addr;
 	unsigned long timeout;
+	struct brcmf_ulp *fmac_ulp = &bus->sdiodev->fmac_ulp;
+	int i = 0;
+
+	/* If any host mail box data is present, ignore DS1 exit sequence */
+	if (hmb_data)
+		return false;
+	/* Skip if DS1 Exit is already in progress
+	 * This can happen if firmware download is taking more time
+	 */
+	if (fmac_ulp->ulp_state == FMAC_ULP_TRIGGERED)
+		return false;
 
 	value = brcmf_sdiod_regrb(bus->sdiodev, SDIO_CCCR_IOEx, &err);
 
 	if (value == SDIO_FUNC_ENABLE_1) {
-		brcmf_dbg(SDIO, "GOT THE INTERRUPT FROM UCODE\n");
+		brcmf_dbg(ULP, "GOT THE INTERRUPT FROM UCODE\n");
 		bus->sdiodev->ulp = true;
-		ulp_wake_ind = D11SHM_RD(bus->sdiodev, M_ULP_WAKE_IND(
-				  bus->sdiodev->shm_ulp), &err) >> 16;
-		wowl_wake_ind = D11SHM_RD(bus->sdiodev, M_WAKEEVENT_IND(
-				  bus->sdiodev->shm_ulp), &err) >> 16;
-
-		brcmf_dbg(SDIO, "wowl_wake_ind: 0x%08x, ulp_wake_ind: 0x%08x\n",
-			  wowl_wake_ind, ulp_wake_ind);
+		fmac_ulp->ulp_state = FMAC_ULP_TRIGGERED;
+		ulp_wake_ind = D11SHM_RDW(bus->sdiodev, M_ULP_WAKE_IND(
+						  bus->sdiodev->fmac_ulp), &err);
+		wowl_wake_ind = D11SHM_RDW(bus->sdiodev, M_WAKEEVENT_IND(
+						  bus->sdiodev->fmac_ulp), &err);
+		brcmf_dbg(ULP, "wowl_wake_ind: 0x%08x, ulp_wake_ind: 0x%08x state %s\n",
+							wowl_wake_ind, ulp_wake_ind, (fmac_ulp->ulp_state) ?
+							"DS1 Exit Triggered" : "IDLE State");
 
 		if (wowl_wake_ind || ulp_wake_ind) {
-			/* TX wake Don't do anything.
+			/* RX wake Don't do anything.
 			 * Just bail out and re-download firmware.
 			 */
+			 /* Print out PHY TX error block when bit 9 set */
+			 if ((ulp_wake_ind & C_DS1_PHY_TXERR) &&
+			      M_DS1_PHYTX_ERR_BLK(bus->sdiodev->fmac_ulp)) {
+			 				brcmf_err("Dump PHY TX Error SHM Locations\n");
+			 				for (i = 0; i < PHYTX_ERR_BLK_SIZE; i++) {
+			 					pr_err("0x%x", D11SHM_RDW(bus->sdiodev,
+			 								  (M_DS1_PHYTX_ERR_BLK
+			 								  (bus->sdiodev->fmac_ulp) +
+			 								  (i * 2)), &err));
+			 				}
+			 				brcmf_err("\n");
+			 			}
 		} else {
-			/* RX wake negotiate with MAC */
-			brcmf_dbg(SDIO, "M_DS1_CTRL_SDIO: 0x%08x\n",
-				  (u32)D11SHM_RD(bus->sdiodev,
-				  M_DS1_CTRL_SDIO(bus->sdiodev->shm_ulp),
+			/* TX wake negotiate with MAC */
+			brcmf_dbg(ULP, "M_DS1_CTRL_SDIO: 0x%08x\n",
+				  (u32)D11SHM_RDW(bus->sdiodev,
+				  M_DS1_CTRL_SDIO(bus->sdiodev->fmac_ulp),
 				  &err));
+			val32 = D11SHM_RD(bus->sdiodev, M_DS1_CTRL_SDIO(
+						  bus->sdiodev->fmac_ulp), &err);
 			D11SHM_WR(bus->sdiodev, M_DS1_CTRL_SDIO(
-				  bus->sdiodev->shm_ulp),
-				  C_DS1_CTRL_SDIO_DS1_EXIT |
-				  C_DS1_CTRL_REQ_VALID,
+				  bus->sdiodev->fmac_ulp), val32,
+				  (C_DS1_CTRL_SDIO_DS1_EXIT |
+				  C_DS1_CTRL_REQ_VALID),
 				  &err);
 			val32 = D11REG_RD(bus->sdiodev,
 					  D11_MACCONTROL_REG, &err);
@@ -2651,37 +2708,39 @@ brcmf_sdio_ulp_pre_redownload_check(struct brcmf_sdio *bus)
 				  D11_MACCONTROL_REG, val32, &err);
 
 			/* Poll for PROC_DONE to be set by ucode */
-			value = D11SHM_RD(bus->sdiodev,
-					  M_DS1_CTRL_SDIO(
-					  bus->sdiodev->shm_ulp), &err);
+			value = D11SHM_RDW(bus->sdiodev,
+								   M_DS1_CTRL_SDIO(
+								   bus->sdiodev->fmac_ulp), &err);
 			/* Wait here (polling) for C_DS1_CTRL_PROC_DONE */
 			timeout = jiffies + ULP_HUDI_PROC_DONE_TIME;
 			while (!(value & C_DS1_CTRL_PROC_DONE)) {
-				value = D11SHM_RD(bus->sdiodev,
-						  M_DS1_CTRL_SDIO(
-						  bus->sdiodev->shm_ulp), &err);
+							value = D11SHM_RDW(bus->sdiodev,
+										   M_DS1_CTRL_SDIO
+										   (bus->sdiodev->fmac_ulp),
+										   &err);
+
 				if (time_after(jiffies, timeout))
 					break;
 				usleep_range(1000, 2000);
 			}
-			brcmf_dbg(SDIO, "M_DS1_CTRL_SDIO: 0x%08x\n",
-				  (u32)D11SHM_RD(bus->sdiodev,
+			brcmf_dbg(ULP, "M_DS1_CTRL_SDIO: 0x%08x\n",
+							  (u32)D11SHM_RDW(bus->sdiodev,
 				  M_DS1_CTRL_SDIO(
-				  bus->sdiodev->shm_ulp), &err));
-			value = D11SHM_RD(bus->sdiodev,
-					  M_DS1_CTRL_SDIO(
-					  bus->sdiodev->shm_ulp), &err);
+					bus->sdiodev->fmac_ulp), &err));
+			value = D11SHM_RDW(bus->sdiodev,
+										   M_DS1_CTRL_SDIO(
+										   bus->sdiodev->fmac_ulp), &err);
 			if (!(value & C_DS1_CTRL_PROC_DONE)) {
 				brcmf_err("%s: timeout Failed to enter DS1 Exit state!\n",
 					  __func__);
 				return false;
 			}
 		}
-		ulp_wake_ind = D11SHM_RD(bus->sdiodev, M_ULP_WAKE_IND(
-				  bus->sdiodev->shm_ulp), &err) >> 16;
-		wowl_wake_ind = D11SHM_RD(bus->sdiodev, M_WAKEEVENT_IND(
-				  bus->sdiodev->shm_ulp), &err) >> 16;
-		brcmf_dbg(SDIO, "wowl_wake_ind: 0x%08x, ulp_wake_ind: 0x%08x\n",
+		ulp_wake_ind = D11SHM_RDW(bus->sdiodev, M_ULP_WAKE_IND(
+				  bus->sdiodev->fmac_ulp), &err);
+		wowl_wake_ind = D11SHM_RDW(bus->sdiodev, M_WAKEEVENT_IND(
+				  bus->sdiodev->fmac_ulp), &err);
+		brcmf_dbg(ULP, "wowl_wake_ind: 0x%08x, ulp_wake_ind: 0x%08x\n",
 			  wowl_wake_ind, ulp_wake_ind);
 		reg_addr = CORE_CC_REG(
 			  brcmf_chip_get_pmu(bus->ci)->base, min_res_mask);
@@ -2766,9 +2825,10 @@ static void brcmf_sdio_dpc(struct brcmf_sdio *bus)
 
 	/* Handle host mailbox indication */
 	if (intstatus & I_HMB_HOST_INT) {
+		u32 hmb_data = 0;
 		intstatus &= ~I_HMB_HOST_INT;
-		intstatus |= brcmf_sdio_hostmail(bus);
-		if (brcmf_sdio_ulp_pre_redownload_check(bus))
+		intstatus |= brcmf_sdio_hostmail(bus, &hmb_data);
+		if (brcmf_sdio_ulp_pre_redownload_check(bus, hmb_data))
 			brcmf_sdio_ulp_reinit_fw(bus);
 	}
 
@@ -2814,14 +2874,18 @@ static void brcmf_sdio_dpc(struct brcmf_sdio *bus)
 	brcmf_sdio_clrintr(bus);
 
 	if (bus->ctrl_frame_stat && (bus->clkstate == CLK_AVAIL) &&
-	    data_ok(bus)) {
+	    txctl_ok(bus) && brcmf_sdio_f2_ready(bus)) {
 		sdio_claim_host(bus->sdiodev->func[1]);
 		if (bus->ctrl_frame_stat) {
-			err = brcmf_sdio_tx_ctrlframe(bus,  bus->ctrl_frame_buf,
+			err = brcmf_sdio_tx_ctrlframe(bus,
+						      bus->ctrl_frame_buf,
 						      bus->ctrl_frame_len);
 			bus->ctrl_frame_err = err;
-			wmb();
+			wmb(); /* drain writebuffer */
 			bus->ctrl_frame_stat = false;
+			if (err)
+				brcmf_err("sdio ctrlframe tx failed err=%d\n",
+					  err);
 		}
 		sdio_release_host(bus->sdiodev->func[1]);
 		brcmf_sdio_wait_event_wakeup(bus);
@@ -3536,8 +3600,10 @@ static void brcmf_sdio_sr_init(struct brcmf_sdio *bus)
 	}
 
 	if (bus->ci->chip == CY_CC_43012_CHIP_ID ||
+			bus->ci->chip == CY_CC_4373_CHIP_ID ||
 	    bus->ci->chip == BRCM_CC_4339_CHIP_ID ||
-	    bus->ci->chip == BRCM_CC_4354_CHIP_ID ||
+           bus->ci->chip == BRCM_CC_4354_CHIP_ID ||
+	    bus->ci->chip == BRCM_CC_4356_CHIP_ID ||
 	    bus->ci->chip == BRCM_CC_4345_CHIP_ID) {
 		cardcap = SDIO_CCCR_BRCM_CARDCAP_CMD_NODEC;
 	} else {
@@ -3811,7 +3877,11 @@ static void brcmf_sdio_bus_watchdog(struct brcmf_sdio *bus)
 			if (bus->idlecount > bus->idletime) {
 				brcmf_dbg(SDIO, "idle\n");
 				sdio_claim_host(bus->sdiodev->func[1]);
-				brcmf_sdio_wd_timer(bus, false);
+#ifdef DEBUG
+				if (!BRCMF_FWCON_ON() ||
+				    bus->console_interval == 0)
+#endif
+					brcmf_sdio_wd_timer(bus, false);
 				bus->idlecount = 0;
 				brcmf_sdio_bus_sleep(bus, true, false);
 				sdio_release_host(bus->sdiodev->func[1]);
@@ -4223,7 +4293,7 @@ static void brcmf_sdio_firmware_callback(struct device *dev, int err,
 	u8 saveclk;
 	u8 devctl;
 
-	brcmf_dbg(TRACE, "Enter: dev=%s, err=%d\n", dev_name(dev), err);
+	brcmf_dbg(ULP, "Enter: dev=%s, err=%d\n", dev_name(dev), err);
 	bus_if = dev_get_drvdata(dev);
 	sdiodev = bus_if->bus_priv.sdio;
 	if (err)
@@ -4291,6 +4361,7 @@ static void brcmf_sdio_firmware_callback(struct device *dev, int err,
 			devctl = brcmf_sdiod_regrb(sdiodev, SBSDIO_DEVICE_CTL, &err);
 			devctl |= SBSDIO_DEVCTL_F2WM_ENAB;
 			brcmf_sdiod_regwb(sdiodev, SBSDIO_DEVICE_CTL, devctl, &err);
+			brcmf_sdiod_regwb(sdiodev, SBSDIO_FUNC1_MESBUSYCTRL, CY_4373_F1_MESBUSYCTRL, &err);
 			break;
 		case SDIO_DEVICE_ID_CYPRESS_43012:
 			brcmf_dbg(INFO, "set F2 watermark to 0x%x*4 bytes for 43012\n",
@@ -4303,6 +4374,11 @@ static void brcmf_sdio_firmware_callback(struct device *dev, int err,
 			devctl |= SBSDIO_DEVCTL_F2WM_ENAB;
 			brcmf_sdiod_regwb(sdiodev,
 					  SBSDIO_DEVICE_CTL, devctl, &err);
+			/* Register for ULP events */
+			brcmf_fweh_register(bus_if->drvr, BRCMF_E_ULP,
+								    brcmf_ulp_event_notify);
+			brcmf_sdiod_regwb(sdiodev, SBSDIO_FUNC1_MESBUSYCTRL,
+								  CY_43012_MESBUSYCTRL, &err);
 			break;
 		case SDIO_DEVICE_ID_BROADCOM_43455:
 			brcmf_dbg(INFO, "set F2 watermark to 0x%x*4 bytes for 43455\n",
@@ -4326,8 +4402,26 @@ static void brcmf_sdio_firmware_callback(struct device *dev, int err,
 			devctl |= SBSDIO_DEVCTL_F2WM_ENAB;
 			brcmf_sdiod_regwb(sdiodev,
 					  SBSDIO_DEVICE_CTL, devctl, &err);
+			/* Register for ULP events */
+			brcmf_fweh_register(bus_if->drvr, BRCMF_E_ULP,
+					    brcmf_ulp_event_notify);
+
 			brcmf_sdiod_regwb(sdiodev,
 					  SBSDIO_FUNC1_MESBUSYCTRL, CY_4339_MESBUSYCTRL, &err);
+			break;
+		case SDIO_DEVICE_ID_BROADCOM_4359:
+		case SDIO_DEVICE_ID_CYPRESS_89359:
+			brcmf_dbg(INFO, "set F2 watermark to 0x%x*4 bytes\n",
+				  CY_4359_F2_WATERMARK);
+			brcmf_sdiod_regwb(sdiodev, SBSDIO_WATERMARK,
+					  CY_4359_F2_WATERMARK, &err);
+			devctl = brcmf_sdiod_regrb(sdiodev, SBSDIO_DEVICE_CTL,
+						   &err);
+			devctl |= SBSDIO_DEVCTL_F2WM_ENAB;
+			brcmf_sdiod_regwb(sdiodev, SBSDIO_DEVICE_CTL, devctl,
+					  &err);
+			brcmf_sdiod_regwb(sdiodev, SBSDIO_FUNC1_MESBUSYCTRL,
+					  CY_4359_F1_MESBUSYCTRL, &err);
 			break;
 		default:
 			brcmf_sdiod_regwb(sdiodev, SBSDIO_WATERMARK, DEFAULT_F2_WATERMARK, &err);
@@ -4372,7 +4466,13 @@ static void brcmf_sdio_firmware_callback(struct device *dev, int err,
 			brcmf_err("dongle is not responding\n");
 			goto fail;
 		}
-	}
+	} else {
+		/* For ULP, after firmware redownload complete
+		 * set ULP state to IDLE
+		 */
+		if (bus->sdiodev->fmac_ulp.ulp_state == FMAC_ULP_TRIGGERED)
+				bus->sdiodev->fmac_ulp.ulp_state = FMAC_ULP_IDLE;
+  }
 
 	return;
 
@@ -4561,7 +4661,17 @@ void brcmf_sdio_remove(struct brcmf_sdio *bus)
 				 * necessary cores.
 				 */
 				msleep(20);
-				brcmf_chip_set_passive(bus->ci);
+				if (bus->sdiodev->fmac_ulp.ulp_state ==
+						FMAC_ULP_ENTRY_RECV) {
+						brcmf_chip_ulp_reset_lhl_regs(bus->ci);
+						brcmf_chip_reset_pmu_regs(bus->ci);
+				} else {
+						brcmf_chip_set_passive(bus->ci);
+				}
+				/* Reset the PMU, backplane and all the
+				 * cores by using the PMUWatchdogCounter.
+				 */
+				brcmf_chip_reset_watchdog(bus->ci);
 				brcmf_sdio_clkctl(bus, CLK_NONE, false);
 				sdio_release_host(bus->sdiodev->func[1]);
 			}
@@ -4616,4 +4726,41 @@ int brcmf_sdio_sleep(struct brcmf_sdio *bus, bool sleep)
 
 	return ret;
 }
+/* Check F2 Ready bit before sending data to Firmware */
+static int
+brcmf_sdio_f2_ready(struct brcmf_sdio *bus)
+{
+	int ret = -1;
+	int iordy_status = 0;
 
+	sdio_claim_host(bus->sdiodev->func[1]);
+	/* Read the status of IOR2 */
+	iordy_status = brcmf_sdiod_regrb(bus->sdiodev,
+					 SDIO_CCCR_IORx,
+					 NULL);
+
+	sdio_release_host(bus->sdiodev->func[1]);
+	ret = iordy_status & SDIO_FUNC_ENABLE_2;
+	return ret;
+}
+
+static int brcmf_ulp_event_notify(struct brcmf_if *ifp,
+				  const struct brcmf_event_msg *evtmsg,
+				  void *data)
+{
+	int err = 0;
+	struct brcmf_bus *bus_if = ifp->drvr->bus_if;
+	struct brcmf_sdio_dev *sdiodev;
+	struct brcmf_sdio *bus;
+	struct brcmf_ulp_event *ulp_event = (struct brcmf_ulp_event *)data;
+
+	sdiodev = bus_if->bus_priv.sdio;
+	bus = sdiodev->bus;
+
+	brcmf_dbg(ULP, "Chip went to DS1 state : action %d\n",
+		  ulp_event->ulp_dongle_action);
+	if (ulp_event->ulp_dongle_action == FMAC_ULP_ENTRY)
+		bus->sdiodev->fmac_ulp.ulp_state = FMAC_ULP_ENTRY_RECV;
+
+	return err;
+}
