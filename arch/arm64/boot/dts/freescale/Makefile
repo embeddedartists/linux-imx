@@ -155,6 +155,7 @@ dtb-$(CONFIG_ARCH_FSL_IMX8MN) += fsl-imx8mn-ddr4-evk.dtb \
 				 fsl-imx8mn-ea-ucom-kit_v2.dtb \
 				 fsl-imx8mn-ea-ucom-kit_v2-usb-host.dtb \
 				 fsl-imx8mn-ea-ucom-kit_v2-1mw.dtb \
+				 fsl-imx8mn-ea-ucom-kit_v2-ov5640.dtb \
 				 fsl-imx8mn-ea-ucom-kit_v2-m4.dtb
 
 

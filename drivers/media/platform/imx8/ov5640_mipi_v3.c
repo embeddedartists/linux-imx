@@ -1284,6 +1284,7 @@ static int ov5640_probe(struct i2c_client *client,
 
 	ov5640_regulator_enable(&client->dev);
 
+	ov5640_reset(sensor);
 	ov5640_power_down(sensor, 0);
 
 	retval = ov5640_read_reg(sensor, OV5640_CHIP_ID_HIGH_BYTE,
