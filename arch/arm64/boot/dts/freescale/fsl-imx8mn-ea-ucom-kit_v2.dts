@@ -89,7 +89,7 @@
 &iomuxc {
 	pinctrl-names = "default";
 
-	imx8mmea-ucom {
+	imx8mnea-ucom {
 
 		pinctrl_mipi_dsi_en: mipi_dsi_en {
 			fsl,pins = <
