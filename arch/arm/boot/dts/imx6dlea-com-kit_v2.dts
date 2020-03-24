@@ -383,6 +383,16 @@
 };
 
 &i2c2 {
+        /*
+         * On COM Carrier board Rev E1 HDMI DDC I2C channel has moved to I2C-C
+         * (which equals i2c2). On older revisions hdmi_edid should be under
+         * the i2c3 node.
+         */
+	hdmi_edid: edid@50 {
+		compatible = "fsl,imx6-hdmi-i2c";
+		reg = <0x50>;
+	};
+
 	/* AR1021 touch controller through LVDS1 display interface connector on Carrier Board */
 	ar1021_lvds1@4d {
 		compatible = "microchip,ar1021-i2c";
@@ -455,10 +465,16 @@
 };
 
 &i2c3 {
+        /*
+         * On COM Carrier board Rev E1 HDMI DDC I2C channel has moved to I2C-C
+         * (which equals i2c2). On older revisions hdmi_edid should be under
+         * this node (i2c3).
+         *
 	hdmi_edid: edid@50 {
 		compatible = "fsl,imx6-hdmi-i2c";
 		reg = <0x50>;
-	};
+	};*/
+
 	gpio_buff: pca6416@20 {
 		compatible = "ti,tca6416";
 		reg = <0x20>;
