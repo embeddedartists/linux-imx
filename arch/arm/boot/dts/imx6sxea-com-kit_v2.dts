@@ -41,6 +41,15 @@
 		#reset-cells = <0>;
 	};
 
+	sii902x_reset: sii902x-reset {
+		compatible = "gpio-reset";
+		reset-gpios = <&gpio4 19 GPIO_ACTIVE_LOW>;
+		reset-delay-us = <10000>;
+		initially-in-reset;
+		#reset-cells = <0>;
+		status = "disabled";
+	};
+
 	backlight_lvds: backlight1 {
 		compatible = "pwm-backlight";
 		pwms = <&pwm1 0 5000000>;
@@ -552,6 +561,19 @@
 	rtc: pcf8523@68 {
 		compatible = "nxp,pcf8523";
 		reg = <0x68>;
+	};
+
+	sii902x: sii902x@39 {
+		compatible = "SiI,sii902x";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_rgb_connector>;
+		interrupt-parent = <&gpio1>;
+		interrupts = <17 IRQ_TYPE_EDGE_FALLING>;
+		resets = <&sii902x_reset>;
+		mode_str ="800x600M@60";
+		bits-per-pixel = <24>;
+		reg = <0x39>;
+		status = "disbled";
 	};
 };
 
