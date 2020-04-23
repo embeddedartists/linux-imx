@@ -668,7 +668,7 @@ struct cfg80211_crypto_settings {
 	int wep_tx_key;
 	const u8 *psk;
 	const u8 *sae_pwd;
-	u16 sae_pwd_len;
+	u8 sae_pwd_len;
 };
 
 /**

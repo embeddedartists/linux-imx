@@ -27,6 +27,7 @@
 #include <linux/mmc/sdio_ids.h>
 #include <linux/mmc/sdio_func.h>
 #include <linux/mmc/card.h>
+#include <linux/mmc/core.h>
 #include <linux/semaphore.h>
 #include <linux/firmware.h>
 #include <linux/module.h>
@@ -65,8 +66,8 @@
 #define CY_4339_F2_WATERMARK	48
 #define CY_4339_MES_WATERMARK	80
 #define CY_4339_MESBUSYCTRL	(CY_4339_MES_WATERMARK | SBSDIO_MESBUSYCTRL_ENAB)
-#define CY_4359_F2_WATERMARK	0x40
-#define CY_4359_F1_MESBUSYCTRL	(CY_4359_F2_WATERMARK | SBSDIO_MESBUSYCTRL_ENAB)
+#define CY_435X_F2_WATERMARK	0x40
+#define CY_435X_F1_MESBUSYCTRL	(CY_435X_F2_WATERMARK | SBSDIO_MESBUSYCTRL_ENAB)
 #ifdef DEBUG
 
 #define BRCMF_TRAP_INFO_SIZE	80
@@ -1139,8 +1140,10 @@ static u32 brcmf_sdio_hostmail(struct brcmf_sdio *bus, u32 *hmbd)
 	bus->sdcnt.f1regdata += 2;
 
 	/* dongle indicates the firmware has halted/crashed */
-	if (hmb_data & HMB_DATA_FWHALT)
-		brcmf_err("mailbox indicates firmware halted\n");
+	if (hmb_data & HMB_DATA_FWHALT) {
+		brcmf_dbg(SDIO, "mailbox indicates firmware halted\n");
+		brcmf_fw_crashed(bus->sdiodev->dev);
+	}
 
 	/* Dongle recomposed rx frames, accept them again */
 	if (hmb_data & HMB_DATA_NAKHANDLED) {
@@ -4270,6 +4273,36 @@ static int brcmf_sdio_get_fwname(struct device *dev, u32 chip, u32 chiprev,
 	return ret;
 }
 
+static int brcmf_sdio_bus_reset(struct device *dev)
+{
+	int ret = 0;
+	struct brcmf_bus *bus_if = dev_get_drvdata(dev);
+	struct brcmf_sdio_dev *sdiodev = bus_if->bus_priv.sdio;
+
+	brcmf_dbg(SDIO, "Enter\n");
+
+	/* start by unregistering irqs */
+	brcmf_sdiod_intr_unregister(sdiodev);
+
+	brcmf_sdiod_remove(sdiodev);
+
+	/* reset the adapter */
+	sdio_claim_host(sdiodev->func[1]);
+	mmc_hw_reset(sdiodev->func[1]->card->host);
+	sdio_release_host(sdiodev->func[1]);
+
+	brcmf_bus_change_state(sdiodev->bus_if, BRCMF_BUS_DOWN);
+
+	ret = brcmf_sdiod_probe(sdiodev);
+	if (ret) {
+		brcmf_err("Failed to probe after sdio device reset: ret %d\n",
+			  ret);
+		brcmf_sdiod_remove(sdiodev);
+	}
+
+	return ret;
+}
+
 static const struct brcmf_bus_ops brcmf_sdio_bus_ops = {
 	.stop = brcmf_sdio_bus_stop,
 	.preinit = brcmf_sdio_bus_preinit,
@@ -4281,6 +4314,7 @@ static const struct brcmf_bus_ops brcmf_sdio_bus_ops = {
 	.get_ramsize = brcmf_sdio_bus_get_ramsize,
 	.get_memdump = brcmf_sdio_bus_get_memdump,
 	.get_fwname = brcmf_sdio_get_fwname,
+	.reset = brcmf_sdio_bus_reset,
 };
 
 static void brcmf_sdio_firmware_callback(struct device *dev, int err,
@@ -4411,17 +4445,19 @@ static void brcmf_sdio_firmware_callback(struct device *dev, int err,
 			break;
 		case SDIO_DEVICE_ID_BROADCOM_4359:
 		case SDIO_DEVICE_ID_CYPRESS_89359:
+		case SDIO_DEVICE_ID_BROADCOM_4354:
+		case SDIO_DEVICE_ID_BROADCOM_4356:
 			brcmf_dbg(INFO, "set F2 watermark to 0x%x*4 bytes\n",
-				  CY_4359_F2_WATERMARK);
+				  CY_435X_F2_WATERMARK);
 			brcmf_sdiod_regwb(sdiodev, SBSDIO_WATERMARK,
-					  CY_4359_F2_WATERMARK, &err);
+					  CY_435X_F2_WATERMARK, &err);
 			devctl = brcmf_sdiod_regrb(sdiodev, SBSDIO_DEVICE_CTL,
 						   &err);
 			devctl |= SBSDIO_DEVCTL_F2WM_ENAB;
 			brcmf_sdiod_regwb(sdiodev, SBSDIO_DEVICE_CTL, devctl,
 					  &err);
 			brcmf_sdiod_regwb(sdiodev, SBSDIO_FUNC1_MESBUSYCTRL,
-					  CY_4359_F1_MESBUSYCTRL, &err);
+					  CY_435X_F1_MESBUSYCTRL, &err);
 			break;
 		default:
 			brcmf_sdiod_regwb(sdiodev, SBSDIO_WATERMARK, DEFAULT_F2_WATERMARK, &err);

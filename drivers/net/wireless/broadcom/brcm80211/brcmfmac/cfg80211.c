@@ -66,6 +66,7 @@
 #define RSN_AKM_PSK			2	/* Pre-shared Key */
 #define RSN_AKM_SHA256_1X		5	/* SHA256, 802.1X */
 #define RSN_AKM_SHA256_PSK		6	/* SHA256, Pre-shared Key */
+#define RSN_AKM_SAE			8	/* SAE */
 #define RSN_CAP_LEN			2	/* Length of RSN capabilities */
 #define RSN_CAP_PTK_REPLAY_CNTR_MASK	(BIT(2) | BIT(3))
 #define RSN_CAP_MFPR_MASK		BIT(6)
@@ -239,6 +240,9 @@ struct parsed_vndr_ies {
 	u32 count;
 	struct parsed_vndr_ie_info ie_info[VNDR_IE_PARSE_LIMIT];
 };
+
+#define WLC_E_IF_ROLE_STA		0	/* Infra STA */
+#define WLC_E_IF_ROLE_AP		1	/* Access Point */
 
 static u8 nl80211_band_to_fwil(enum nl80211_band band)
 {
@@ -1392,7 +1396,8 @@ static int brcmf_set_sae_password(struct brcmf_if *ifp, const u8 *pwd_data,
 	return err;
 }
 
-static void brcmf_link_down(struct brcmf_cfg80211_vif *vif, u16 reason)
+static void brcmf_link_down(struct brcmf_cfg80211_vif *vif, u16 reason,
+			    bool locally_generated)
 {
 	struct brcmf_cfg80211_info *cfg = wiphy_to_cfg(vif->wdev.wiphy);
 	s32 err = 0;
@@ -1409,7 +1414,7 @@ static void brcmf_link_down(struct brcmf_cfg80211_vif *vif, u16 reason)
 		if ((vif->wdev.iftype == NL80211_IFTYPE_STATION) ||
 		    (vif->wdev.iftype == NL80211_IFTYPE_P2P_CLIENT))
 			cfg80211_disconnected(vif->wdev.netdev, reason, NULL, 0,
-					      true, GFP_KERNEL);
+					      locally_generated, GFP_KERNEL);
 	}
 	clear_bit(BRCMF_VIF_STATUS_CONNECTING, &vif->sme_state);
 	clear_bit(BRCMF_SCAN_STATUS_SUPPRESS, &cfg->scan_status);
@@ -1586,7 +1591,7 @@ brcmf_cfg80211_leave_ibss(struct wiphy *wiphy, struct net_device *ndev)
 		return 0;
 	}
 
-	brcmf_link_down(ifp->vif, WLAN_REASON_DEAUTH_LEAVING);
+	brcmf_link_down(ifp->vif, WLAN_REASON_DEAUTH_LEAVING, true);
 	brcmf_net_setcarrier(ifp, false);
 
 	brcmf_dbg(TRACE, "Exit\n");
@@ -1813,7 +1818,6 @@ brcmf_set_key_mgmt(struct net_device *ndev, struct cfg80211_connect_params *sme)
 		switch (sme->crypto.akm_suites[0]) {
 		case WLAN_AKM_SUITE_SAE:
 			val = WPA3_AUTH_SAE_PSK;
-			profile->use_fwsup = BRCMF_PROFILE_FWSUP_SAE;
 			break;
 		default:
 			brcmf_err("invalid cipher group (%d)\n",
@@ -1832,8 +1836,6 @@ brcmf_set_key_mgmt(struct net_device *ndev, struct cfg80211_connect_params *sme)
 			brcmf_dbg(INFO, "get okc_enable (%d)\n", okc_enable);
 			profile->is_okc = okc_enable;
 		}
-	} else if (profile->use_fwsup == BRCMF_PROFILE_FWSUP_SAE) {
-		brcmf_dbg(INFO, "using SAE offload\n");
 	}
 
 	if (!brcmf_feat_is_enabled(ifp, BRCMF_FEAT_MFP))
@@ -2104,6 +2106,11 @@ brcmf_cfg80211_connect(struct wiphy *wiphy, struct net_device *ndev,
 	if (err) {
 		brcmf_err("brcmf_set_sharedkey failed (%d)\n", err);
 		goto done;
+	}
+
+	if (sme->crypto.sae_pwd) {
+		brcmf_dbg(INFO, "using SAE offload\n");
+		profile->use_fwsup = BRCMF_PROFILE_FWSUP_SAE;
 	}
 
 	if (sme->crypto.psk &&
@@ -2458,6 +2465,17 @@ brcmf_cfg80211_add_key(struct wiphy *wiphy, struct net_device *ndev,
 	memcpy(key->data, params->key, key->len);
 	if (!ext_key)
 		key->flags = BRCMF_PRIMARY_KEY;
+
+	if (params->seq && params->seq_len == 6) {
+		/* rx iv */
+		u8 *ivptr;
+
+		ivptr = (u8 *)params->seq;
+		key->rxiv.hi = (ivptr[5] << 24) | (ivptr[4] << 16) |
+			(ivptr[3] << 8) | ivptr[2];
+		key->rxiv.lo = (ivptr[1] << 8) | ivptr[0];
+		key->iv_initialized = true;
+	}
 
 	switch (params->cipher) {
 	case WLAN_CIPHER_SUITE_WEP40:
@@ -3900,7 +3918,7 @@ static s32 brcmf_cfg80211_suspend(struct wiphy *wiphy,
 			 * disassociate from AP to save power while system is
 			 * in suspended state
 			 */
-			brcmf_link_down(vif, WLAN_REASON_UNSPECIFIED);
+			brcmf_link_down(vif, WLAN_REASON_UNSPECIFIED, true);
 			/* Make sure WPA_Supplicant receives all the event
 			 * generated due to DISASSOC call to the fw to keep
 			 * the state fw and WPA_Supplicant state consistent
@@ -4230,6 +4248,10 @@ brcmf_configure_wpaie(struct brcmf_if *ifp,
 			brcmf_dbg(TRACE, "RSN_AKM_MFP_1X\n");
 			wpa_auth |= WPA2_AUTH_1X_SHA256;
 			break;
+		case RSN_AKM_SAE:
+			brcmf_dbg(TRACE, "RSN_AKM_SAE\n");
+			wpa_auth |= WPA3_AUTH_SAE_PSK;
+			break;
 		default:
 			brcmf_err("Invalid key mgmt info\n");
 		}
@@ -4247,11 +4269,12 @@ brcmf_configure_wpaie(struct brcmf_if *ifp,
 				brcmf_dbg(TRACE, "MFP Required\n");
 				mfp = BRCMF_MFP_REQUIRED;
 				/* Firmware only supports mfp required in
-				 * combination with WPA2_AUTH_PSK_SHA256 or
-				 * WPA2_AUTH_1X_SHA256.
+				 * combination with WPA2_AUTH_PSK_SHA256,
+				 * WPA2_AUTH_1X_SHA256, or WPA3_AUTH_SAE_PSK.
 				 */
 				if (!(wpa_auth & (WPA2_AUTH_PSK_SHA256 |
-						  WPA2_AUTH_1X_SHA256))) {
+						  WPA2_AUTH_1X_SHA256 |
+						  WPA3_AUTH_SAE_PSK))) {
 					err = -EINVAL;
 					goto exit;
 				}
@@ -4623,18 +4646,60 @@ brcmf_config_ap_mgmt_ie(struct brcmf_cfg80211_vif *vif,
 }
 
 static s32
+brcmf_parse_configure_security(struct brcmf_if *ifp,
+			       struct cfg80211_ap_settings *settings,
+			       enum nl80211_iftype dev_role)
+{
+	const struct brcmf_tlv *rsn_ie;
+	const struct brcmf_vs_tlv *wpa_ie;
+	s32 err = 0;
+
+	/* find the RSN_IE */
+	rsn_ie = brcmf_parse_tlvs((u8 *)settings->beacon.tail,
+				  settings->beacon.tail_len, WLAN_EID_RSN);
+
+	/* find the WPA_IE */
+	wpa_ie = brcmf_find_wpaie((u8 *)settings->beacon.tail,
+				  settings->beacon.tail_len);
+
+	if (wpa_ie || rsn_ie) {
+		brcmf_dbg(TRACE, "WPA(2) IE is found\n");
+		if (wpa_ie) {
+			/* WPA IE */
+			err = brcmf_configure_wpaie(ifp, wpa_ie, false);
+			if (err < 0)
+				return err;
+		} else {
+			struct brcmf_vs_tlv *tmp_ie;
+
+			tmp_ie = (struct brcmf_vs_tlv *)rsn_ie;
+
+			/* RSN IE */
+			err = brcmf_configure_wpaie(ifp, tmp_ie, true);
+			if (err < 0)
+				return err;
+		}
+	} else {
+		brcmf_dbg(TRACE, "No WPA(2) IEs found\n");
+		brcmf_configure_opensecurity(ifp);
+	}
+
+	return err;
+}
+
+static s32
 brcmf_cfg80211_start_ap(struct wiphy *wiphy, struct net_device *ndev,
 			struct cfg80211_ap_settings *settings)
 {
 	s32 ie_offset;
 	struct brcmf_cfg80211_info *cfg = wiphy_to_cfg(wiphy);
 	struct brcmf_if *ifp = netdev_priv(ndev);
+	struct brcmf_cfg80211_profile *profile = &ifp->vif->profile;
+	struct cfg80211_crypto_settings *crypto = &settings->crypto;
 	const struct brcmf_tlv *ssid_ie;
 	const struct brcmf_tlv *country_ie;
 	struct brcmf_ssid_le ssid_le;
 	s32 err = -EPERM;
-	const struct brcmf_tlv *rsn_ie;
-	const struct brcmf_vs_tlv *wpa_ie;
 	struct brcmf_join_params join_params;
 	enum nl80211_iftype dev_role;
 	struct brcmf_fil_bss_enable_le bss_enable;
@@ -4652,6 +4717,7 @@ brcmf_cfg80211_start_ap(struct wiphy *wiphy, struct net_device *ndev,
 		  settings->inactivity_timeout);
 	dev_role = ifp->vif->wdev.iftype;
 	mbss = ifp->vif->mbss;
+	brcmf_dbg(TRACE, "mbss %s\n", mbss ? "enabled" : "disabled");
 
 	/* store current 11d setting */
 	if (brcmf_fil_cmd_int_get(ifp, BRCMF_C_GET_REGULATORY,
@@ -4686,36 +4752,6 @@ brcmf_cfg80211_start_ap(struct wiphy *wiphy, struct net_device *ndev,
 	if (!mbss) {
 		brcmf_set_mpc(ifp, 0);
 		brcmf_configure_arp_nd_offload(ifp, false);
-	}
-
-	/* find the RSN_IE */
-	rsn_ie = brcmf_parse_tlvs((u8 *)settings->beacon.tail,
-				  settings->beacon.tail_len, WLAN_EID_RSN);
-
-	/* find the WPA_IE */
-	wpa_ie = brcmf_find_wpaie((u8 *)settings->beacon.tail,
-				  settings->beacon.tail_len);
-
-	if ((wpa_ie != NULL || rsn_ie != NULL)) {
-		brcmf_dbg(TRACE, "WPA(2) IE is found\n");
-		if (wpa_ie != NULL) {
-			/* WPA IE */
-			err = brcmf_configure_wpaie(ifp, wpa_ie, false);
-			if (err < 0)
-				goto exit;
-		} else {
-			struct brcmf_vs_tlv *tmp_ie;
-
-			tmp_ie = (struct brcmf_vs_tlv *)rsn_ie;
-
-			/* RSN IE */
-			err = brcmf_configure_wpaie(ifp, tmp_ie, true);
-			if (err < 0)
-				goto exit;
-		}
-	} else {
-		brcmf_dbg(TRACE, "No WPA(2) IEs found\n");
-		brcmf_configure_opensecurity(ifp);
 	}
 
 	/* Parameters shared by all radio interfaces */
@@ -4792,6 +4828,33 @@ brcmf_cfg80211_start_ap(struct wiphy *wiphy, struct net_device *ndev,
 			brcmf_err("BRCMF_C_UP error (%d)\n", err);
 			goto exit;
 		}
+
+		if (crypto->psk) {
+			brcmf_dbg(INFO, "using PSK offload\n");
+			profile->use_fwauth |= BIT(BRCMF_PROFILE_FWAUTH_PSK);
+			err = brcmf_set_pmk(ifp, crypto->psk,
+					    BRCMF_WSEC_MAX_PSK_LEN);
+			if (err < 0)
+				goto exit;
+		}
+		if (crypto->sae_pwd) {
+			brcmf_dbg(INFO, "using SAE offload\n");
+			profile->use_fwauth |= BIT(BRCMF_PROFILE_FWAUTH_SAE);
+			err = brcmf_set_sae_password(ifp, crypto->sae_pwd,
+						     crypto->sae_pwd_len);
+			if (err < 0)
+				goto exit;
+		}
+		if (profile->use_fwauth == 0)
+			profile->use_fwauth = BIT(BRCMF_PROFILE_FWAUTH_NONE);
+
+		err = brcmf_parse_configure_security(ifp, settings,
+						     NL80211_IFTYPE_AP);
+		if (err < 0) {
+			brcmf_err("brcmf_parse_configure_security error\n");
+			goto exit;
+		}
+
 		/* On DOWN the firmware removes the WEP keys, reconfigure
 		 * them if they were set.
 		 */
@@ -4808,12 +4871,14 @@ brcmf_cfg80211_start_ap(struct wiphy *wiphy, struct net_device *ndev,
 			goto exit;
 		}
 
-		if (settings->hidden_ssid) {
-			err = brcmf_fil_iovar_int_set(ifp, "closednet", 1);
-			if (err) {
-				brcmf_err("closednet error (%d)\n", err);
-				goto exit;
-			}
+		err = brcmf_fil_iovar_int_set(ifp, "closednet",
+					      settings->hidden_ssid);
+		if (err) {
+			brcmf_err("%s closednet error (%d)\n",
+				  settings->hidden_ssid ?
+				  "enabled" : "disabled",
+				  err);
+			goto exit;
 		}
 
 		brcmf_dbg(TRACE, "AP mode configuration complete\n");
@@ -4824,6 +4889,14 @@ brcmf_cfg80211_start_ap(struct wiphy *wiphy, struct net_device *ndev,
 				  chanspec, err);
 			goto exit;
 		}
+
+		err = brcmf_parse_configure_security(ifp, settings,
+						     NL80211_IFTYPE_P2P_GO);
+		if (err < 0) {
+			brcmf_err("brcmf_parse_configure_security error\n");
+			goto exit;
+		}
+
 		err = brcmf_fil_bsscfg_data_set(ifp, "ssid", &ssid_le,
 						sizeof(ssid_le));
 		if (err < 0) {
@@ -4852,6 +4925,9 @@ exit:
 	if ((err) && (!mbss)) {
 		brcmf_set_mpc(ifp, 1);
 		brcmf_configure_arp_nd_offload(ifp, true);
+	} else {
+		cfg->num_softap++;
+		brcmf_dbg(TRACE, "Num of SoftAP %u\n", cfg->num_softap);
 	}
 	return err;
 }
@@ -4859,9 +4935,12 @@ exit:
 static int brcmf_cfg80211_stop_ap(struct wiphy *wiphy, struct net_device *ndev)
 {
 	struct brcmf_if *ifp = netdev_priv(ndev);
+	struct brcmf_cfg80211_info *cfg = wiphy_to_cfg(wiphy);
+	struct brcmf_cfg80211_profile *profile = &ifp->vif->profile;
 	s32 err;
 	struct brcmf_fil_bss_enable_le bss_enable;
 	struct brcmf_join_params join_params;
+	s32 apsta = 0;
 
 	brcmf_dbg(TRACE, "Enter\n");
 
@@ -4869,6 +4948,35 @@ static int brcmf_cfg80211_stop_ap(struct wiphy *wiphy, struct net_device *ndev)
 		/* Due to most likely deauths outstanding we sleep */
 		/* first to make sure they get processed by fw. */
 		msleep(400);
+
+		cfg->num_softap--;
+
+		if (profile->use_fwauth != BIT(BRCMF_PROFILE_FWAUTH_NONE)) {
+			if (profile->use_fwauth & BIT(BRCMF_PROFILE_FWAUTH_PSK))
+				brcmf_set_pmk(ifp, NULL, 0);
+			if (profile->use_fwauth & BIT(BRCMF_PROFILE_FWAUTH_SAE))
+				brcmf_set_sae_password(ifp, NULL, 0);
+			profile->use_fwauth = BIT(BRCMF_PROFILE_FWAUTH_NONE);
+		}
+
+		/* Clear bss configuration and SSID */
+		bss_enable.bsscfgidx = cpu_to_le32(ifp->bsscfgidx);
+		bss_enable.enable = cpu_to_le32(0);
+		err = brcmf_fil_iovar_data_set(ifp, "bss", &bss_enable,
+					       sizeof(bss_enable));
+		if (err < 0)
+			brcmf_err("bss_enable config failed %d\n", err);
+
+		memset(&join_params, 0, sizeof(join_params));
+		err = brcmf_fil_cmd_data_set(ifp, BRCMF_C_SET_SSID,
+					     &join_params, sizeof(join_params));
+		if (err < 0)
+			brcmf_err("SET SSID error (%d)\n", err);
+
+		if (cfg->num_softap) {
+			brcmf_dbg(TRACE, "Num of SoftAP %u\n", cfg->num_softap);
+			return 0;
+		}
 
 		if (ifp->vif->mbss) {
 			err = brcmf_fil_cmd_int_set(ifp, BRCMF_C_DOWN, 1);
@@ -4879,17 +4987,18 @@ static int brcmf_cfg80211_stop_ap(struct wiphy *wiphy, struct net_device *ndev)
 		if (ifp->bsscfgidx == 0)
 			brcmf_fil_iovar_int_set(ifp, "closednet", 0);
 
-		memset(&join_params, 0, sizeof(join_params));
-		err = brcmf_fil_cmd_data_set(ifp, BRCMF_C_SET_SSID,
-					     &join_params, sizeof(join_params));
+		err = brcmf_fil_iovar_int_get(ifp, "apsta", &apsta);
 		if (err < 0)
-			brcmf_err("SET SSID error (%d)\n", err);
-		err = brcmf_fil_cmd_int_set(ifp, BRCMF_C_DOWN, 1);
-		if (err < 0)
-			brcmf_err("BRCMF_C_DOWN error %d\n", err);
-		err = brcmf_fil_cmd_int_set(ifp, BRCMF_C_SET_AP, 0);
-		if (err < 0)
-			brcmf_err("setting AP mode failed %d\n", err);
+			brcmf_err("wl apsta failed (%d)\n", err);
+
+		if (!apsta) {
+			err = brcmf_fil_cmd_int_set(ifp, BRCMF_C_DOWN, 1);
+			if (err < 0)
+				brcmf_err("BRCMF_C_DOWN error %d\n", err);
+			err = brcmf_fil_cmd_int_set(ifp, BRCMF_C_SET_AP, 0);
+			if (err < 0)
+				brcmf_err("setting AP mode failed %d\n", err);
+		}
 		if (brcmf_feat_is_enabled(ifp, BRCMF_FEAT_MBSS))
 			brcmf_fil_iovar_int_set(ifp, "mbss", 0);
 		brcmf_fil_cmd_int_set(ifp, BRCMF_C_SET_REGULATORY,
@@ -5502,8 +5611,10 @@ void brcmf_cfg80211_free_netdev(struct net_device *ndev)
 	ifp = netdev_priv(ndev);
 	vif = ifp->vif;
 
-	if (vif)
+	if (vif) {
 		brcmf_free_vif(vif);
+		ifp->vif = NULL;
+	}
 }
 
 static bool brcmf_is_linkup(struct brcmf_cfg80211_vif *vif,
@@ -6040,7 +6151,11 @@ brcmf_notify_connect_status(struct brcmf_if *ifp,
 		if (!brcmf_is_ibssmode(ifp->vif)) {
 			brcmf_bss_connect_done(cfg, ndev, e, false);
 			brcmf_link_down(ifp->vif,
-					brcmf_map_fw_linkdown_reason(e));
+					brcmf_map_fw_linkdown_reason(e),
+					e->event_code &
+					(BRCMF_E_DEAUTH_IND |
+					BRCMF_E_DISASSOC_IND)
+					? false : true);
 			brcmf_init_prof(ndev_to_prof(ndev));
 			if (ndev != cfg_to_ndev(cfg))
 				complete(&cfg->vif_disabled);
@@ -6103,6 +6218,9 @@ static s32 brcmf_notify_vif_event(struct brcmf_if *ifp,
 	struct brcmf_if_event *ifevent = (struct brcmf_if_event *)data;
 	struct brcmf_cfg80211_vif_event *event = &cfg->vif_event;
 	struct brcmf_cfg80211_vif *vif;
+	enum nl80211_iftype iftype = NL80211_IFTYPE_UNSPECIFIED;
+	bool vif_pend = false;
+	int err;
 
 	brcmf_dbg(TRACE, "Enter: action %u flags %u ifidx %u bsscfgidx %u\n",
 		  ifevent->action, ifevent->flags, ifevent->ifidx,
@@ -6115,9 +6233,28 @@ static s32 brcmf_notify_vif_event(struct brcmf_if *ifp,
 	switch (ifevent->action) {
 	case BRCMF_E_IF_ADD:
 		/* waiting process may have timed out */
-		if (!cfg->vif_event.vif) {
+		if (!vif) {
+			/* handle IF_ADD event from firmware */
 			spin_unlock(&event->vif_event_lock);
-			return -EBADF;
+			vif_pend = true;
+			if (ifevent->role == WLC_E_IF_ROLE_STA)
+				iftype = NL80211_IFTYPE_STATION;
+			else if (ifevent->role == WLC_E_IF_ROLE_AP)
+				iftype = NL80211_IFTYPE_AP;
+			else
+				vif_pend = false;
+
+			if (vif_pend) {
+				vif = brcmf_alloc_vif(cfg, iftype);
+				if (IS_ERR(vif)) {
+					brcmf_err("Role:%d failed to alloc vif\n",
+						  ifevent->role);
+					return PTR_ERR(vif);
+				}
+			} else {
+				brcmf_err("Invalid Role:%d\n", ifevent->role);
+				return -EBADF;
+			}
 		}
 
 		ifp->vif = vif;
@@ -6127,6 +6264,18 @@ static s32 brcmf_notify_vif_event(struct brcmf_if *ifp,
 			ifp->ndev->ieee80211_ptr = &vif->wdev;
 			SET_NETDEV_DEV(ifp->ndev, wiphy_dev(cfg->wiphy));
 		}
+
+		if (vif_pend) {
+			err = brcmf_net_attach(ifp, false);
+			if (err) {
+				brcmf_err("netdevice register failed with err:%d\n",
+					  err);
+				brcmf_free_vif(vif);
+				free_netdev(ifp->ndev);
+			}
+			return err;
+		}
+
 		spin_unlock(&event->vif_event_lock);
 		wake_up(&event->vif_wq);
 		return 0;
@@ -7082,6 +7231,13 @@ static int brcmf_setup_wiphy(struct wiphy *wiphy, struct brcmf_if *ifp)
 			wiphy_ext_feature_set(wiphy,
 					      NL80211_EXT_FEATURE_SAE_OFFLOAD);
 	}
+	if (brcmf_feat_is_enabled(ifp, BRCMF_FEAT_FWAUTH)) {
+		wiphy_ext_feature_set(wiphy,
+				      NL80211_EXT_FEATURE_4WAY_HANDSHAKE_AP_PSK);
+		if (brcmf_feat_is_enabled(ifp, BRCMF_FEAT_SAE))
+			wiphy_ext_feature_set(wiphy,
+					      NL80211_EXT_FEATURE_SAE_OFFLOAD);
+	}
 	wiphy->mgmt_stypes = brcmf_txrx_stypes;
 	wiphy->max_remain_on_channel_duration = 5000;
 	if (brcmf_feat_is_enabled(ifp, BRCMF_FEAT_PNO)) {
@@ -7223,7 +7379,7 @@ static s32 __brcmf_cfg80211_down(struct brcmf_if *ifp)
 	 * from AP to save power
 	 */
 	if (check_vif_up(ifp->vif)) {
-		brcmf_link_down(ifp->vif, WLAN_REASON_UNSPECIFIED);
+		brcmf_link_down(ifp->vif, WLAN_REASON_UNSPECIFIED, true);
 
 		/* Make sure WPA_Supplicant receives all the event
 		   generated due to DISASSOC call to the fw to keep
@@ -7482,6 +7638,7 @@ struct brcmf_cfg80211_info *brcmf_cfg80211_attach(struct brcmf_pub *drvr,
 	cfg->ops = ops;
 	cfg->pub = drvr;
 	cfg->pm_state = BRCMF_CFG80211_PM_STATE_RESUMED;
+	cfg->num_softap = 0;
 	init_vif_event(&cfg->vif_event);
 	INIT_LIST_HEAD(&cfg->vif_list);
 

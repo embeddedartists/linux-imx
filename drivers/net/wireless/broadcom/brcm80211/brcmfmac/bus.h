@@ -90,6 +90,7 @@ struct brcmf_bus_ops {
 	int (*get_memdump)(struct device *dev, void *data, size_t len);
 	int (*get_fwname)(struct device *dev, uint chip, uint chiprev,
 			  unsigned char *fw_name);
+	int (*reset)(struct device *dev);
 };
 
 
@@ -235,6 +236,15 @@ int brcmf_bus_get_fwname(struct brcmf_bus *bus, uint chip, uint chiprev,
 	return bus->ops->get_fwname(bus->dev, chip, chiprev, fw_name);
 }
 
+static inline
+int brcmf_bus_reset(struct brcmf_bus *bus)
+{
+	if (!bus->ops->reset)
+		return -EOPNOTSUPP;
+
+	return bus->ops->reset(bus->dev);
+}
+
 /*
  * interface functions from common layer
  */
@@ -250,6 +260,10 @@ int brcmf_attach(struct device *dev, struct brcmf_mp_device *settings);
 void brcmf_detach(struct device *dev);
 /* Indication from bus module that dongle should be reset */
 void brcmf_dev_reset(struct device *dev);
+/* Request from bus module to initiate a coredump */
+void brcmf_dev_coredump(struct device *dev);
+/* Indication that firmware has halted or crashed */
+void brcmf_fw_crashed(struct device *dev);
 
 /* Configure the "global" bus state used by upper layers */
 void brcmf_bus_change_state(struct brcmf_bus *bus, enum brcmf_bus_state state);

@@ -56,7 +56,7 @@
 #define SDIO_FUNC1_BLOCKSIZE		64
 #define SDIO_FUNC2_BLOCKSIZE		512
 #define SDIO_4373_FUNC2_BLOCKSIZE	256
-#define SDIO_4359_FUNC2_BLOCKSIZE	256
+#define SDIO_435X_FUNC2_BLOCKSIZE	256
 /* Maximum milliseconds to wait for F2 to come up */
 #define SDIO_WAIT_F2RDY	3000
 
@@ -1003,7 +1003,7 @@ static void brcmf_sdiod_freezer_detach(struct brcmf_sdio_dev *sdiodev)
 }
 #endif /* CONFIG_PM_SLEEP */
 
-static int brcmf_sdiod_remove(struct brcmf_sdio_dev *sdiodev)
+int brcmf_sdiod_remove(struct brcmf_sdio_dev *sdiodev)
 {
 	sdiodev->state = BRCMF_SDIOD_DOWN;
 	if (sdiodev->bus) {
@@ -1038,7 +1038,7 @@ static void brcmf_sdiod_host_fixup(struct mmc_host *host)
 	host->caps |= MMC_CAP_NONREMOVABLE;
 }
 
-static int brcmf_sdiod_probe(struct brcmf_sdio_dev *sdiodev)
+int brcmf_sdiod_probe(struct brcmf_sdio_dev *sdiodev)
 {
 	int ret = 0;
 	unsigned int f2_blksz = SDIO_FUNC2_BLOCKSIZE;
@@ -1060,7 +1060,9 @@ static int brcmf_sdiod_probe(struct brcmf_sdio_dev *sdiodev)
 		break;
 	case SDIO_DEVICE_ID_BROADCOM_4359:
 	case SDIO_DEVICE_ID_CYPRESS_89359:
-		f2_blksz = SDIO_4359_FUNC2_BLOCKSIZE;
+	case SDIO_DEVICE_ID_BROADCOM_4354:
+	case SDIO_DEVICE_ID_BROADCOM_4356:
+		f2_blksz = SDIO_435X_FUNC2_BLOCKSIZE;
 		break;
 	default:
 		break;
