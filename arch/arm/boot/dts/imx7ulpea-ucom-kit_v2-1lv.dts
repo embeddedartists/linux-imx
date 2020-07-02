@@ -1,0 +1,121 @@
+/*
+ * Copyright 2016 Freescale Semiconductor, Inc.
+ * Copyright 2017-2018 NXP.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+#include "imx7ulpea-ucom-kit_v2.dts"
+
+&modem_reset {
+	reset-gpios = <&gpio_pte 12 GPIO_ACTIVE_LOW>;
+};
+
+&rpmsg_gpio1 {
+	wl_dev_wake_gpio {
+		gpio-hog;
+		gpios = <9 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "WL_DEV_WAKE";
+	};
+};
+
+&usdhc1_pwrseq {
+	reset-gpios = <&gpio_pte 6 GPIO_ACTIVE_LOW>; /* WL REG ON */
+};
+
+&pinctrl_hog_1 {
+	fsl,pins = <
+		IMX7ULP_PAD_PTC1__PTC1		0x20000
+		IMX7ULP_PAD_PTE6__PTE6          0xC6     /* WL_REG_ON */
+	>;
+};
+
+&pinctrl_usdhc1 {
+	fsl,pins = <
+		IMX7ULP_PAD_PTE2__SDHC1_CLK	0x10042
+		IMX7ULP_PAD_PTE3__SDHC1_CMD	0x43
+		IMX7ULP_PAD_PTE1__SDHC1_D0	0x43
+		IMX7ULP_PAD_PTE0__SDHC1_D1	0x43
+		IMX7ULP_PAD_PTE5__SDHC1_D2	0x43
+		IMX7ULP_PAD_PTE4__SDHC1_D3	0x43
+	>;
+};
+
+&pinctrl_usdhc1_100mhz {
+	fsl,pins = <
+		IMX7ULP_PAD_PTE2__SDHC1_CLK	0x10042
+		IMX7ULP_PAD_PTE3__SDHC1_CMD	0x43
+		IMX7ULP_PAD_PTE1__SDHC1_D0	0x43
+		IMX7ULP_PAD_PTE0__SDHC1_D1	0x43
+		IMX7ULP_PAD_PTE5__SDHC1_D2	0x43
+		IMX7ULP_PAD_PTE4__SDHC1_D3	0x43
+	>;
+};
+
+&pinctrl_usdhc1_200mhz {
+	fsl,pins = <
+		IMX7ULP_PAD_PTE2__SDHC1_CLK	0x10042
+		IMX7ULP_PAD_PTE3__SDHC1_CMD	0x43
+		IMX7ULP_PAD_PTE1__SDHC1_D0	0x43
+		IMX7ULP_PAD_PTE0__SDHC1_D1	0x43
+		IMX7ULP_PAD_PTE5__SDHC1_D2	0x43
+		IMX7ULP_PAD_PTE4__SDHC1_D3	0x43
+	>;
+};
+
+&pinctrl_usdhc1_gpio {
+	fsl,pins = <
+		IMX7ULP_PAD_PTE13__PTE13	0x10003	/* BT_REG_ON */
+		IMX7ULP_PAD_PTE12__PTE12	0x10003	/* BT_DEV_WAKE */
+		IMX7ULP_PAD_PTC12__PTC12        0x43    /* WL_HOST_WAKE */
+	>;
+};
+
+/* Expansion Board */
+&pinctrl_exp_conn {
+	fsl,pins = <
+								/* GPIO_H Not Connected */
+								/* GPIO_J Not Connected */
+		/*IMX7ULP_PAD_PTC8__PTC8		0xC6	   GPIO_K ADV7535 INT (on adapter board) */
+		/*IMX7ULP_PAD_PTA24__PTA24		0xC6*/	/* GPIO_P */
+								/* GPIO_Q Not Connected */
+								/* GPIO_R Not Connected */
+								/* GPIO_S Not Connected */
+								/* GPIO_T Not Connected */
+								/* GPIO_U Not Connected */
+								/* GPIO_V Not Connected */
+								/* GPIO_W Not Connected */
+								/* GPIO_X Not Connected */
+								/* GPIO_Y Not Connected */
+								/* GPIO_Z Not Connected */
+								/* GPIO_AA Not Connected */
+								/* GPIO_AB Not Connected */
+								/* GPIO_AC Not Connected */
+								/* GPIO_AD Not Connected */
+								/* GPIO_AE Not Connected */
+								/* GPIO_AF Not Connected */
+								/* GPIO_AG Not Connected */
+								/* GPIO_AH Not Connected */
+								/* GPIO_AJ Not Connected */
+		IMX7ULP_PAD_PTE12__PTE12		0xC6	/* GPIO_AK BT_DEV_WAKE */
+		IMX7ULP_PAD_PTE13__PTE13		0xC6	/* GPIO_AL BT_REG_ON */
+								/* GPIO_AP Not Connected */
+								/* GPIO_AQ Not Connected */
+								/* GPIO_AR Not Connected */
+								/* GPIO_AS Not Connected */
+								/* GPIO_AT Not Connected */
+								/* GPIO_AU Not Connected */
+								/* GPIO_AV Not Connected */
+	>;
+};
+
+/delete-node/ &gpio_buff;
+
+/* M.2 connector */
+&usdhc1 {
+        /delete-property/ max-frequency;
+        /delete-property/ vqmmc-supply;
+};

@@ -1,0 +1,39 @@
+/*
+ * Copyright (C) 2014-2015 Freescale Semiconductor, Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+/dts-v1/;
+
+#include "imx6sxea-com-kit_v2.dts"
+
+
+&gpio_buff {
+	hog_VDDIO_VSEL {
+		gpio-hog;
+		gpios = <6 0>;
+		/delete-property/ output-high;
+		output-low; /* LOW = 1.8V, HIGH = 3.3V */
+	};
+	hog_DIR_WL_DEV_WAKE {
+		gpio-hog;
+		gpios = <9 0>;
+		/delete-property/ output-low;
+		output-high;
+	};
+};
+
+&usdhc2_pwrseq {
+	status = "disabled";
+};
+
+&pcie {
+	status = "okay";
+};
+
+&usdhc2 {
+	status = "disabled";
+};
