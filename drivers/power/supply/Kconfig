@@ -718,4 +718,10 @@ config CHARGER_WILCO
 	  information can be found in
 	  Documentation/ABI/testing/sysfs-class-power-wilco
 
+config BD7181X_POWER
+	tristate "ROHM BD71815/BD71817 Charger for Battery and Adapter Power"
+	depends on MFD_BD7181X
+	help
+	  Say Y to enable support for the BD71815/BD71817 charger.
+
 endif # POWER_SUPPLY
