@@ -23,6 +23,7 @@
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/of_device.h>
 #include <linux/platform_device.h>
 #include <linux/pm_qos.h>
 #include <linux/regulator/driver.h>
@@ -35,6 +36,7 @@
 
 #define PF1550_DBGFS
 #define PF1550_MAX_REGULATOR 7
+#define BD70528_MAX_REGULATOR 6
 #define RPMSG_TIMEOUT 1000
 
 enum pf1550_regs {
@@ -45,6 +47,15 @@ enum pf1550_regs {
 	PF1550_LDO1,
 	PF1550_LDO2,
 	PF1550_LDO3,
+};
+
+enum bd70528_regs {
+	BD70528_SW1,
+	BD70528_SW2,
+	BD70528_SW3,
+	BD70528_LDO1,
+	BD70528_LDO2,
+	BD70528_LDO3,
 };
 
 enum pf1550_rpmsg_cmd {
@@ -77,6 +88,7 @@ struct pf1550_regulator_info {
 	struct pm_qos_request pm_qos_req;
 	struct mutex lock;
 	struct regulator_desc *regulators;
+	int chip_id;
 };
 
 static struct pf1550_regulator_info pf1550_info;
@@ -345,6 +357,56 @@ static struct regulator_desc pf1550_regulators[PF1550_MAX_REGULATOR] = {
 },
 };
 
+static struct regulator_desc bd70528_regulators[BD70528_MAX_REGULATOR] = {
+{
+	.name = "SW1",
+	.of_match = of_match_ptr("SW1"),
+	.id = BD70528_SW1,
+	.ops = &pf1550_sw_ops,
+	.type = REGULATOR_VOLTAGE,
+	.owner = THIS_MODULE,
+},
+{
+	.name = "SW2",
+	.of_match = of_match_ptr("SW2"),
+	.id = BD70528_SW2,
+	.ops = &pf1550_sw_ops,
+	.type = REGULATOR_VOLTAGE,
+	.owner = THIS_MODULE,
+},
+{
+	.name = "SW3",
+	.of_match = of_match_ptr("SW3"),
+	.id = BD70528_SW3,
+	.ops = &pf1550_sw_ops,
+	.type = REGULATOR_VOLTAGE,
+	.owner = THIS_MODULE,
+},
+{
+	.name = "LDO1",
+	.of_match = of_match_ptr("LDO1"),
+	.id = BD70528_LDO1,
+	.ops = &pf1550_ldo_ops,
+	.type = REGULATOR_VOLTAGE,
+	.owner = THIS_MODULE,
+},
+{
+	.name = "LDO2",
+	.of_match = of_match_ptr("LDO2"),
+	.id = BD70528_LDO2,
+	.ops = &pf1550_ldo_ops,
+	.type = REGULATOR_VOLTAGE,
+	.owner = THIS_MODULE,
+},
+{
+	.name = "LDO3",
+	.of_match = of_match_ptr("LDO3"),
+	.id = BD70528_LDO3,
+	.ops = &pf1550_ldo_ops,
+	.type = REGULATOR_VOLTAGE,
+	.owner = THIS_MODULE,
+},
+};
 
 static int rpmsg_regulator_cb(struct rpmsg_device *rpdev, void *data, int len,
 			      void *priv, u32 src)
@@ -478,9 +540,21 @@ static ssize_t pf1550_register_store(struct device *dev,
 static DEVICE_ATTR(regs, 0644, pf1550_registers_show, pf1550_register_store);
 #endif
 
+enum chips { PF1550_TYPE, BD70528_TYPE,};
+
+static const struct of_device_id pf1550_regulator_id[] = {
+	{ .compatible = "fsl,pf1550-rpmsg", .data = (void *)PF1550_TYPE},
+	{ .compatible = "rohm,bd70528-rpmsg", .data = (void *)BD70528_TYPE},
+	{},
+};
+
+MODULE_DEVICE_TABLE(of, pf1550_regulator_id);
+
 static int pf1550_regulator_probe(struct platform_device *pdev)
 {
 	struct device_node *np = pdev->dev.of_node;
+	const struct of_device_id *match;
+	unsigned int array_size;
 	int i;
 	struct regulator_config config = { };
 
@@ -493,9 +567,23 @@ static int pf1550_regulator_probe(struct platform_device *pdev)
 	config.dev = &pdev->dev;
 	config.driver_data = &pf1550_info;
 	pf1550_info.dev = &pdev->dev;
-	pf1550_info.regulators = pf1550_regulators;
 
-	for (i = 0; i < ARRAY_SIZE(pf1550_regulators); i++) {
+	match = of_match_device(of_match_ptr(pf1550_regulator_id), &pdev->dev);
+	if (!match) {
+		dev_err(&pdev->dev, "Error: No device match found\n");
+		return -ENODEV;
+	}
+	pf1550_info.chip_id = (int)(long)match->data;
+
+	if (pf1550_info.chip_id == PF1550_TYPE) {
+		pf1550_info.regulators = pf1550_regulators;
+		array_size = ARRAY_SIZE(pf1550_regulators);
+	} else {
+		pf1550_info.regulators = bd70528_regulators;
+		array_size = ARRAY_SIZE(bd70528_regulators);
+	}
+
+	for (i = 0; i < array_size; i++) {
 		struct regulator_dev *rdev;
 		struct regulator_desc *desc;
 
@@ -520,13 +608,6 @@ static int pf1550_regulator_probe(struct platform_device *pdev)
 
 	return 0;
 }
-
-static const struct of_device_id pf1550_regulator_id[] = {
-	{"fsl,pf1550-rpmsg",},
-	{},
-};
-
-MODULE_DEVICE_TABLE(of, pf1550_regulator_id);
 
 static struct platform_driver pf1550_regulator_driver = {
 	.driver = {
