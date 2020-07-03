@@ -894,6 +894,10 @@ static void __init imx7d_clocks_init(struct device_node *ccm_node)
 	/* set parent of EPDC pixel clock */
 	clk_set_parent(hws[IMX7D_EPDC_PIXEL_ROOT_SRC]->clk, hws[IMX7D_PLL_SYS_MAIN_CLK]->clk);
 
+	/* Murata -- setup UART2 so it can support highspeed Bluetooth interface */
+	clk_set_parent(hws[IMX7D_UART2_ROOT_SRC]->clk, hws[IMX7D_PLL_SYS_MAIN_240M_CLK]->clk);
+	clk_set_rate(hws[IMX7D_UART2_ROOT_DIV]->clk, 80000000);
+
 	imx_register_uart_clocks();
 
 }
