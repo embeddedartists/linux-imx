@@ -76,21 +76,30 @@
 	};
 
 	sound-wm8731 {
-		compatible = "fsl,imx-audio-wm8731";
-		model = "wm8731-audio";
-		ssi-controller = <&sai2>;
-		src-port = <2>;
-		ext-port = <3>;
-		audio-codec = <&wm8731>;
-		audio-routing = "LOUT", "ROUT", "LLINEIN", "RLINEIN";
+		compatible = "simple-audio-card";
+		simple-audio-card,name = "wm8731-audio";
+		simple-audio-card,format = "i2s";
+		simple-audio-card,frame-master = <&cpudai>;
+		simple-audio-card,bitclock-master = <&cpudai>;
+		simple-audio-card,widgets =
+			"Line", "Left Line Out Jack",
+			"Line", "Right Line Out Jack";
+		simple-audio-card,routing =
+			"Left Line Out Jack", "LOUT",
+			"Right Line Out Jack", "ROUT";
+
+		cpudai: simple-audio-card,cpu {
+			sound-dai = <&sai2>;
+			dai-tdm-slot-num = <2>;
+			dai-tdm-slot-width = <32>;
+		};
+
+		simple-audio-card,codec {
+			sound-dai = <&wm8731>;
+			clocks = <&clk IMX8MM_CLK_SAI2_ROOT>;
+		};
 	};
 
-};
-
-
-&clk {
-	assigned-clocks = <&clk IMX8MM_AUDIO_PLL1>, <&clk IMX8MM_AUDIO_PLL2>;
-	assigned-clock-rates = <393216000>, <361267200>;
 };
 
 &iomuxc {
@@ -522,6 +531,7 @@
 	};
 
 	wm8731: wm8731@1a {
+		#sound-dai-cells = <0>;
 		compatible = "wlf,wm8731";
 		reg = <0x1a>;
 		clocks = <&clk IMX8MM_CLK_SAI2_ROOT>;
@@ -629,6 +639,7 @@
 };
 
 &sai2 {
+	#sound-dai-cells = <0>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_sai2>;
 	assigned-clocks = <&clk IMX8MM_CLK_SAI2>;
