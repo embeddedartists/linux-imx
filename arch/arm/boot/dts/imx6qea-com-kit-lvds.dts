@@ -13,6 +13,7 @@
 
 &i2c1 {
 	egalax_ts_lvds@4 {
+		reg = <0x4>;
 		status = "okay";
 	};
 

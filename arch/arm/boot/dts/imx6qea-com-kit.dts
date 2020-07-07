@@ -378,9 +378,9 @@
 	};
 
 	/* eGalax touch controller through LVDS1 display interface connector on Carrier Board */
-	egalax_ts_lvds1@04 {
+	egalax_ts_lvds1@4 {
 		compatible = "eeti,egalax_ts";
-		reg = <0x04>;
+		reg = <0x4>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&pinctrl_lvds1_connector>;
 		interrupt-parent = <&gpio2>;
