@@ -24,8 +24,22 @@
 		ts_con_rgb = &i2c1;
 	};
 
-	memory {
+	memory@80000000 {
+		device_type = "memory";
 		reg = <0x80000000 0x80000000>;
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		linux,cma {
+			compatible = "shared-dma-pool";
+			reusable;
+			size = <0x14000000>;
+			linux,cma-default;
+		};
 	};
 
 	backlight_lcd: backlight {
@@ -205,7 +219,6 @@
 		#size-cells = <0>;
 
 		ethphy0: ethernet-phy@1 {
-			compatible = "ethernet-phy-ieee802.3-c22";
 			reg = <1>;
 		};
 	};
@@ -971,7 +984,7 @@
 	display = <&display0>;
 	status = "okay";
 
-	display0: display {
+	display0: display@0 {
 		bits-per-pixel = <24>;
 		bus-width = <24>;
 
