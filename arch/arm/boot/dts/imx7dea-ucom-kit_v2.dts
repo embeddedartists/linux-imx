@@ -125,15 +125,32 @@
 		};
 	};
 
-        sound {
-                compatible = "fsl,imx-audio-wm8731";
-                model = "wm8731-audio";
-                ssi-controller = <&sai1>;
-                src-port = <2>;
-                ext-port = <3>;
-                audio-codec = <&codec>;
-                audio-routing = "LOUT", "ROUT", "LLINEIN", "RLINEIN";
-        };
+	sound-wm8731 {
+		compatible = "simple-audio-card";
+		simple-audio-card,name = "wm8731-audio";
+		simple-audio-card,format = "i2s";
+		simple-audio-card,frame-master = <&cpudai>;
+		simple-audio-card,bitclock-master = <&cpudai>;
+		simple-audio-card,widgets =
+			"Line", "Left Line Out Jack",
+			"Line", "Right Line Out Jack";
+		simple-audio-card,routing =
+			"Left Line Out Jack", "LOUT",
+			"Right Line Out Jack", "ROUT";
+
+		cpudai: simple-audio-card,cpu {
+			sound-dai = <&sai1>;
+			dai-tdm-slot-num = <2>;
+			dai-tdm-slot-width = <32>;
+		};
+
+		simple-audio-card,codec {
+			sound-dai = <&wm8731>;
+			clocks = <&clks IMX7D_AUDIO_MCLK_ROOT_CLK/*IMX7D_SAI1_ROOT_CLK*/>;
+		};
+	};
+
+
 
 	gpio-keys {
 		compatible = "gpio-keys";
@@ -391,7 +408,8 @@
 		reg = <0x55>;
 	};
 
-        codec: wm8731@1a {
+        wm8731: wm8731@1a {
+		#sound-dai-cells = <0>;
                 compatible = "wlf,wm8731";
                 reg = <0x1a>;
                 clocks = <&clks IMX7D_AUDIO_MCLK_ROOT_CLK>;
@@ -402,6 +420,7 @@
 				<&clks IMX7D_PLL_AUDIO_POST_DIV>;
 		assigned-clock-rates = <11289600>, <0>;
         };
+
 
         /* AR1021 touch controller through RGB display interface connector on Carrier Board */
         ar1021_rgb@4d {
@@ -1001,6 +1020,7 @@
 };
 
 &sai1 {
+	#sound-dai-cells = <0>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_sai1>;
 	assigned-clocks = <&clks IMX7D_SAI1_ROOT_SRC>,
@@ -1127,7 +1147,7 @@
         flash0: n25q256a@0 {
                 #address-cells = <1>;
                 #size-cells = <1>;
-                compatible = "micron,n25q256a";
+                compatible = "jedec,spi-nor";
                 spi-max-frequency = <29000000>;
                 /* take off one dummy cycle */
                 spi-nor,ddr-quad-read-dummy = <6>;
