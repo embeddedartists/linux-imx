@@ -446,36 +446,46 @@
 				rohm,dvs-idle-voltage = <900000>;
 			};
 
-			buck3_reg: BUCK3 { /* VDD_DRAM_0V9 */
-				// BUCK5 in datasheet
+			buck3_reg: BUCK3 { /* VDD_GPU_0V9 */
 				regulator-name = "BUCK3";
+				regulator-min-microvolt = <700000>;
+				regulator-max-microvolt = <1100000>;
+				regulator-boot-on;
+			};
+
+			buck4_reg: BUCK4 { /* VDD_VPU_0V9 */
+				regulator-name = "BUCK4";
+				regulator-min-microvolt = <700000>;
+				regulator-max-microvolt = <1100000>;
+				regulator-boot-on;
+			};
+
+			buck5_reg: BUCK5 { /* VDD_DRAM_0V9 */
+				regulator-name = "BUCK5";
 				regulator-min-microvolt = <900000>;
 				regulator-max-microvolt = <900000>;
 				regulator-boot-on;
 				regulator-always-on;
 			};
 
-			buck4_reg: BUCK4 { /* NVCC_3V3 */
-				// BUCK6 in datasheet
-				regulator-name = "BUCK4";
+			buck6_reg: BUCK6 { /* NVCC_3V3 */
+				regulator-name = "BUCK6";
 				regulator-min-microvolt = <3000000>;
 				regulator-max-microvolt = <3300000>;
 				regulator-boot-on;
 				regulator-always-on;
 			};
 
-			buck5_reg: BUCK5 { /* NVCC_1V8 */
-				// BUCK7 in datasheet
-				regulator-name = "BUCK5";
+			buck7_reg: BUCK7 { /* NVCC_1V8 */
+				regulator-name = "BUCK7";
 				regulator-min-microvolt = <1605000>;
 				regulator-max-microvolt = <1995000>;
 				regulator-boot-on;
-				regulator-always-on;				
+				regulator-always-on;
 			};
 
-			buck6_reg: BUCK6 { /* NVCC_DRAM_1V1 */
-				// BUCK8 in datasheet
-				regulator-name = "BUCK6";
+			buck8_reg: BUCK8 { /* NVCC_DRAM_1V1 */
+				regulator-name = "BUCK8";
 				regulator-min-microvolt = <1100000>;
 				regulator-max-microvolt = <1100000>;
 				regulator-boot-on;
