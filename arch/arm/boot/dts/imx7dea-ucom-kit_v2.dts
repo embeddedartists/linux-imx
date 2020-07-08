@@ -160,7 +160,7 @@
 
 		simple-audio-card,codec {
 			sound-dai = <&wm8731>;
-			clocks = <&clks IMX7D_AUDIO_MCLK_ROOT_CLK/*IMX7D_SAI1_ROOT_CLK*/>;
+			clocks = <&clks IMX7D_AUDIO_MCLK_ROOT_CLK>;
 		};
 	};
 
