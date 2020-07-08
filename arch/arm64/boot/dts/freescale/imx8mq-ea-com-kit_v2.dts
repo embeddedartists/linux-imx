@@ -66,6 +66,12 @@
 		};
 	};
 
+	pcie0_refclk: pcie0-refclk {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <100000000>;
+	};
+
 	sound-wm8731 {
 		compatible = "simple-audio-card";
 		simple-audio-card,name = "wm8731-audio";
@@ -132,6 +138,7 @@
 	assigned-clocks = <&clk IMX8MQ_AUDIO_PLL1>, <&clk IMX8MQ_AUDIO_PLL2>;
 	assigned-clock-rates = <722534400>, <722534400>;
 };
+
 
 &iomuxc {
 	pinctrl-names = "default";
@@ -636,8 +643,11 @@
 	pinctrl-0 = <&pinctrl_pcie0>;
 	reset-gpio = <&gpio_buff 7 GPIO_ACTIVE_LOW>;   /* PCIE_PERST_L */
 	disable-gpio = <&gpio_buff 1 GPIO_ACTIVE_LOW>; /* WL REG ON */
-	ext_osc = <1>;
-	/* TODO: what does this mean? Check with driver! */
+	clocks = <&clk IMX8MQ_CLK_PCIE1_ROOT>,
+		 <&clk IMX8MQ_CLK_PCIE1_AUX>,
+		 <&clk IMX8MQ_CLK_PCIE1_PHY>,
+		 <&pcie0_refclk>;
+	clock-names = "pcie", "pcie_aux", "pcie_phy", "pcie_bus";
 	hard-wired = <1>;
 	status = "disabled";
 };
@@ -721,11 +731,14 @@
 };
 
 &usb_dwc3_0 {
-	status = "okay";
 	dr_mode = "otg";
 	hnp-disable;
 	srp-disable;
 	adp-disable;
+	usb-role-switch;
+	snps,dis-u1-entry-quirk;
+	snps,dis-u2-entry-quirk;
+	status = "okay";
 };
 
 &usb3_phy1 {
@@ -759,25 +772,7 @@
 	status = "okay";
 };
 
-/*
- * The current bd71837 PMIC driver doesn't support buck3/4 to be
- * enabled / disabled. Because of this these regulators are set
- * as boot-on and we don't assign a power supply to gpu/vpu below.
- * Change this when the bd71837-regulator.c driver has been
- * upgraded to support enable/disable.
- *
-&gpu_pd {
-	power-supply = <&buck3_reg>;
-};
-
-
-&vpu_pd {
-	power-supply = <&buck4_reg>;
-};
-*/
-
-
-&gpu {
+&gpu3d {
 	status = "okay";
 };
 
@@ -808,26 +803,40 @@
 };
 
 &A53_0 {
-	operating-points = <
-		/* kHz    uV */
-		1500000 1000000
-		1300000 1000000
-		1000000 900000
-		800000  900000
-	>;
-	arm-supply = <&buck2_reg>;
+	cpu-supply = <&buck2_reg>;
 };
 
+&A53_1 {
+	cpu-supply = <&buck2_reg>;
+};
 
+&A53_2 {
+	cpu-supply = <&buck2_reg>;
+};
+
+&A53_3 {
+	cpu-supply = <&buck2_reg>;
+};
 
 &dcss {
 	status = "okay";
 
-	disp-dev = "hdmi_disp";
+	port@0 {
+		dcss_out: endpoint {
+			remote-endpoint = <&hdmi_in>;
+		};
+	};
 };
 
 &hdmi {
+	compatible = "cdn,imx8mq-hdmi";
+	lane-mapping = <0xe4>;
 	status = "okay";
+	port@1 {
+		hdmi_in: endpoint {
+			remote-endpoint = <&dcss_out>;
+		};
+	};
 };
 
 &pwm1 {
