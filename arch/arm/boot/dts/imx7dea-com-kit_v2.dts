@@ -24,8 +24,22 @@
 		ts_con_rgb = &i2c1;
 	};
 
-	memory {
+	memory@80000000 {
+		device_type = "memory";
 		reg = <0x80000000 0x80000000>;
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		linux,cma {
+			compatible = "shared-dma-pool";
+			reusable;
+			size = <0x14000000>;
+			linux,cma-default;
+		};
 	};
 
 	backlight_lcd: backlight {
@@ -125,15 +139,30 @@
 		};
 	};
 
-        sound {
-                compatible = "fsl,imx-audio-wm8731";
-                model = "wm8731-audio";
-                ssi-controller = <&sai1>;
-                src-port = <2>;
-                ext-port = <3>;
-                audio-codec = <&codec>;
-                audio-routing = "LOUT", "ROUT", "LLINEIN", "RLINEIN";
-        };
+	sound-wm8731 {
+		compatible = "simple-audio-card";
+		simple-audio-card,name = "wm8731-audio";
+		simple-audio-card,format = "i2s";
+		simple-audio-card,frame-master = <&cpudai>;
+		simple-audio-card,bitclock-master = <&cpudai>;
+		simple-audio-card,widgets =
+			"Line", "Left Line Out Jack",
+			"Line", "Right Line Out Jack";
+		simple-audio-card,routing =
+			"Left Line Out Jack", "LOUT",
+			"Right Line Out Jack", "ROUT";
+
+		cpudai: simple-audio-card,cpu {
+			sound-dai = <&sai1>;
+			dai-tdm-slot-num = <2>;
+			dai-tdm-slot-width = <32>;
+		};
+
+		simple-audio-card,codec {
+			sound-dai = <&wm8731>;
+			clocks = <&clks IMX7D_AUDIO_MCLK_ROOT_CLK>;
+		};
+	};
 
 	gpio-keys {
 		compatible = "gpio-keys";
@@ -307,10 +336,11 @@
                 };
         };
 
-        codec: wm8731@1a {
-                compatible = "wlf,wm8731";
-                reg = <0x1a>;
-                clocks = <&clks IMX7D_AUDIO_MCLK_ROOT_CLK>;
+        wm8731: wm8731@1a {
+		#sound-dai-cells = <0>;
+		compatible = "wlf,wm8731";
+		reg = <0x1a>;
+		clocks = <&clks IMX7D_AUDIO_MCLK_ROOT_CLK>;
 
 		assigned-clocks = <&clks IMX7D_AUDIO_MCLK_ROOT_CLK>, 
 				<&clks IMX7D_AUDIO_MCLK_ROOT_SRC>;
@@ -858,7 +888,7 @@
 	display = <&display0>;
 	status = "okay";
 
-	display0: display {
+	display0: display@0 {
 		bits-per-pixel = <24>;
 		bus-width = <24>;
 
@@ -911,12 +941,12 @@
 
 
 &sai1 {
+	#sound-dai-cells = <0>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_sai1>;
 	assigned-clocks = <&clks IMX7D_SAI1_ROOT_SRC>,
 			  <&clks IMX7D_SAI1_ROOT_CLK>;
 	assigned-clock-parents = <&clks IMX7D_PLL_AUDIO_POST_DIV>;
-	/* assigned-clock-rates = <0>, <12288000>; */
 	assigned-clock-rates = <0>, <11289600>;
 	status = "okay";
 };
@@ -1036,7 +1066,7 @@
         flash0: n25q256a@0 {
                 #address-cells = <1>;
                 #size-cells = <1>;
-                compatible = "micron,n25q256a", "issi,is25lp256d";
+                compatible = "jedex,spi-nor";
                 spi-max-frequency = <40000000>;
 		spi-nor,ddr-quad-read-dummy = <6>;
                 reg = <0>;
