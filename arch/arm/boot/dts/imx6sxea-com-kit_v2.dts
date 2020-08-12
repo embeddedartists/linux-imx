@@ -8,6 +8,7 @@
 
 /dts-v1/;
 
+#include <dt-bindings/sound/fsl-imx-audmux.h>
 #include "imx6sxea-com.dtsi"
 
 / {
@@ -67,15 +68,6 @@
 		fb-names = "mxs-lcdif1";
 	};
 
-/*
-	hannstar_cabc {
-		compatible = "hannstar,cabc";
-
-		lvds0 {
-			gpios = <&gpio2 1 GPIO_ACTIVE_HIGH>, <&gpio1 9 GPIO_ACTIVE_HIGH>;
-		};
-	};
-*/
 	pxp_v4l2_out {
 		compatible = "fsl,imx6sx-pxp-v4l2", "fsl,imx6sl-pxp-v4l2";
 		status = "okay";
@@ -151,7 +143,7 @@
 			status = "okay";
 		};
 	};
-
+/*
 	sound {
 		compatible = "fsl,imx-audio-wm8731";
 		model = "wm8731-audio";
@@ -160,6 +152,29 @@
 		ext-port = <6>;
 		audio-codec = <&codec>;
 		audio-routing = "LOUT", "ROUT", "LLINEIN", "RLINEIN";
+	};
+*/
+	sound-wm8731 {
+		compatible = "simple-audio-card";
+		simple-audio-card,name = "wm8731-audio";
+		simple-audio-card,format = "i2s";
+		simple-audio-card,frame-master = <&cpudai>;
+		simple-audio-card,bitclock-master = <&cpudai>;
+		simple-audio-card,widgets =
+			"Line", "Left Line Out Jack",
+			"Line", "Right Line Out Jack";
+		simple-audio-card,routing =
+			"Left Line Out Jack", "LOUT",
+			"Right Line Out Jack", "ROUT";
+
+		cpudai: simple-audio-card,cpu {
+			sound-dai = <&ssi2>;
+		};
+
+		simple-audio-card,codec {
+			sound-dai = <&wm8731>;
+			clocks = <&clks IMX6SX_CLK_SSI2>;
+		};
 	};
 
 	gpio-keys {
@@ -177,6 +192,30 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_audmux>;
 	status = "okay";
+
+        ssi2 {
+                fsl,audmux-port = <1>;
+                fsl,port-config = <
+                        (IMX_AUDMUX_V2_PTCR_RCLKDIR |
+                        IMX_AUDMUX_V2_PTCR_RCSEL(5 | 0x8) |
+                        IMX_AUDMUX_V2_PTCR_TCLKDIR |
+                        IMX_AUDMUX_V2_PTCR_TCSEL(5))
+                        IMX_AUDMUX_V2_PDCR_RXDSEL(5)
+                >;
+        };
+
+        audmux6 {
+                fsl,audmux-port = <5>;
+                fsl,port-config = <
+                        (IMX_AUDMUX_V2_PTCR_TFSDIR |
+                        IMX_AUDMUX_V2_PTCR_TFSEL(1) |
+                        IMX_AUDMUX_V2_PTCR_RCLKDIR |
+                        IMX_AUDMUX_V2_PTCR_RCSEL(1 | 0x8) |
+                        IMX_AUDMUX_V2_PTCR_TCLKDIR |
+                        IMX_AUDMUX_V2_PTCR_TCSEL(1))
+                        IMX_AUDMUX_V2_PDCR_RXDSEL(1)
+                >;
+        };
 };
 
 &csi2 {
@@ -330,6 +369,7 @@
 };
 
 &ssi2 {
+	#sound-dai-cells = <0>;
 	fsl,mode = "i2s-master";
 	status = "okay";
 };
@@ -405,7 +445,8 @@
 
 &i2c1 {
 	
-	codec: wm8731@1a {
+	wm8731: wm8731@1a {
+		#sound-dai-cells = <0>;
 		compatible = "wlf,wm8731";
 		reg = <0x1a>;
 		clocks = <&clks IMX6SX_CLK_AUDIO>, <&clks IMX6SX_CLK_PLL4_AUDIO_DIV>;
