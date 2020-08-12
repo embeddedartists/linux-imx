@@ -3,6 +3,8 @@
  * Copyright 2014 Freescale Semiconductor, Inc.
  */
 
+#include <linux/clk.h>
+#include <linux/clk-provider.h>
 #include <linux/irqchip.h>
 #include <linux/of_address.h>
 #include <linux/of_platform.h>
@@ -78,8 +80,10 @@ static inline void imx6sx_enet_init(void)
 static void __init imx6sx_opp_check_speed_grading(struct device *cpu_dev)
 {
 	struct device_node *np;
+	struct clk *ocotp_clk;
 	void __iomem *base;
 	u32 val;
+	int err;
 
 	np = of_find_compatible_node(NULL, NULL, "fsl,imx6sx-ocotp");
 	if (!np) {
@@ -91,6 +95,23 @@ static void __init imx6sx_opp_check_speed_grading(struct device *cpu_dev)
 	if (!base) {
 		pr_warn("failed to map ocotp\n");
 		goto put_node;
+	}
+
+	/*
+	 * Make sure the OCOTP clock is enabled before OCOTP register
+	 * is accessed
+	 */
+
+	ocotp_clk = of_clk_get(np, 0);
+	if (IS_ERR(ocotp_clk)) {
+		pr_warn("%s: failed to get ocotp clock\n", __func__);
+		goto put_node;
+	}
+
+	err = clk_prepare_enable(ocotp_clk);
+	if (err) {
+		pr_warn("Unable to enable OCOTP clock\n");
+		goto put_clock;
 	}
 
 	/*
@@ -111,6 +132,10 @@ static void __init imx6sx_opp_check_speed_grading(struct device *cpu_dev)
 	}
 	iounmap(base);
 
+	clk_disable_unprepare(ocotp_clk);
+
+put_clock:
+	clk_put(ocotp_clk);
 put_node:
 	of_node_put(np);
 }
