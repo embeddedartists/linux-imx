@@ -2003,7 +2003,8 @@ static void ov5640_reset(struct ov5640_dev *sensor)
 	gpiod_set_value_cansleep(sensor->reset_gpio, 1);
 	usleep_range(1000, 2000);
 
-	gpiod_set_value_cansleep(sensor->reset_gpio, 0);
+	/* EA: reset active high for Pcam 5C */
+//	gpiod_set_value_cansleep(sensor->reset_gpio, 0);
 	usleep_range(20000, 25000);
 }
 
