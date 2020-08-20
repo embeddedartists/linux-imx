@@ -161,6 +161,11 @@ static int imx_gpc_pu_pgc_sw_pxx_req(struct generic_pm_domain *genpd,
 	if (domain->bits.hsk)
 		regmap_update_bits(domain->regmap, GPC_PU_PWRHSK,
 				   domain->bits.hsk, on ? domain->bits.hsk : 0);
+	/*
+	 * EA: Need this delay for the iMX7D uCOM board. Without the delay
+	 *     the board will reset when enabling/using PCIE or MIPI.
+	 */
+	udelay(25);
 
 	regmap_update_bits(domain->regmap, offset,
 			   domain->bits.pxx, domain->bits.pxx);
