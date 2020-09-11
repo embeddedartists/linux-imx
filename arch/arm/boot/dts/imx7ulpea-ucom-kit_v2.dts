@@ -25,9 +25,41 @@
 		stdout-path = &lpuart4;
 	};
 
-	memory {
+	memory@60000000 {
 		device_type = "memory";
 		reg = <0x60000000 0x40000000>;
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		vdev0vring0: vdev0vring0@9ff00000 {
+                        compatible = "shared-dma-pool";
+			reg = <0x9ff00000 0x8000>;
+			no-map;
+		};
+		vdev0vring1: vdev0vring1@9ff08000 {
+                        compatible = "shared-dma-pool";
+			reg = <0x9ff08000 0x8000>;
+			no-map;
+		};
+		vdev1vring0: vdev1vring0@9ff10000 {
+                        compatible = "shared-dma-pool";
+			reg = <0x9ff10000 0x8000>;
+			no-map;
+		};
+		vdev1vring1: vdev1vring1@9ff18000 {
+                        compatible = "shared-dma-pool";
+			reg = <0x9ff18000 0x8000>;
+			no-map;
+		};
+		vdev1vring3 {
+			compatible = "shared-dma-pool";
+			reg = <0x9ff20000 0xe0000>;
+			no-map;
+		};
 	};
 
 	backlight {
@@ -212,6 +244,19 @@
 		reset-gpios = <&gpio_buff 1 GPIO_ACTIVE_LOW>; /* WL_REG_ON */
 		status = "okay";
 	};
+
+	imx7ulp-cm4 {
+		compatible = "fsl,imx7ulp-cm4";
+		ipc-only;
+		rsc-da=<0x1fff8000>;
+		mbox-names = "tx", "rx", "rxdb";
+		mboxes = <&mu 0 1
+			  &mu 1 1
+			  &mu 3 1>;
+		memory-region = <&vdev0vring0>, <&vdev0vring1>,
+				<&vdev1vring0>, <&vdev1vring1>;
+	};
+
 };
 
 &cpu0 {
