@@ -6,7 +6,6 @@
  *
  * Copyright (C) 2018 Google, Inc.
  */
-
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include "gasket_core.h"
@@ -109,6 +108,8 @@ check_and_invoke_callback(struct gasket_dev *gasket_dev,
 {
 	int ret = 0;
 
+	dev_dbg(gasket_dev->dev, "check_and_invoke_callback %p\n",
+		cb_function);
 	if (cb_function) {
 		mutex_lock(&gasket_dev->mutex);
 		ret = cb_function(gasket_dev);
@@ -124,8 +125,11 @@ gasket_check_and_invoke_callback_nolock(struct gasket_dev *gasket_dev,
 {
 	int ret = 0;
 
-	if (cb_function)
+	if (cb_function) {
+		dev_dbg(gasket_dev->dev,
+			"Invoking device-specific callback.\n");
 		ret = cb_function(gasket_dev);
+	}
 	return ret;
 }
 
@@ -702,7 +706,8 @@ static bool gasket_mmap_has_permissions(struct gasket_dev *gasket_dev,
 	if ((vma->vm_flags & VM_WRITE) &&
 	    !gasket_owned_by_current_tgid(&gasket_dev->dev_info)) {
 		dev_dbg(gasket_dev->dev,
-			"Attempting to mmap a region for write without owning device.\n");
+			"Attempting to mmap a region for write without owning "
+			"device.\n");
 		return false;
 	}
 
@@ -1053,7 +1058,8 @@ static int gasket_mmap(struct file *filp, struct vm_area_struct *vma)
 	}
 	if (bar_index > 0 && is_coherent_region) {
 		dev_err(gasket_dev->dev,
-			"double matching bar and coherent buffers for address 0x%lx\n",
+			"double matching bar and coherent buffers for address "
+			"0x%lx\n",
 			raw_offset);
 		trace_gasket_mmap_exit(bar_index);
 		return -EINVAL;
@@ -1340,6 +1346,7 @@ static const struct file_operations gasket_file_ops = {
 	.open = gasket_open,
 	.release = gasket_release,
 	.unlocked_ioctl = gasket_ioctl,
+	.compat_ioctl = gasket_ioctl,
 };
 
 /* Perform final init and marks the device as active. */
