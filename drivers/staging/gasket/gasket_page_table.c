@@ -844,7 +844,7 @@ static int gasket_map_simple_pages(struct gasket_page_table *pg_tbl,
 	ret = gasket_alloc_simple_entries(pg_tbl, dev_addr, num_pages);
 	if (ret) {
 		dev_err(pg_tbl->device,
-			"page table slots %u (@ 0x%llx) to %u are not available\n",
+			"page table slots %u (@ 0x%lx) to %u are not available\n",
 			slot_idx, dev_addr, slot_idx + num_pages - 1);
 		return ret;
 	}
@@ -978,7 +978,7 @@ static int gasket_map_extended_pages(struct gasket_page_table *pg_tbl,
 	if (ret) {
 		dev_addr_end = dev_addr + (num_pages / PAGE_SIZE) - 1;
 		dev_err(pg_tbl->device,
-			"page table slots (%lu,%llu) (@ 0x%lx) to (%lu,%lu) are "
+			"page table slots (%lu,%lu) (@ 0x%lx) to (%lu,%lu) are "
 			"not available\n",
 			gasket_extended_lvl0_page_idx(pg_tbl, dev_addr),
 			dev_addr,

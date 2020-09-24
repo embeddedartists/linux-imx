@@ -900,6 +900,7 @@ static void apply_module_params(struct apex_dev *apex_dev) {
 
 static void check_temperature_work_handler(struct work_struct *work) {
 	int i;
+	int temp_poll_interval;
 	u32 adc_temp, clk_div, tmp;
 	const u32 mask = ((1 << 2) - 1) << 28;
 	struct apex_dev *apex_dev =
@@ -931,13 +932,13 @@ static void check_temperature_work_handler(struct work_struct *work) {
 		gasket_dev_write_32(gasket_dev, tmp, APEX_BAR_INDEX,
 				    APEX_BAR2_REG_SCU_3);
 		dev_warn(gasket_dev->dev,
-			 "Apex performance %sthrottled due to temperature\n",
+			 "Apex performance %sthrottled due to temperature\n ",
 			 i == -1 ? "not " : "");
 	}
 
 	mutex_unlock(&gasket_dev->mutex);
 
-	int temp_poll_interval = atomic_read(&apex_dev->temp_poll_interval);
+	temp_poll_interval = atomic_read(&apex_dev->temp_poll_interval);
 	if (temp_poll_interval > 0)
 		schedule_delayed_work(&apex_dev->check_temperature_work,
 				      msecs_to_jiffies(temp_poll_interval));
@@ -968,6 +969,7 @@ static int apex_pci_probe(struct pci_dev *pci_dev,
 	int retries = 0;
 	struct gasket_dev *gasket_dev;
 	struct apex_dev *apex_dev;
+	int temp_poll_interval;
 
 	ret = pci_enable_device(pci_dev);
 #ifdef MODULE
@@ -1057,7 +1059,7 @@ static int apex_pci_probe(struct pci_dev *pci_dev,
 		apex_enter_reset(gasket_dev);
 
 	/* Enable thermal polling */
-	int temp_poll_interval = atomic_read(&apex_dev->temp_poll_interval);
+	temp_poll_interval = atomic_read(&apex_dev->temp_poll_interval);
 	if (temp_poll_interval > 0)
 		schedule_delayed_work(&apex_dev->check_temperature_work,
 				      msecs_to_jiffies(temp_poll_interval));
