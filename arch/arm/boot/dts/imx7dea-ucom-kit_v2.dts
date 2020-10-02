@@ -42,6 +42,16 @@
 		};
 	};
 
+
+	bd71815-wled {
+		compatible = "leds-regulator";
+		name = "bd71815-wled";
+		/* <0> = default off */
+		brightness = <0>;
+		vled-supply = <&wled_reg>;
+		status = "okay";
+	};
+
 	backlight_lcd: backlight {
 		compatible = "pwm-backlight";
 		pwms = <&pwm1 0 5000000 0>;
@@ -350,6 +360,8 @@
                         wled_reg: wled {
                                 regulator-min-microamp = <10>;
                                 regulator-max-microamp = <25000>;
+                                regulator-min-microvolt = <10>;
+                                regulator-max-microvolt = <25000>;
                                 regulator-boot-off;
                                 regulator-always-off;
                         };
