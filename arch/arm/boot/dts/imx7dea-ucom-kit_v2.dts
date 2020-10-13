@@ -1120,7 +1120,6 @@
 	pinctrl-2 = <&pinctrl_usdhc1_200mhz>;
 	fsl,tuning-start-tap = <40>;	/* Murata: i.MX default tuning-start-tap */
 	fsl,tuning-step= <2>;		/* Murata: change default step value is 2 */
-	enable-sdio-wakeup;
 	keep-power-in-suspend;
 	non-removable;
 	pm-ignore-notify;
