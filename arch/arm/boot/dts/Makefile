@@ -468,11 +468,6 @@ dtb-$(CONFIG_SOC_IMX6Q) += \
 	imx6dl-yapp4-draco.dtb \
 	imx6dl-yapp4-hydra.dtb \
 	imx6dl-yapp4-ursa.dtb \
-	imx6dlea-com-kit.dts \
-	imx6dlea-com-kit-lvds.dtb \
-	imx6dlea-com-kit-ov5640.dtb \
-	imx6dlea-com-kit-ov5640-pl.dts \
-	imx6dlea-com-kit-ov5647.dtb \
 	imx6dlea-com-kit_v2.dtb \
 	imx6dlea-com-kit_v2-ov5640.dtb \
 	imx6dlea-com-kit_v2-ov5640-pl.dtb \
@@ -568,11 +563,6 @@ dtb-$(CONFIG_SOC_IMX6Q) += \
 	imx6q-wandboard-revb1.dtb \
 	imx6q-wandboard-revd1.dtb \
 	imx6q-zii-rdu2.dtb \
-	imx6qea-com-kit.dtb \
-	imx6qea-com-kit-lvds.dtb \
-	imx6qea-com-kit-ov5640.dtb \
-	imx6qea-com-kit-ov5640-pl.dtb \
-	imx6qea-com-kit-ov5647.dtb \
 	imx6qea-com-kit_v2.dtb \
 	imx6qea-com-kit_v2-ov5640.dtb \
 	imx6qea-com-kit_v2-ov5640-pl.dtb \
@@ -623,11 +613,6 @@ dtb-$(CONFIG_SOC_IMX6SX) += \
 	imx6sx-udoo-neo-basic.dtb \
 	imx6sx-udoo-neo-extended.dtb \
 	imx6sx-udoo-neo-full.dtb \
-	imx6sxea-com-kit.dtb \
-	imx6sxea-com-kit-lvds.dtb \
-	imx6sxea-com-kit-m4.dtb \
-	imx6sxea-com-kit-ov5640-pl.dtb \
-	imx6sxea-com-kit-rgb.dtb \
 	imx6sxea-com-kit_v2.dtb \
 	imx6sxea-com-kit_v2-m4.dtb \
 	imx6sxea-com-kit_v2-ov5640-pl.dtb \
@@ -661,9 +646,6 @@ dtb-$(CONFIG_SOC_IMX6UL) += \
 	imx6ul-tx6ul-0010.dtb \
 	imx6ul-tx6ul-0011.dtb \
 	imx6ul-tx6ul-mainboard.dtb \
-	imx6ulea-com-kit.dtb \
-	imx6ulea-com-kit-ov5640-pl.dtb \
-	imx6ulea-com-kit-rf.dtb \
 	imx6ulea-com-kit_v2.dtb \
 	imx6ulea-com-kit_v2-ov5640-pl.dtb \
 	imx6ulea-com-ptp.dtb \
@@ -708,20 +690,11 @@ dtb-$(CONFIG_SOC_IMX7D) += \
 	imx7d-12x12-lpddr3-val-sai.dtb \
 	imx7d-zii-rmu2.dtb \
 	imx7d-zii-rpu2.dtb \
-	imx7dea-com-kit.dtb \
-	imx7dea-com-kit-m4.dtb \
-	imx7dea-com-kit-ov5640.dtb \
-	imx7dea-com-kit-ov5647.dtb \
 	imx7dea-com-kit_v2.dtb \
 	imx7dea-com-kit_v2-m4.dtb \
 	imx7dea-com-kit_v2-ov5640.dtb \
 	imx7dea-com-kit_v2-pcie.dtb \
 	imx7dea-com-ptp.dtb \
-	imx7dea-ucom-kit.dtb \
-	imx7dea-ucom-kit-lvds.dtb \
-	imx7dea-ucom-kit-m4.dtb \
-	imx7dea-ucom-kit-ov5640.dtb \
-	imx7dea-ucom-kit-ov5647.dtb \
 	imx7dea-ucom-kit_v2.dtb \
 	imx7dea-ucom-kit_v2-m4.dtb \
 	imx7dea-ucom-kit_v2-ov5640.dtb \
