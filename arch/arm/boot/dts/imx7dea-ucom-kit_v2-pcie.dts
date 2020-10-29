@@ -25,7 +25,7 @@
 };
 
 &iomuxc {
-	imx7d-sdb {
+	imx7d-ucom-kit {
 		pinctrl_hog_1: hoggrp-1 {
 			fsl,pins = <
 				MX7D_PAD_GPIO1_IO08__SD1_VSELECT        0x33 /* Murata: 5K pullup - MAX drive strength for SD1_VSELECT */

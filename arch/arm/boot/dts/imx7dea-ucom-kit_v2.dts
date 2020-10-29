@@ -9,7 +9,7 @@
 /dts-v1/;
 
 #include <dt-bindings/input/input.h>
-#include "imx7d.dtsi"
+#include "imx7dea-ucom-adapter.dtsi"
 
 / {
 	model = "Embedded Artists i.MX7 Dual uCOM Kit";
@@ -22,34 +22,6 @@
 		bl_rgb = &backlight_lcd;
 		rgb = &display0;
 		ts_con_rgb = &i2c1;
-	};
-
-	memory@80000000 {
-		device_type = "memory";
-		reg = <0x80000000 0x80000000>;
-	};
-
-	reserved-memory {
-		#address-cells = <1>;
-		#size-cells = <1>;
-		ranges;
-
-		linux,cma {
-			compatible = "shared-dma-pool";
-			reusable;
-			size = <0x14000000>;
-			linux,cma-default;
-		};
-	};
-
-
-	bd71815-wled {
-		compatible = "leds-regulator";
-		name = "bd71815-wled";
-		/* <0> = default off */
-		brightness = <0>;
-		vled-supply = <&wled_reg>;
-		status = "okay";
 	};
 
 	backlight_lcd: backlight {
@@ -117,13 +89,6 @@
 			gpio = <&gpio2 14 GPIO_ACTIVE_LOW>;
 		};
 
-		reg_vref_1v8: regulator@3 {
-			compatible = "regulator-fixed";
-			regulator-name = "vref-1v8";
-			regulator-min-microvolt = <1800000>;
-			regulator-max-microvolt = <1800000>;
-		};
-
 		reg_pcie: regulator@4 {
 			compatible = "regulator-fixed";
 			reg = <4>;
@@ -188,51 +153,13 @@
 	};
 };
 
-&adc1 {
-	vref-supply = <&reg_vref_1v8>;
-	status = "okay";
-};
-
-&adc2 {
-	vref-supply = <&reg_vref_1v8>;
-	status = "okay";
-};
-
 &clks {
 	assigned-clocks = <&clks IMX7D_PLL_AUDIO_POST_DIV>;
 	assigned-clock-rates = <722534400>;
 };
 
-&cpu0 {
-	arm-supply = <&buck1_reg>;
-};
-
 &epxp {
 	status = "okay";
-};
-
-
-&fec1 {
-	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_enet1>;
-	pinctrl-assert-gpios = <&gpio7 15 GPIO_ACTIVE_LOW>;
-	assigned-clocks = <&clks IMX7D_ENET1_TIME_ROOT_SRC>,
-			  <&clks IMX7D_ENET1_TIME_ROOT_CLK>;
-	assigned-clock-parents = <&clks IMX7D_PLL_ENET_MAIN_100M_CLK>;
-	assigned-clock-rates = <0>, <100000000>;
-	phy-mode = "rgmii";
-	phy-handle = <&ethphy0>;
-	fsl,magic-packet;
-	status = "okay";
-
-	mdio {
-		#address-cells = <1>;
-		#size-cells = <0>;
-
-		ethphy0: ethernet-phy@1 {
-			reg = <1>;
-		};
-	};
 };
 
 &flexcan1 {
@@ -250,190 +177,6 @@
 };
 
 &i2c1 {
-	clock-frequency = <100000>;
-	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_i2c1>;
-	status = "okay";
-
-	pmic: bd7181x@4b {
-		reg = <0x4b>;
-		compatible = "rohm,bd71815";
-		/* PMIC_INT_B GPIO1_IO09 */
-		gpio_intr = <&gpio1 9 0>;
-
-		bd7181x,pmic-buck1-uses-i2c-dvs;
-		bd7181x,pmic-buck1-dvs-voltage = <1150000>, <950000>; /* VDD_ARM */
-		bd7181x,pmic-buck2-uses-i2c-dvs;
-		bd7181x,pmic-buck2-dvs-voltage = <1150000>, <950000>; /* VDD_SOC */
-
-		gpo {
-			rohm,mode = <0x30>;	/* 0b0011_0000 all gpos with cmos output mode */
-		};
-
-		regulators {
-			/* #address-cells = <1>;
-			#size-cells = <0>; */
-
-                        buck1_reg: buck1 {
-                                regulator-min-microvolt = <800000>;
-                                regulator-max-microvolt = <2000000>;
-                                regulator-boot-on;
-                                regulator-always-on;
-                                regulator-ramp-delay = <1250>;
-                        };
-
-                        buck2_reg: buck2 {
-                                regulator-min-microvolt = <800000>;
-                                regulator-max-microvolt = <2000000>;
-                                regulator-boot-on;
-                                regulator-always-on;
-                                regulator-ramp-delay = <1250>;
-                        };
-
-                        buck3_reg: buck3 {
-                                regulator-min-microvolt = <1200000>;
-                                regulator-max-microvolt = <2700000>;
-                                regulator-boot-on;
-                                regulator-always-on;
-                        };
-
-                        buck4_reg: buck4 {
-                                regulator-min-microvolt = <1100000>;
-                                regulator-max-microvolt = <1850000>;
-                                regulator-boot-on;
-                                regulator-always-on;
-                        };
-
-                        buck5_reg: buck5 {
-                                regulator-min-microvolt = <1800000>;
-                                regulator-max-microvolt = <3300000>;
-                                regulator-boot-on;
-                                regulator-always-on;
-                        };
-
-                        ldo1_reg: ldo1 {
-                                regulator-min-microvolt = <800000>;
-                                regulator-max-microvolt = <3300000>;
-                                regulator-boot-on;
-                                regulator-always-on;
-                        };
-
-                        ldo2_reg: ldo2 {
-                                regulator-min-microvolt = <800000>;
-                                regulator-max-microvolt = <3300000>;
-                                regulator-boot-on;
-                                regulator-always-on;
-                        };
-
-                        ldo3_reg: ldo3 {
-                                regulator-min-microvolt = <800000>;
-                                regulator-max-microvolt = <3300000>;
-                                regulator-boot-on;
-                                regulator-always-on;
-                        };
-
-                        ldo4_reg: ldo4 {
-                                regulator-min-microvolt = <800000>;
-                                regulator-max-microvolt = <3300000>;
-                                regulator-boot-on;
-                                regulator-always-on;
-                        };
-
-                        ldo5_reg: ldo5 {
-                                regulator-min-microvolt = <1800000>;
-                                regulator-max-microvolt = <3300000>;  /* Murata: VSELECT sets VIO. */ 
-				gpio = <&gpio1 8 GPIO_ACTIVE_HIGH>;   /* Murata: set VIO to 1.8V */
-                                regulator-boot-on;
-                                regulator-always-on;
-                        };
-
-                        dvref_reg: dvref {
-                                regulator-boot-on;
-                                regulator-always-on;
-                        };
-
-                        lpsr_reg: lpsr {
-                                regulator-boot-on;
-                                regulator-always-on;
-                        };
-
-                        wled_reg: wled {
-                                regulator-min-microamp = <10>;
-                                regulator-max-microamp = <25000>;
-                                regulator-min-microvolt = <10>;
-                                regulator-max-microvolt = <25000>;
-                                regulator-boot-off;
-                                regulator-always-off;
-                        };
-
-		};
-		regulator-virtuals {
-			compatible = "simple-bus";
-
-			virt-buck1 {
-				compatible = "regulator-virtual";
-				virtual-supply = "buck1";
-			};
-			virt-buck2 {
-				compatible = "regulator-virtual";
-				virtual-supply = "buck2";
-			};
-			virt-buck3 {
-				compatible = "regulator-virtual";
-				virtual-supply = "buck3";
-			};
-			virt-buck4 {
-				compatible = "regulator-virtual";
-				virtual-supply = "buck4";
-			};
-			virt-buck5 {
-				compatible = "regulator-virtual";
-				virtual-supply = "buck5";
-			};
-			virt-ldo1 {
-				compatible = "regulator-virtual";
-				virtual-supply = "ldo1";
-			};
-			virt-ldo2 {
-				compatible = "regulator-virtual";
-				virtual-supply = "ldo2";
-			};
-			virt-ldo3 {
-				compatible = "regulator-virtual";
-				virtual-supply = "ldo3";
-			};
-			virt-ldo4 {
-				compatible = "regulator-virtual";
-				virtual-supply = "ldo4";
-			};
-			virt-ldo5 {
-				compatible = "regulator-virtual";
-				virtual-supply = "ldo5";
-			};
-			user-dvref {
-				compatible = "userspace_consumer";
-				uc-name = "dvref";
-				suck-supply = "dvref";
-			};
-			user-lpsr {
-				compatible = "userspace_consumer";
-				uc-name = "lpsr";
-				suck-supply = "lpsr";
-			};
-
-			virt-wled {
-				compatible = "regulator-virtual";
-				virtual-supply = "wled";
-			};
-		};
-	};
-
-	at24@55 {
-		compatible = "at,24c64";
-		pagesize = <32>;
-		reg = <0x55>;
-	};
-
         wm8731: wm8731@1a {
 		#sound-dai-cells = <0>;
                 compatible = "wlf,wm8731";
@@ -446,7 +189,6 @@
 				<&clks IMX7D_PLL_AUDIO_POST_DIV>;
 		assigned-clock-rates = <11289600>, <0>;
         };
-
 
         /* AR1021 touch controller through RGB display interface connector on Carrier Board */
         ar1021_rgb@4d {
@@ -537,11 +279,6 @@
 };
 
 &i2c2 {
-	clock-frequency = <100000>;
-	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_i2c2>;
-	status = "okay";
-
 	gpio_buff: pca6416@20 {
 		compatible = "ti,tca6416";
 		reg = <0x20>;
@@ -586,27 +323,11 @@
 	};
 };
 
-&i2c3 {
-	clock-frequency = <100000>;
-	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_i2c3>;
-	status = "okay";
-
-};
-
-&i2c4 {
-	clock-frequency = <100000>;
-	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_i2c4>;
-	status = "disabled";
-
-};
-
 &iomuxc {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_hog_1>, <&pinctrl_exp_conn>;
 
-	imx7d-sdb {
+	imx7d-ucom-kit {
 		pinctrl_hog_1: hoggrp-1 {
 			fsl,pins = <
 				MX7D_PAD_GPIO1_IO08__GPIO1_IO8          0x33 /* Murata: 5K pullup - MAX drive strength for SD1_VSELECT */
@@ -627,60 +348,6 @@
                         >;
                 };
 
-                pinctrl_epdc0: epdcgrp0 {
-                        fsl,pins = <
-				MX7D_PAD_EPDC_DATA00__EPDC_DATA0  0x2
-				MX7D_PAD_EPDC_DATA01__EPDC_DATA1  0x2
-				MX7D_PAD_EPDC_DATA02__EPDC_DATA2  0x2
-				MX7D_PAD_EPDC_DATA03__EPDC_DATA3  0x2
-				MX7D_PAD_EPDC_DATA04__EPDC_DATA4  0x2
-				MX7D_PAD_EPDC_DATA05__EPDC_DATA5  0x2
-				MX7D_PAD_EPDC_DATA06__EPDC_DATA6  0x2
-				MX7D_PAD_EPDC_DATA07__EPDC_DATA7  0x2
-				MX7D_PAD_EPDC_DATA08__EPDC_DATA8  0x2
-				MX7D_PAD_EPDC_DATA09__EPDC_DATA9  0x2
-				MX7D_PAD_EPDC_DATA10__EPDC_DATA10 0x2
-				MX7D_PAD_EPDC_DATA11__EPDC_DATA11 0x2
-				MX7D_PAD_EPDC_DATA12__EPDC_DATA12 0x2
-				MX7D_PAD_EPDC_DATA13__EPDC_DATA13 0x2
-				MX7D_PAD_EPDC_DATA14__EPDC_DATA14 0x2
-				MX7D_PAD_EPDC_DATA15__EPDC_DATA15 0x2
-				MX7D_PAD_EPDC_SDCLK__EPDC_SDCLK   0x2
-				MX7D_PAD_EPDC_SDLE__EPDC_SDLE     0x2
-				MX7D_PAD_EPDC_SDOE__EPDC_SDOE     0x2
-				MX7D_PAD_EPDC_SDSHR__EPDC_SDSHR   0x2
-				MX7D_PAD_EPDC_SDCE0__EPDC_SDCE0   0x2
-				MX7D_PAD_EPDC_SDCE1__EPDC_SDCE1   0x2
-				MX7D_PAD_EPDC_GDCLK__EPDC_GDCLK   0x2
-				MX7D_PAD_EPDC_GDOE__EPDC_GDOE     0x2
-				MX7D_PAD_EPDC_GDRL__EPDC_GDRL     0x2
-				MX7D_PAD_EPDC_GDSP__EPDC_GDSP     0x2
-				MX7D_PAD_EPDC_BDR0__EPDC_BDR0     0x2
-				MX7D_PAD_EPDC_BDR1__EPDC_BDR1     0x2
-                        >;
-                };
-
-		pinctrl_enet1: enet1grp {
-			fsl,pins = <
-				MX7D_PAD_GPIO1_IO10__ENET1_MDIO		0x3
-				MX7D_PAD_GPIO1_IO11__ENET1_MDC		0x3
-				MX7D_PAD_ENET1_RGMII_TXC__ENET1_RGMII_TXC	0x3
-				MX7D_PAD_ENET1_RGMII_TD0__ENET1_RGMII_TD0	0x3
-				MX7D_PAD_ENET1_RGMII_TD1__ENET1_RGMII_TD1	0x3
-				MX7D_PAD_ENET1_RGMII_TD2__ENET1_RGMII_TD2	0x3
-				MX7D_PAD_ENET1_RGMII_TD3__ENET1_RGMII_TD3	0x3
-				MX7D_PAD_ENET1_RGMII_TX_CTL__ENET1_RGMII_TX_CTL	0x1
-				MX7D_PAD_ENET1_RGMII_RXC__ENET1_RGMII_RXC	0x1
-				MX7D_PAD_ENET1_RGMII_RD0__ENET1_RGMII_RD0	0x1
-				MX7D_PAD_ENET1_RGMII_RD1__ENET1_RGMII_RD1	0x1
-				MX7D_PAD_ENET1_RGMII_RD2__ENET1_RGMII_RD2	0x1
-				MX7D_PAD_ENET1_RGMII_RD3__ENET1_RGMII_RD3	0x1
-				MX7D_PAD_ENET1_RGMII_RX_CTL__ENET1_RGMII_RX_CTL	0x1
-				MX7D_PAD_ENET1_COL__GPIO7_IO15                  0x1
-				MX7D_PAD_ENET1_RX_CLK__GPIO7_IO13               0x1
-			>;
-		};
-
 		pinctrl_flexcan1: flexcan1grp {
 			fsl,pins = <
 				MX7D_PAD_GPIO1_IO12__FLEXCAN1_RX	0x59
@@ -692,34 +359,6 @@
 			fsl,pins = <
 				MX7D_PAD_GPIO1_IO14__FLEXCAN2_RX	0x59
 				MX7D_PAD_GPIO1_IO15__FLEXCAN2_TX	0x59
-			>;
-		};
-
-		pinctrl_i2c1: i2c1grp {
-			fsl,pins = <
-				MX7D_PAD_I2C1_SDA__I2C1_SDA	0x4000007f
-				MX7D_PAD_I2C1_SCL__I2C1_SCL	0x4000007f
-			>;
-		};
-
-		pinctrl_i2c2: i2c2grp {
-			fsl,pins = <
-				MX7D_PAD_I2C2_SDA__I2C2_SDA	0x4000007f
-				MX7D_PAD_I2C2_SCL__I2C2_SCL	0x4000007f
-			>;
-		};
-
-		pinctrl_i2c3: i2c3grp {
-			fsl,pins = <
-				MX7D_PAD_I2C3_SDA__I2C3_SDA          0x4000007f
-				MX7D_PAD_I2C3_SCL__I2C3_SCL          0x4000007f
-			>;
-		};
-
-		pinctrl_i2c4: i2c4grp {
-			fsl,pins = <
-				MX7D_PAD_SAI1_RX_BCLK__I2C4_SDA		0x4000007f
-				MX7D_PAD_SAI1_RX_SYNC__I2C4_SCL		0x4000007f
 			>;
 		};
 
@@ -834,57 +473,6 @@
 			>;
 		};
 
-		pinctrl_usdhc3: usdhc3grp {
-			fsl,pins = <
-				MX7D_PAD_SD3_CMD__SD3_CMD	0x59
-				MX7D_PAD_SD3_CLK__SD3_CLK	0x19
-				MX7D_PAD_SD3_DATA0__SD3_DATA0	0x59
-				MX7D_PAD_SD3_DATA1__SD3_DATA1	0x59
-				MX7D_PAD_SD3_DATA2__SD3_DATA2	0x59
-				MX7D_PAD_SD3_DATA3__SD3_DATA3	0x59
-				MX7D_PAD_SD3_DATA4__SD3_DATA4	0x59
-				MX7D_PAD_SD3_DATA5__SD3_DATA5	0x59
-				MX7D_PAD_SD3_DATA6__SD3_DATA6	0x59
-				MX7D_PAD_SD3_DATA7__SD3_DATA7	0x59
-				MX7D_PAD_SD3_STROBE__SD3_STROBE	0x19
-				MX7D_PAD_SD3_RESET_B__SD3_RESET 0x59
-			>;
-		};
-
-		pinctrl_usdhc3_100mhz: usdhc3grp_100mhz {
-			fsl,pins = <
-				MX7D_PAD_SD3_CMD__SD3_CMD	0x5a
-				MX7D_PAD_SD3_CLK__SD3_CLK	0x1a
-				MX7D_PAD_SD3_DATA0__SD3_DATA0	0x5a
-				MX7D_PAD_SD3_DATA1__SD3_DATA1	0x5a
-				MX7D_PAD_SD3_DATA2__SD3_DATA2	0x5a
-				MX7D_PAD_SD3_DATA3__SD3_DATA3	0x5a
-				MX7D_PAD_SD3_DATA4__SD3_DATA4	0x5a
-				MX7D_PAD_SD3_DATA5__SD3_DATA5	0x5a
-				MX7D_PAD_SD3_DATA6__SD3_DATA6	0x5a
-				MX7D_PAD_SD3_DATA7__SD3_DATA7	0x5a
-				MX7D_PAD_SD3_STROBE__SD3_STROBE	0x1a
-				MX7D_PAD_SD3_RESET_B__SD3_RESET 0x59
-			>;
-		};
-
-		pinctrl_usdhc3_200mhz: usdhc3grp_200mhz {
-			fsl,pins = <
-				MX7D_PAD_SD3_CMD__SD3_CMD	0x5b
-				MX7D_PAD_SD3_CLK__SD3_CLK	0x1b
-				MX7D_PAD_SD3_DATA0__SD3_DATA0	0x5b
-				MX7D_PAD_SD3_DATA1__SD3_DATA1	0x5b
-				MX7D_PAD_SD3_DATA2__SD3_DATA2	0x5b
-				MX7D_PAD_SD3_DATA3__SD3_DATA3	0x5b
-				MX7D_PAD_SD3_DATA4__SD3_DATA4	0x5b
-				MX7D_PAD_SD3_DATA5__SD3_DATA5	0x5b
-				MX7D_PAD_SD3_DATA6__SD3_DATA6	0x5b
-				MX7D_PAD_SD3_DATA7__SD3_DATA7	0x5b
-				MX7D_PAD_SD3_STROBE__SD3_STROBE	0x1b
-				MX7D_PAD_SD3_RESET_B__SD3_RESET 0x59
-			>;
-		};
-
                 pinctrl_sai1: sai1grp {
                         fsl,pins = <
                                 MX7D_PAD_SAI1_MCLK__SAI1_MCLK           0x1f
@@ -894,25 +482,6 @@
 				MX7D_PAD_SAI1_RX_DATA__SAI1_RX_DATA0    0x1f
                         >;
                 };
-
-
-		pinctrl_spi1: spi1grp {
-			fsl,pins = <
-				MX7D_PAD_GPIO1_IO12__GPIO1_IO12	0x59
-				MX7D_PAD_GPIO1_IO13__GPIO1_IO13	0x59
-			>;
-		};
-
-		pinctrl_qspi1_1: qspi1grp_1 {
-			fsl,pins = <
-				MX7D_PAD_EPDC_DATA00__QSPI_A_DATA0 0x51
-				MX7D_PAD_EPDC_DATA01__QSPI_A_DATA1 0x51
-				MX7D_PAD_EPDC_DATA02__QSPI_A_DATA2 0x51
-				MX7D_PAD_EPDC_DATA03__QSPI_A_DATA3 0x51
-				MX7D_PAD_EPDC_DATA05__QSPI_A_SCLK 0x51
-				MX7D_PAD_EPDC_DATA06__QSPI_A_SS0_B 0x51
-			>;
-		};
 
 		pinctrl_pcie: pciegrp {
 			fsl,pins = <
@@ -1056,10 +625,6 @@
 	status = "okay";
 };
 
-&sdma {
-	status = "okay";
-};
-
 &uart1 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_uart1>;
@@ -1148,37 +713,6 @@
 	enable-sdio-wakeup;
 	no-1-8-v;
 	status = "okay";
-};
-
-/* eMMC */
-&usdhc3 {
-	pinctrl-names = "default", "state_100mhz", "state_200mhz";
-	pinctrl-0 = <&pinctrl_usdhc3>;
-	pinctrl-1 = <&pinctrl_usdhc3_100mhz>;
-	pinctrl-2 = <&pinctrl_usdhc3_200mhz>;
-	assigned-clocks = <&clks IMX7D_USDHC3_ROOT_CLK>;
-	assigned-clock-rates = <100000000>;
-	bus-width = <8>;
-	tuning-step = <2>;
-	non-removable;
-	status = "okay";
-};
-
-&qspi1 {
-        pinctrl-names = "default";
-        pinctrl-0 = <&pinctrl_qspi1_1>;
-        status = "okay";
-        ddrsmp=<0>;
-
-        flash0: n25q256a@0 {
-                #address-cells = <1>;
-                #size-cells = <1>;
-                compatible = "jedec,spi-nor";
-                spi-max-frequency = <29000000>;
-                /* take off one dummy cycle */
-                spi-nor,ddr-quad-read-dummy = <6>;
-                reg = <0>;
-        };
 };
 
 &wdog1 {
