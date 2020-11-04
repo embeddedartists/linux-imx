@@ -927,9 +927,21 @@ static void __init imx7d_clocks_init(struct device_node *ccm_node)
 	imx_clk_set_parent(clks[IMX7D_UART6_ROOT_SRC], clks[IMX7D_PLL_SYS_MAIN_240M_CLK]);
 	imx_clk_set_rate(clks[IMX7D_UART6_ROOT_DIV], 80000000);
 
-	/* Murata -- setup UART2 so it can support highspeed Bluetooth interface */
-	imx_clk_set_parent(clks[IMX7D_UART2_ROOT_SRC], clks[IMX7D_PLL_SYS_MAIN_240M_CLK]);
-	imx_clk_set_rate(clks[IMX7D_UART2_ROOT_DIV], 80000000);
+	/*
+	 * Reusing the kernel parameter uart_from_osc to control clock setting
+	 * for UART2.
+	 *
+	 * The reason is that UART2 is by default the UART used as
+	 * the M4 core console. Changing clock parents for UART2 will then
+	 * conflict with the M4 settings. Setting uart_from_osc as kernel
+	 * parameter will prohibit changing clock parent and clock rate.
+	 */
+        if (!uart_from_osc) {
+		/* Murata -- setup UART2 so it can support highspeed Bluetooth interface */
+		imx_clk_set_parent(clks[IMX7D_UART2_ROOT_SRC], clks[IMX7D_PLL_SYS_MAIN_240M_CLK]);
+		imx_clk_set_rate(clks[IMX7D_UART2_ROOT_DIV], 80000000);
+	}
+
 
 	imx_register_uart_clocks(uart_clks);
 }
