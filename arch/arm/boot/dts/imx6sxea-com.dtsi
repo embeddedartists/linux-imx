@@ -116,7 +116,7 @@
 		reg = <0>;
 	};
 
-	flash1: n25q256a@1 {
+	flash1: n25q256a@2 {
 		#address-cells = <1>;
 		#size-cells = <1>;
 		compatible = "jedec,spi-nor";
@@ -126,7 +126,7 @@
 		   n25q256a flash. The spi-nor.c driver will change it
 		   to 2 for the is25lp064a flash. */
 		spi-nor,ddr-quad-read-dummy = <6>;
-		reg = <1>;
+		reg = <2>;
 	};
 
 };
