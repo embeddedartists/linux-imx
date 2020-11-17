@@ -1805,6 +1805,10 @@ void cnstr_shdsc_skcipher_encap(u32 * const desc, struct alginfo *cdata,
 	/* Load class1 key only */
 	if (IS_ENABLED(CONFIG_CRYPTO_DEV_FSL_CAAM_TK_API) &&
 	    cdata->key_cmd_opt)
+		/*
+		 * Black keys can be loaded using only a KEY command
+		 * with ENC=1 and the proper setting of the EKT bit.
+		 */
 		append_key_as_imm(desc, cdata->key_virt, cdata->keylen,
 				  cdata->key_real_len, CLASS_1 |
 				  KEY_DEST_CLASS_REG | cdata->key_cmd_opt);
@@ -1886,6 +1890,10 @@ void cnstr_shdsc_skcipher_decap(u32 * const desc, struct alginfo *cdata,
 	/* Load class1 key only */
 	if (IS_ENABLED(CONFIG_CRYPTO_DEV_FSL_CAAM_TK_API) &&
 	    cdata->key_cmd_opt)
+		/*
+		 * Black keys can be loaded using only a KEY command
+		 * with ENC=1 and the proper setting of the EKT bit.
+		 */
 		append_key_as_imm(desc, cdata->key_virt, cdata->keylen,
 				  cdata->key_real_len, CLASS_1 |
 				  KEY_DEST_CLASS_REG | cdata->key_cmd_opt);
@@ -1950,7 +1958,13 @@ EXPORT_SYMBOL(cnstr_shdsc_skcipher_decap);
  */
 void cnstr_shdsc_xts_skcipher_encap(u32 * const desc, struct alginfo *cdata)
 {
-	__be64 sector_size = cpu_to_be64(512);
+	/*
+	 * Set sector size to a big value, practically disabling
+	 * sector size segmentation in xts implementation. We cannot
+	 * take full advantage of this HW feature with existing
+	 * crypto API / dm-crypt SW architecture.
+	 */
+	__be64 sector_size = cpu_to_be64(BIT(15));
 	u32 *key_jump_cmd;
 
 	init_sh_desc(desc, HDR_SHARE_SERIAL | HDR_SAVECTX);
@@ -2003,7 +2017,13 @@ EXPORT_SYMBOL(cnstr_shdsc_xts_skcipher_encap);
  */
 void cnstr_shdsc_xts_skcipher_decap(u32 * const desc, struct alginfo *cdata)
 {
-	__be64 sector_size = cpu_to_be64(512);
+	/*
+	 * Set sector size to a big value, practically disabling
+	 * sector size segmentation in xts implementation. We cannot
+	 * take full advantage of this HW feature with existing
+	 * crypto API / dm-crypt SW architecture.
+	 */
+	__be64 sector_size = cpu_to_be64(BIT(15));
 	u32 *key_jump_cmd;
 
 	init_sh_desc(desc, HDR_SHARE_SERIAL | HDR_SAVECTX);
