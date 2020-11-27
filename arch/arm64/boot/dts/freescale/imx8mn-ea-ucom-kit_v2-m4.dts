@@ -15,28 +15,51 @@
 #include "imx8mn-ea-ucom-kit_v2.dts"
 
 / {
+
+	aliases {
+		/delete-property/ serial0;
+	};
+
 	reserved-memory {
 		#address-cells = <2>;
 		#size-cells = <2>;
 		ranges;
 
-		m4_reserved: m4@0x80000000 {
+		m_core_reserved: m_core@0x80000000 {
 			no-map;
 			reg = <0 0x80000000 0 0x1000000>;
 		};
 
+		vdev0vring0: vdev0vring0@b8000000 {
+			compatible = "shared-dma-pool";
+			reg = <0 0xb8000000 0 0x8000>;
+			no-map;
+		};
+
+		vdev0vring1: vdev0vring1@b8008000 {
+			compatible = "shared-dma-pool";
+			reg = <0 0xb8008000 0 0x8000>;
+			no-map;
+		};
+		vdevbuffer: vdevbuffer@b8400000 {
+			compatible = "shared-dma-pool";
+			reg = <0 0xb8400000 0 0x100000>;
+			no-map;
+		};
+
+
 	};
 
-	rpmsg_i2s: rpmsg-i2s {
-		compatible = "fsl,imx8mn-rpmsg-i2s";
-		/* the audio device index in m4 domain */
-		 fsl,audioindex = <0> ;
-		fsl,dma-buffer-size = <0x6000000>;
-		fsl,enable-lpa;
+	imx8mn-cm7 {
+		compatible = "fsl,imx8mn-cm7";
+		rsc-da = <0xb8000000>;
+		mbox-names = "tx", "rx", "rxdb";
+		mboxes = <&mu 0 1
+			  &mu 1 1
+			  &mu 3 1>;
+		memory-region = <&vdev0vring0>, <&vdev0vring1>, <&vdevbuffer>;
 		status = "okay";
-        };
-
-
+	};
 };
 
 /*
@@ -67,7 +90,8 @@
 	 */
 	vdev-nums = <1>;
 	reg = <0x0 0xb8000000 0x0 0x10000>;
-	status = "okay";
+	memory-region = <&vdevbuffer>;
+	status = "disable";
 };
 
 &sai3 {
