@@ -15,6 +15,7 @@
 /dts-v1/;
 
 #include "imx8mn-ea-ucom.dtsi"
+#include <dt-bindings/leds/leds-pca9532.h>
 
 / {
 	model = "Embedded Artists i.MX8M Nano uCOM Kit";
@@ -207,6 +208,23 @@
 			>;
 		};
 
+	};
+};
+
+&i2c1 {
+	pca9530: pca9530@61 {
+		compatible = "nxp,pca9530";
+		reg = <0x61>;
+
+		led0 {
+			label = "PCA_PWM0";
+			type = <PCA9532_TYPE_LED>;
+		};
+
+		led1 {
+			label = "PCA_PWM1_LED17";
+			type = <PCA9532_TYPE_LED>;
+		};
 	};
 };
 
