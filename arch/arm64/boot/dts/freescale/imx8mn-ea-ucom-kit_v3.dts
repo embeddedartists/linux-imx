@@ -287,6 +287,7 @@
 	picophy,dc-vol-level-adjust = <7>;
 
 	vbus-supply = <&reg_usbotg1_vbus>;
+	over-current-active-low;
 
 	status = "okay";
 
