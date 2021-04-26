@@ -653,6 +653,8 @@ dtb-$(CONFIG_SOC_IMX6UL) += \
 	imx6ulea-com-kit_v2.dtb \
 	imx6ulea-com-kit_v2-ov5640-pl.dtb \
 	imx6ulea-com-ptp.dtb \
+	imx6ullea-com-kit_v2.dtb \
+	imx6ullea-com-kit_v2-ov5640-pl.dtb \
 	imx6ull-14x14-evk.dtb \
 	imx6ull-14x14-evk-emmc.dtb \
 	imx6ull-14x14-evk-btwifi.dtb \
