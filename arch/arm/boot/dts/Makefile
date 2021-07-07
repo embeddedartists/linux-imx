@@ -499,6 +499,11 @@ dtb-$(CONFIG_SOC_IMX6Q) += \
 	imx6dl-yapp4-hydra.dtb \
 	imx6dl-yapp4-orion.dtb \
 	imx6dl-yapp4-ursa.dtb \
+	imx6dlea-com-kit_v2.dtb \
+	imx6dlea-com-kit_v2-ov5640.dtb \
+	imx6dlea-com-kit_v2-ov5640-pl.dtb \
+	imx6dlea-com-kit_v2-pcie.dtb \
+	imx6dlea-com-ptp.dtb \
 	imx6q-apalis-eval.dtb \
 	imx6q-apalis-ixora.dtb \
 	imx6q-apalis-ixora-v1.1.dtb \
@@ -601,6 +606,11 @@ dtb-$(CONFIG_SOC_IMX6Q) += \
 	imx6q-wandboard-revb1.dtb \
 	imx6q-wandboard-revd1.dtb \
 	imx6q-zii-rdu2.dtb \
+	imx6qea-com-kit_v2.dtb \
+	imx6qea-com-kit_v2-ov5640.dtb \
+	imx6qea-com-kit_v2-ov5640-pl.dtb \
+	imx6qea-com-kit_v2-pcie.dtb \
+	imx6qea-com-ptp.dtb \
 	imx6qp-nitrogen6_max.dtb \
 	imx6qp-nitrogen6_som2.dtb \
 	imx6qp-phytec-mira-rdk-nand.dtb \
@@ -650,7 +660,12 @@ dtb-$(CONFIG_SOC_IMX6SX) += \
 	imx6sx-softing-vining-2000.dtb \
 	imx6sx-udoo-neo-basic.dtb \
 	imx6sx-udoo-neo-extended.dtb \
-	imx6sx-udoo-neo-full.dtb
+	imx6sx-udoo-neo-full.dtb \
+	imx6sxea-com-kit_v2.dtb \
+	imx6sxea-com-kit_v2-m4.dtb \
+	imx6sxea-com-kit_v2-ov5640-pl.dtb \
+	imx6sxea-com-kit_v2-pcie.dtb \
+	imx6sxea-com-ptp.dtb
 dtb-$(CONFIG_SOC_IMX6UL) += \
 	imx6ul-14x14-evk.dtb \
 	imx6ul-14x14-evk-csi.dtb \
@@ -680,6 +695,11 @@ dtb-$(CONFIG_SOC_IMX6UL) += \
 	imx6ul-tx6ul-0010.dtb \
 	imx6ul-tx6ul-0011.dtb \
 	imx6ul-tx6ul-mainboard.dtb \
+	imx6ulea-com-kit_v2.dtb \
+	imx6ulea-com-kit_v2-ov5640-pl.dtb \
+	imx6ulea-com-ptp.dtb \
+	imx6ullea-com-kit_v2.dtb \
+	imx6ullea-com-kit_v2-ov5640-pl.dtb \
 	imx6ull-14x14-evk.dtb \
 	imx6ull-14x14-evk-emmc.dtb \
 	imx6ull-14x14-evk-btwifi.dtb \
@@ -728,6 +748,16 @@ dtb-$(CONFIG_SOC_IMX7D) += \
 	imx7d-12x12-lpddr3-val-sai.dtb \
 	imx7d-zii-rmu2.dtb \
 	imx7d-zii-rpu2.dtb \
+	imx7dea-com-kit_v2.dtb \
+	imx7dea-com-kit_v2-m4.dtb \
+	imx7dea-com-kit_v2-ov5640.dtb \
+	imx7dea-com-kit_v2-pcie.dtb \
+	imx7dea-com-ptp.dtb \
+	imx7dea-ucom-kit_v2.dtb \
+	imx7dea-ucom-kit_v2-m4.dtb \
+	imx7dea-ucom-kit_v2-ov5640.dtb \
+	imx7dea-ucom-kit_v2-pcie.dtb \
+	imx7dea-ucom-ptp.dtb \
 	imx7s-colibri-aster.dtb \
 	imx7s-colibri-eval-v3.dtb \
 	imx7s-mba7.dtb \
@@ -745,7 +775,11 @@ dtb-$(CONFIG_SOC_IMX7ULP) += \
 	imx7ulp-evkb-lpuart.dtb \
 	imx7ulp-evkb-mipi.dtb \
 	imx7ulp-evkb-rm68200-wxga.dtb \
-	imx7ulp-evkb-rm68191-qhd.dtb
+	imx7ulp-evkb-rm68191-qhd.dtb \
+	imx7ulpea-ucom-kit_v2-1lv.dtb \
+	imx7ulpea-ucom-kit_v2.dtb \
+	imx7ulpea-ucom-ptp-1lv.dtb \
+	imx7ulpea-ucom-ptp.dtb
 dtb-$(CONFIG_SOC_LS1021A) += \
 	ls1021a-moxa-uc-8410a.dtb \
 	ls1021a-qds.dtb \

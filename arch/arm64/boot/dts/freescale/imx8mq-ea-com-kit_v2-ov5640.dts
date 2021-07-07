@@ -1,0 +1,77 @@
+/*
+ * Copyright 2019 Embedded Artists AB
+ *
+ * The code contained herein is licensed under the GNU General Public
+ * License. You may obtain a copy of the GNU General Public License
+ * Version 2 or later at the following locations:
+ *
+ * http://www.opensource.org/licenses/gpl-license.html
+ * http://www.gnu.org/copyleft/gpl.html
+ */
+
+/dts-v1/;
+ 
+#include "imx8mq-ea-com-kit_v2.dts"
+
+&csi1_bridge {
+	fsl,mipi-mode;
+	fsl,two-8bit-sensor-mode;
+	status = "okay";
+
+	port {
+		csi1_ep: endpoint {
+			remote-endpoint = <&csi1_mipi_ep>;
+		};
+	};
+};
+
+&mipi_csi_1 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+	port {
+		mipi1_sensor_ep: endpoint@1 {
+			remote-endpoint = <&ov5640_mipi1_ep>;
+			data-lanes = <1 2>;
+		};
+
+		csi1_mipi_ep: endpoint@2 {
+			remote-endpoint = <&csi1_ep>;
+		};
+	};
+};
+
+&i2c1 {
+
+	ov5640_mipi: ov5640_mipi@3c {
+		compatible = "ovti,ov5640_mipi";
+		reg = <0x3c>;
+		status = "okay";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_ov5640>;
+		clocks = <&clk IMX8MQ_CLK_DUMMY>;
+		clock-names = "csi_mclk";
+		csi_id = <0>;
+		pwn-gpios = <&gpio3 24 GPIO_ACTIVE_HIGH>;
+		rst-gpios = <&gpio3 23 GPIO_ACTIVE_HIGH>;
+		mclk = <12000000>;
+		mclk_source = <0>;
+		port {
+			ov5640_mipi1_ep: endpoint {
+				remote-endpoint = <&mipi1_sensor_ep>;
+			};
+		};
+	};	
+};
+
+&iomuxc {
+
+        imx8mqea-kit {
+		pinctrl_ov5640: ov5640grp-1 {
+			fsl,pins = <
+				MX8MQ_IOMUXC_SAI5_RXD2_GPIO3_IO23       0x19
+				MX8MQ_IOMUXC_SAI5_RXD3_GPIO3_IO24       0x19
+			>;
+		};
+        };
+};
