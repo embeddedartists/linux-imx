@@ -26,6 +26,9 @@ struct ar1021_i2c {
 	struct i2c_client *client;
 	struct input_dev *input;
 	u8 data[AR1021_TOUCH_PKG_SIZE];
+	bool swap_xy;
+	bool invert_x;
+	bool invert_y;
 };
 
 static irqreturn_t ar1021_i2c_irq(int irq, void *dev_id)
@@ -48,6 +51,13 @@ static irqreturn_t ar1021_i2c_irq(int irq, void *dev_id)
 	button = data[0] & BIT(0);
 	x = ((data[2] & 0x1f) << 7) | (data[1] & 0x7f);
 	y = ((data[4] & 0x1f) << 7) | (data[3] & 0x7f);
+
+	if (ar1021->swap_xy)
+		swap(x, y);
+	if (ar1021->invert_x)
+		x = AR1021_MAX_X - x;
+	if (ar1021->invert_y)
+		y = AR1021_MAX_Y - y;
 
 	input_report_abs(input, ABS_X, x);
 	input_report_abs(input, ABS_Y, y);
@@ -92,6 +102,7 @@ static int ar1021_i2c_probe(struct i2c_client *client,
 {
 	struct ar1021_i2c *ar1021;
 	struct input_dev *input;
+	struct device_node *np = client->dev.of_node;
 	int error;
 
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
@@ -107,8 +118,14 @@ static int ar1021_i2c_probe(struct i2c_client *client,
 	if (!input)
 		return -ENOMEM;
 
+	if (!np)
+		return -ENODEV;
+
 	ar1021->client = client;
 	ar1021->input = input;
+	ar1021->swap_xy = of_property_read_bool(np, "ar1021,swap_xy");
+	ar1021->invert_x = of_property_read_bool(np, "ar1021,invert_x");
+	ar1021->invert_y = of_property_read_bool(np, "ar1021,invert_y");
 
 	input->name = "ar1021 I2C Touchscreen";
 	input->id.bustype = BUS_I2C;
