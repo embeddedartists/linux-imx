@@ -2222,9 +2222,8 @@ static ssize_t bd7181x_proc_write (struct file *file, const char __user *buffer,
 }
 #endif
 
-static const struct file_operations bd7181x_proc_fops = {
-	.owner		= THIS_MODULE,
-	.read		= bd7181x_proc_read,
+static const struct proc_ops bd7181x_proc_ops = {
+	.proc_read	= bd7181x_proc_read,
 };
 
 /**
@@ -2236,7 +2235,7 @@ int bd7181x_revision_init(void)
 	struct proc_dir_entry *bd7181x_proc_entry;
 
 	/* create the /proc/bd7181x_rev */
-	bd7181x_proc_entry = proc_create(PROCFS_NAME, 0644, NULL, &bd7181x_proc_fops);
+	bd7181x_proc_entry = proc_create(PROCFS_NAME, 0644, NULL, &bd7181x_proc_ops);
 	if (bd7181x_proc_entry == NULL) {
 		printk("Error: Could not initialize /proc/%s\n", PROCFS_NAME);
 		return -ENOMEM;
