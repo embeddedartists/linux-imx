@@ -783,4 +783,10 @@ config RN5T618_POWER
 	  This driver can also be built as a module. If so, the module will be
 	  called rn5t618_power.
 
+config BD7181X_POWER
+	tristate "ROHM BD71815/BD71817 Charger for Battery and Adapter Power"
+	depends on MFD_BD7181X
+	help
+	  Say Y to enable support for the BD71815/BD71817 charger.
+
 endif # POWER_SUPPLY
