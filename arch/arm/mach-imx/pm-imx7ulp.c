@@ -212,40 +212,15 @@ static const u32 imx7ulp_mmdc_io_lpddr3_offset[] __initconst = {
 	0x124,
 };
 
-static const u32 imx7ulp_mmdc_lpddr3_offset[] __initconst = {
-	0x01c, 0x800, 0x85c, 0x890,
-	0x848, 0x850, 0x81c, 0x820,
-	0x824, 0x828, 0x82c, 0x830,
-	0x834, 0x838, 0x8c0, 0x8b8,
-	0x004, 0x00c, 0x010, 0x038,
-	0x014, 0x018, 0x02c, 0x030,
-	0x040, 0x000, 0x01c, 0x01c,
-	0x01c, 0x01c, 0x01c, 0x01c,
-	0x01c, 0x01c, 0x01c, 0x01c,
-	0x01c, 0x01c, 0x83c, 0x020,
-	0x800, 0x004, 0x404, 0x01c,
-};
-
-static const u32 imx7ulp_lpddr3_script[] __initconst = {
-	0x00008000, 0xA1390003, 0x0D3900A0, 0x00400000,
-	0x40404040, 0x40404040, 0x33333333, 0x33333333,
-	0x33333333, 0x33333333, 0xf3333333, 0xf3333333,
-	0xf3333333, 0xf3333333, 0x24922492, 0x00000800,
-	0x00020052, 0x292C42F3, 0x00100A22, 0x00120556,
-	0x00C700DB, 0x00211718, 0x0F9F26D2, 0x009F0E10,
-	0x0000003F, 0xC3190000, 0x00008050, 0x00008058,
-	0x003F8030, 0x003F8038, 0xFF0A8030, 0xFF0A8038,
-	0x04028030, 0x04028038, 0x83018030, 0x83018038,
-	0x01038030, 0x01038038, 0x20000000, 0x00001800,
-	0xA1310000, 0x00020052, 0x00011006, 0x00000000,
-};
+static u32 mmdc_offset_dtb[MX7ULP_MAX_MMDC_NUM];
+static u32 mmdc_value_dtb[MX7ULP_MAX_MMDC_NUM];
 
 static const struct imx7ulp_pm_socdata imx7ulp_lpddr3_pm_data __initconst = {
 	.mmdc_compat = "fsl,imx7ulp-mmdc",
 	.mmdc_io_num = ARRAY_SIZE(imx7ulp_mmdc_io_lpddr3_offset),
 	.mmdc_io_offset = imx7ulp_mmdc_io_lpddr3_offset,
-	.mmdc_num = ARRAY_SIZE(imx7ulp_mmdc_lpddr3_offset),
-	.mmdc_offset = imx7ulp_mmdc_lpddr3_offset,
+	.mmdc_num = ARRAY_SIZE(mmdc_offset_dtb),
+	.mmdc_offset = mmdc_offset_dtb,
 };
 
 /*
@@ -656,6 +631,7 @@ void __init imx7ulp_pm_common_init(const struct imx7ulp_pm_socdata
 	const u32 *mmdc_io_offset_array;
 	unsigned long i, j;
 	int ret;
+	u32 size;
 
 	if (psci_ops.cpu_suspend) {
 		aips1_base = ioremap(MX7ULP_AIPS1_BASE_ADDR, SZ_1M);
@@ -815,7 +791,19 @@ void __init imx7ulp_pm_common_init(const struct imx7ulp_pm_socdata
 
 	pm_info->mmdc_io_num = socdata->mmdc_io_num;
 	mmdc_io_offset_array = socdata->mmdc_io_offset;
-	pm_info->mmdc_num = socdata->mmdc_num;
+
+	np = of_find_compatible_node(NULL, NULL, "fsl,imx7ulp-mmdc");
+
+	/* fsl,mmdc_offset and fsl,mmdc_offset are mandatory */
+	WARN_ON(!of_get_property(np, "fsl,mmdc_offset", NULL) ||
+		!of_get_property(np, "fsl,mmdc_offset", NULL));
+
+	size = of_property_count_u32_elems(np, "fsl,mmdc_offset");
+	of_property_read_u32_array(np, "fsl,mmdc_offset", mmdc_offset_dtb, size);
+	of_property_read_u32_array(np, "fsl,mmdc_value", mmdc_value_dtb, size);
+
+	pm_info->mmdc_num = size;
+
 	mmdc_offset_array = socdata->mmdc_offset;
 
 	for (i = 0; i < pm_info->mmdc_io_num; i++) {
@@ -832,7 +820,7 @@ void __init imx7ulp_pm_common_init(const struct imx7ulp_pm_socdata
 			mmdc_offset_array[i];
 
 	for (i = 0; i < pm_info->mmdc_num; i++)
-		pm_info->mmdc_val[i][1] = imx7ulp_lpddr3_script[i];
+		pm_info->mmdc_val[i][1] = mmdc_value_dtb[i];
 
 	if (!psci_ops.cpu_suspend) {
 		imx7ulp_suspend_in_ocram_fn = fncpy(
