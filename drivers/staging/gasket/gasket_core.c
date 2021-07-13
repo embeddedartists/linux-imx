@@ -6,7 +6,6 @@
  *
  * Copyright (C) 2018 Google, Inc.
  */
-
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include "gasket_core.h"
@@ -109,6 +108,8 @@ check_and_invoke_callback(struct gasket_dev *gasket_dev,
 {
 	int ret = 0;
 
+	dev_dbg(gasket_dev->dev, "check_and_invoke_callback %p\n",
+		cb_function);
 	if (cb_function) {
 		mutex_lock(&gasket_dev->mutex);
 		ret = cb_function(gasket_dev);
@@ -124,8 +125,11 @@ gasket_check_and_invoke_callback_nolock(struct gasket_dev *gasket_dev,
 {
 	int ret = 0;
 
-	if (cb_function)
+	if (cb_function) {
+		dev_dbg(gasket_dev->dev,
+			"Invoking device-specific callback.\n");
 		ret = cb_function(gasket_dev);
+	}
 	return ret;
 }
 
@@ -261,7 +265,6 @@ static int gasket_map_pci_bar(struct gasket_dev *gasket_dev, int bar_num)
 	const struct gasket_driver_desc *driver_desc =
 		internal_desc->driver_desc;
 	ulong desc_bytes = driver_desc->bar_descriptions[bar_num].size;
-	struct gasket_bar_data *data;
 	int ret;
 
 	if (desc_bytes == 0)
@@ -271,32 +274,31 @@ static int gasket_map_pci_bar(struct gasket_dev *gasket_dev, int bar_num)
 		/* not PCI: skip this entry */
 		return 0;
 	}
-
-	data = &gasket_dev->bar_data[bar_num];
-
 	/*
 	 * pci_resource_start and pci_resource_len return a "resource_size_t",
 	 * which is safely castable to ulong (which itself is the arg to
 	 * request_mem_region).
 	 */
-	data->phys_base =
+	gasket_dev->bar_data[bar_num].phys_base =
 		(ulong)pci_resource_start(gasket_dev->pci_dev, bar_num);
-	if (!data->phys_base) {
+	if (!gasket_dev->bar_data[bar_num].phys_base) {
 		dev_err(gasket_dev->dev, "Cannot get BAR%u base address\n",
 			bar_num);
 		return -EINVAL;
 	}
 
-	data->length_bytes =
+	gasket_dev->bar_data[bar_num].length_bytes =
 		(ulong)pci_resource_len(gasket_dev->pci_dev, bar_num);
-	if (data->length_bytes < desc_bytes) {
+	if (gasket_dev->bar_data[bar_num].length_bytes < desc_bytes) {
 		dev_err(gasket_dev->dev,
 			"PCI BAR %u space is too small: %lu; expected >= %lu\n",
-			bar_num, data->length_bytes, desc_bytes);
+			bar_num, gasket_dev->bar_data[bar_num].length_bytes,
+			desc_bytes);
 		return -ENOMEM;
 	}
 
-	if (!request_mem_region(data->phys_base, data->length_bytes,
+	if (!request_mem_region(gasket_dev->bar_data[bar_num].phys_base,
+				gasket_dev->bar_data[bar_num].length_bytes,
 				gasket_dev->dev_info.name)) {
 		dev_err(gasket_dev->dev,
 			"Cannot get BAR %d memory region %p\n",
@@ -304,8 +306,10 @@ static int gasket_map_pci_bar(struct gasket_dev *gasket_dev, int bar_num)
 		return -EINVAL;
 	}
 
-	data->virt_base = ioremap(data->phys_base, data->length_bytes);
-	if (!data->virt_base) {
+	gasket_dev->bar_data[bar_num].virt_base =
+		ioremap_nocache(gasket_dev->bar_data[bar_num].phys_base,
+				gasket_dev->bar_data[bar_num].length_bytes);
+	if (!gasket_dev->bar_data[bar_num].virt_base) {
 		dev_err(gasket_dev->dev,
 			"Cannot remap BAR %d memory region %p\n",
 			bar_num, &gasket_dev->pci_dev->resource[bar_num]);
@@ -319,8 +323,9 @@ static int gasket_map_pci_bar(struct gasket_dev *gasket_dev, int bar_num)
 	return 0;
 
 fail:
-	iounmap(data->virt_base);
-	release_mem_region(data->phys_base, data->length_bytes);
+	iounmap(gasket_dev->bar_data[bar_num].virt_base);
+	release_mem_region(gasket_dev->bar_data[bar_num].phys_base,
+			   gasket_dev->bar_data[bar_num].length_bytes);
 	return ret;
 }
 
@@ -370,7 +375,7 @@ static int gasket_setup_pci(struct pci_dev *pci_dev,
 {
 	int i, mapped_bars, ret;
 
-	for (i = 0; i < PCI_STD_NUM_BARS; i++) {
+	for (i = 0; i < GASKET_NUM_BARS; i++) {
 		ret = gasket_map_pci_bar(gasket_dev, i);
 		if (ret) {
 			mapped_bars = i;
@@ -392,7 +397,7 @@ static void gasket_cleanup_pci(struct gasket_dev *gasket_dev)
 {
 	int i;
 
-	for (i = 0; i < PCI_STD_NUM_BARS; i++)
+	for (i = 0; i < GASKET_NUM_BARS; i++)
 		gasket_unmap_pci_bar(gasket_dev, i);
 }
 
@@ -492,7 +497,7 @@ static ssize_t gasket_sysfs_data_show(struct device *device,
 		(enum gasket_sysfs_attribute_type)gasket_attr->data.attr_type;
 	switch (sysfs_type) {
 	case ATTR_BAR_OFFSETS:
-		for (i = 0; i < PCI_STD_NUM_BARS; i++) {
+		for (i = 0; i < GASKET_NUM_BARS; i++) {
 			bar_desc = &driver_desc->bar_descriptions[i];
 			if (bar_desc->size == 0)
 				continue;
@@ -504,7 +509,7 @@ static ssize_t gasket_sysfs_data_show(struct device *device,
 		}
 		break;
 	case ATTR_BAR_SIZES:
-		for (i = 0; i < PCI_STD_NUM_BARS; i++) {
+		for (i = 0; i < GASKET_NUM_BARS; i++) {
 			bar_desc = &driver_desc->bar_descriptions[i];
 			if (bar_desc->size == 0)
 				continue;
@@ -555,7 +560,7 @@ static ssize_t gasket_sysfs_data_show(struct device *device,
 		ret = snprintf(buf, PAGE_SIZE, "%d\n", gasket_dev->reset_count);
 		break;
 	case ATTR_USER_MEM_RANGES:
-		for (i = 0; i < PCI_STD_NUM_BARS; ++i) {
+		for (i = 0; i < GASKET_NUM_BARS; ++i) {
 			current_written =
 				gasket_write_mappable_regions(buf, driver_desc,
 							      i);
@@ -688,10 +693,11 @@ static bool gasket_mmap_has_permissions(struct gasket_dev *gasket_dev,
 
 	/* Make sure that no wrong flags are set. */
 	requested_permissions =
-		(vma->vm_flags & VM_ACCESS_FLAGS);
+		(vma->vm_flags & (VM_WRITE | VM_READ | VM_EXEC));
 	if (requested_permissions & ~(bar_permissions)) {
 		dev_dbg(gasket_dev->dev,
-			"Attempting to map a region with requested permissions 0x%x, but region has permissions 0x%x.\n",
+			"Attempting to map a region with requested permissions "
+			"0x%x, but region has permissions 0x%x.\n",
 			requested_permissions, bar_permissions);
 		return false;
 	}
@@ -700,7 +706,8 @@ static bool gasket_mmap_has_permissions(struct gasket_dev *gasket_dev,
 	if ((vma->vm_flags & VM_WRITE) &&
 	    !gasket_owned_by_current_tgid(&gasket_dev->dev_info)) {
 		dev_dbg(gasket_dev->dev,
-			"Attempting to mmap a region for write without owning device.\n");
+			"Attempting to mmap a region for write without owning "
+			"device.\n");
 		return false;
 	}
 
@@ -734,7 +741,7 @@ static int gasket_get_bar_index(const struct gasket_dev *gasket_dev,
 	const struct gasket_driver_desc *driver_desc;
 
 	driver_desc = gasket_dev->internal_desc->driver_desc;
-	for (i = 0; i < PCI_STD_NUM_BARS; ++i) {
+	for (i = 0; i < GASKET_NUM_BARS; ++i) {
 		struct gasket_bar_desc bar_desc =
 			driver_desc->bar_descriptions[i];
 
@@ -1055,7 +1062,8 @@ static int gasket_mmap(struct file *filp, struct vm_area_struct *vma)
 	}
 	if (bar_index > 0 && is_coherent_region) {
 		dev_err(gasket_dev->dev,
-			"double matching bar and coherent buffers for address 0x%lx\n",
+			"double matching bar and coherent buffers for address "
+			"0x%lx\n",
 			raw_offset);
 		trace_gasket_mmap_exit(bar_index);
 		return -EINVAL;
@@ -1182,7 +1190,8 @@ static int gasket_open(struct inode *inode, struct file *filp)
 	inode->i_size = 0;
 
 	dev_dbg(gasket_dev->dev,
-		"Attempting to open with tgid %u (%s) (f_mode: 0%03o, fmode_write: %d is_root: %u)\n",
+		"Attempting to open with tgid %u (%s) (f_mode: 0%03o, "
+		"fmode_write: %d is_root: %u)\n",
 		current->tgid, task_name, filp->f_mode,
 		(filp->f_mode & FMODE_WRITE), is_root);
 
@@ -1259,7 +1268,8 @@ static int gasket_release(struct inode *inode, struct file *file)
 	mutex_lock(&gasket_dev->mutex);
 
 	dev_dbg(gasket_dev->dev,
-		"Releasing device node. Call origin: tgid %u (%s) (f_mode: 0%03o, fmode_write: %d, is_root: %u)\n",
+		"Releasing device node. Call origin: tgid %u (%s) "
+		"(f_mode: 0%03o, fmode_write: %d, is_root: %u)\n",
 		current->tgid, task_name, file->f_mode,
 		(file->f_mode & FMODE_WRITE), is_root);
 	dev_dbg(gasket_dev->dev, "Current open count (owning tgid %u): %d\n",
@@ -1340,6 +1350,7 @@ static const struct file_operations gasket_file_ops = {
 	.open = gasket_open,
 	.release = gasket_release,
 	.unlocked_ioctl = gasket_ioctl,
+	.compat_ioctl = gasket_ioctl,
 };
 
 /* Perform final init and marks the device as active. */

@@ -36,8 +36,8 @@
  */
 #define GASKET_END_OF_ATTR_ARRAY                                               \
 	{                                                                      \
-		.attr = __ATTR_NULL,				\
-		.data.attr_type = 0,				\
+		.attr = __ATTR(GASKET_ARRAY_END_TOKEN, S_IRUGO, NULL, NULL),   \
+		.data.attr_type = 0,                                           \
 	}
 
 /*
@@ -71,7 +71,14 @@ struct gasket_sysfs_attribute {
 
 #define GASKET_SYSFS_RO(_name, _show_function, _attr_type)                     \
 	{                                                                      \
-		.attr = __ATTR(_name, 0444, _show_function, NULL),          \
+		.attr = __ATTR(_name, S_IRUGO, _show_function, NULL),          \
+		.data.attr_type = _attr_type                                   \
+	}
+
+#define GASKET_SYSFS_RW(_name, _show_function, _store_function, _attr_type)    \
+	{                                                                      \
+		.attr = __ATTR(_name, S_IWUSR | S_IWGRP | S_IRUGO,             \
+				_show_function, _store_function),              \
 		.data.attr_type = _attr_type                                   \
 	}
 

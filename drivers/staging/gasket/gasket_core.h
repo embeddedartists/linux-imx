@@ -17,6 +17,14 @@
 #include <linux/sched.h>
 #include <linux/slab.h>
 
+/*
+#define writeq_relaxed writeq
+#define writeq(__value, __reg) \
+  (*(volatile u64 __force *)(__reg) = (cpu_to_le64(__value)))
+#define readq_relaxed readq
+#define readq(__reg) le64_to_cpu(*(volatile u64 __force *)(__reg))
+*/
+
 #include "gasket_constants.h"
 
 /**
@@ -223,7 +231,7 @@ struct gasket_coherent_buffer_desc {
 /* Coherent buffer structure. */
 struct gasket_coherent_buffer {
 	/* Virtual base address. */
-	u8 *virt_base;
+	u8 __iomem *virt_base;
 
 	/* Physical base address. */
 	ulong phys_base;
@@ -268,7 +276,7 @@ struct gasket_dev {
 	char kobj_name[GASKET_NAME_MAX];
 
 	/* Virtual address of mapped BAR memory range. */
-	struct gasket_bar_data bar_data[PCI_STD_NUM_BARS];
+	struct gasket_bar_data bar_data[GASKET_NUM_BARS];
 
 	/* Coherent buffer. */
 	struct gasket_coherent_buffer coherent_buffer;
@@ -369,7 +377,7 @@ struct gasket_driver_desc {
 	/* Set of 6 bar descriptions that describe all PCIe bars.
 	 * Note that BUS/AXI devices (i.e. non PCI devices) use those.
 	 */
-	struct gasket_bar_desc bar_descriptions[PCI_STD_NUM_BARS];
+	struct gasket_bar_desc bar_descriptions[GASKET_NUM_BARS];
 
 	/*
 	 * Coherent buffer description.
@@ -576,7 +584,7 @@ const char *gasket_num_name_lookup(uint num,
 				   const struct gasket_num_name *table);
 
 /* Handy inlines */
-static inline ulong gasket_dev_read_64(struct gasket_dev *gasket_dev, int bar,
+static inline u64 gasket_dev_read_64(struct gasket_dev *gasket_dev, int bar,
 				       ulong location)
 {
 	return readq_relaxed(&gasket_dev->bar_data[bar].virt_base[location]);

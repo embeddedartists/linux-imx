@@ -34,12 +34,13 @@ static int gasket_set_event_fd(struct gasket_dev *gasket_dev,
 
 	trace_gasket_ioctl_eventfd_data(die.interrupt, die.event_fd);
 
-	return gasket_interrupt_set_eventfd(gasket_dev->interrupt_data,
-					    die.interrupt, die.event_fd);
+	return gasket_interrupt_set_eventfd(
+		gasket_dev->interrupt_data, die.interrupt, die.event_fd);
 }
 
 /* Read the size of the page table. */
-static int gasket_read_page_table_size(struct gasket_dev *gasket_dev,
+static int gasket_read_page_table_size(
+	struct gasket_dev *gasket_dev,
 	struct gasket_page_table_ioctl __user *argp)
 {
 	int ret = 0;
@@ -54,9 +55,9 @@ static int gasket_read_page_table_size(struct gasket_dev *gasket_dev,
 	ibuf.size = gasket_page_table_num_entries(
 		gasket_dev->page_table[ibuf.page_table_index]);
 
-	trace_gasket_ioctl_page_table_data(ibuf.page_table_index, ibuf.size,
-					   ibuf.host_address,
-					   ibuf.device_address);
+	trace_gasket_ioctl_page_table_data(
+		ibuf.page_table_index, ibuf.size, ibuf.host_address,
+		ibuf.device_address);
 
 	if (copy_to_user(argp, &ibuf, sizeof(ibuf)))
 		return -EFAULT;
@@ -65,7 +66,8 @@ static int gasket_read_page_table_size(struct gasket_dev *gasket_dev,
 }
 
 /* Read the size of the simple page table. */
-static int gasket_read_simple_page_table_size(struct gasket_dev *gasket_dev,
+static int gasket_read_simple_page_table_size(
+	struct gasket_dev *gasket_dev,
 	struct gasket_page_table_ioctl __user *argp)
 {
 	int ret = 0;
@@ -91,7 +93,8 @@ static int gasket_read_simple_page_table_size(struct gasket_dev *gasket_dev,
 }
 
 /* Set the boundary between the simple and extended page tables. */
-static int gasket_partition_page_table(struct gasket_dev *gasket_dev,
+static int gasket_partition_page_table(
+	struct gasket_dev *gasket_dev,
 	struct gasket_page_table_ioctl __user *argp)
 {
 	int ret;
@@ -101,9 +104,9 @@ static int gasket_partition_page_table(struct gasket_dev *gasket_dev,
 	if (copy_from_user(&ibuf, argp, sizeof(struct gasket_page_table_ioctl)))
 		return -EFAULT;
 
-	trace_gasket_ioctl_page_table_data(ibuf.page_table_index, ibuf.size,
-					   ibuf.host_address,
-					   ibuf.device_address);
+	trace_gasket_ioctl_page_table_data(
+		ibuf.page_table_index, ibuf.size, ibuf.host_address,
+		ibuf.device_address);
 
 	if (ibuf.page_table_index >= gasket_dev->num_page_tables)
 		return -EFAULT;
@@ -182,11 +185,13 @@ static int gasket_unmap_buffers(struct gasket_dev *gasket_dev,
  * Reserve structures for coherent allocation, and allocate or free the
  * corresponding memory.
  */
-static int gasket_config_coherent_allocator(struct gasket_dev *gasket_dev,
+static int gasket_config_coherent_allocator(
+	struct gasket_dev *gasket_dev,
 	struct gasket_coherent_alloc_config_ioctl __user *argp)
 {
 	int ret;
 	struct gasket_coherent_alloc_config_ioctl ibuf;
+	dma_addr_t dma_address;
 
 	if (copy_from_user(&ibuf, argp,
 			   sizeof(struct gasket_coherent_alloc_config_ioctl)))
@@ -202,16 +207,21 @@ static int gasket_config_coherent_allocator(struct gasket_dev *gasket_dev,
 		return -ENOMEM;
 
 	if (ibuf.enable == 0) {
+		dma_address = ibuf.dma_address;
 		ret = gasket_free_coherent_memory(gasket_dev, ibuf.size,
-						  ibuf.dma_address,
+						  dma_address,
 						  ibuf.page_table_index);
 	} else {
 		ret = gasket_alloc_coherent_memory(gasket_dev, ibuf.size,
-						   &ibuf.dma_address,
+						   &dma_address,
 						   ibuf.page_table_index);
 	}
 	if (ret)
 		return ret;
+
+	if (ibuf.enable != 0)
+		ibuf.dma_address = dma_address;
+
 	if (copy_to_user(argp, &ibuf, sizeof(ibuf)))
 		return -EFAULT;
 
@@ -349,7 +359,8 @@ long gasket_handle_ioctl(struct file *filp, uint cmd, void __user *argp)
 		 */
 		trace_gasket_ioctl_integer_data(arg);
 		dev_dbg(gasket_dev->dev,
-			"Unknown ioctl cmd=0x%x not caught by gasket_is_supported_ioctl\n",
+			"Unknown ioctl cmd=0x%x not caught by "
+			"gasket_is_supported_ioctl\n",
 			cmd);
 		retval = -EINVAL;
 		break;
