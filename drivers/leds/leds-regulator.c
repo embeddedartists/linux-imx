@@ -14,6 +14,7 @@
 #include <linux/leds-regulator.h>
 #include <linux/platform_device.h>
 #include <linux/regulator/consumer.h>
+#include <linux/of.h>
 
 #define to_regulator_led(led_cdev) \
 	container_of(led_cdev, struct regulator_led, cdev)
@@ -119,17 +120,51 @@ out:
 	return ret;
 }
 
+#ifdef CONFIG_OF
+static struct led_regulator_platform_data *regulator_led_probe_dt(struct device *dev)
+{
+	struct device_node *np = dev->of_node;
+	struct led_regulator_platform_data *pdata;
+
+	/* no node in the device tree */
+	if (!np)
+		return NULL;
+
+	pdata = devm_kzalloc(dev, sizeof(*pdata), GFP_KERNEL);
+	if (!pdata)
+		return ERR_PTR(-ENOMEM);
+
+	pdata->name = of_get_property(np, "name", NULL);
+        if (of_property_read_u32(np, "brightness", &pdata->brightness))
+                pdata->brightness = LED_OFF;
+
+	return pdata;
+}
+#else
+static struct led_regulator_platform_data *regulator_led_probe_dt(struct device *dev)
+{
+	return NULL;
+}
+#endif
+
 static int regulator_led_probe(struct platform_device *pdev)
 {
-	struct led_regulator_platform_data *pdata =
-			dev_get_platdata(&pdev->dev);
+	struct led_regulator_platform_data *pdata;
+
 	struct regulator_led *led;
 	struct regulator *vcc;
 	int ret = 0;
 
+	pdata = regulator_led_probe_dt(&pdev->dev);
+	if (IS_ERR(pdata))
+		return PTR_ERR(pdata);
+
 	if (pdata == NULL) {
-		dev_err(&pdev->dev, "no platform data\n");
-		return -ENODEV;
+		pdata = dev_get_platdata(&pdev->dev);
+		if (pdata == NULL) {
+			dev_err(&pdev->dev, "no platform data\n");
+			return -ENODEV;
+		}
 	}
 
 	vcc = devm_regulator_get_exclusive(&pdev->dev, "vled");
@@ -184,9 +219,16 @@ static int regulator_led_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static const struct of_device_id leds_regulator_dt_match[] = {
+	{ .compatible = "leds-regulator" },
+	{},
+};
+MODULE_DEVICE_TABLE(of, leds_regulator_dt_match);
+
 static struct platform_driver regulator_led_driver = {
 	.driver = {
 		   .name  = "leds-regulator",
+		   .of_match_table = leds_regulator_dt_match,
 		   },
 	.probe  = regulator_led_probe,
 	.remove = regulator_led_remove,
