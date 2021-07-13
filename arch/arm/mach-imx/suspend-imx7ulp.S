@@ -88,6 +88,7 @@
 #define SCG_SPLLNUM	0x610
 #define SCG_SPLLDENOM	0x614
 #define SCG_SOSCDIV	0x104
+#define SCG_SOSCCSR	0x100
 
 #define PMC1_CTRL	0x24
 
@@ -366,6 +367,7 @@ mmdc_io_lpm:
 
 	ldr	r7, [r10, #SCG_SPLLCSR]
 	bic	r7, r7, #0x1
+	bic	r7, r7, #(0x1 << 1)
 	str	r7, [r10, #SCG_SPLLCSR]
 
 	/* turn off APLL and APFD */
@@ -379,7 +381,113 @@ mmdc_io_lpm:
 
 	ldr	r7, [r10, #SCG_APLLCSR]
 	bic	r7, r7, #0x1
+	bic	r7, r7, #(0x1 << 1)
 	str	r7, [r10, #SCG_APLLCSR]
+
+	ldr	r7, [r10, #SCG_APLLCFG]
+	orr	r7, r7, #0x1
+	str	r7, [r10, #SCG_APLLCFG]
+
+	/* clear gpio and clock gate */
+	mov	r7, #0x0
+	ldr	r6, =#0xF41F0014
+	str	r7, [r6]
+	ldr	r6, =#0xF41F00D4
+	str	r7, [r6]
+	ldr	r6, =#0xF41F0054
+	str	r7, [r6]
+	ldr	r6, =#0xF41F0040
+	str	r7, [r6]
+
+	ldr	r6, =#0xF44C0000
+	str	r7, [r6]
+	ldr	r6, =#0xF44C0004
+	str	r7, [r6]
+	ldr	r6, =#0xF44C0008
+	str	r7, [r6]
+	ldr	r6, =#0xF44C000C
+	str	r7, [r6]
+	ldr	r6, =#0xF44C0020
+	str	r7, [r6]
+	ldr	r6, =#0xF44C0028
+	str	r7, [r6]
+	ldr	r6, =#0xF44C004C
+	str	r7, [r6]
+	ldr	r6, =#0xF44C0080
+	str	r7, [r6]
+	ldr	r6, =#0xF44C0084
+	str	r7, [r6]
+	ldr	r6, =#0xF44C0088
+	str	r7, [r6]
+	ldr	r6, =#0xF44C008C
+	str	r7, [r6]
+	ldr	r6, =#0xF44C0090
+	str	r7, [r6]
+	ldr	r6, =#0xF44C0094
+	str	r7, [r6]
+	ldr	r6, =#0xF44C0098
+	str	r7, [r6]
+	ldr	r6, =#0xF44C009C
+	str	r7, [r6]
+	ldr	r6, =#0xF44C00A0
+	str	r7, [r6]
+	ldr	r6, =#0xF44C00A4
+	str	r7, [r6]
+	ldr	r6, =#0xF44C00A8
+	str	r7, [r6]
+	ldr	r6, =#0xF44C011C
+	str	r7, [r6]
+	ldr	r6, =#0xF44C0120
+	str	r7, [r6]
+	ldr	r6, =#0xF44C0124
+	str	r7, [r6]
+	ldr	r6, =#0xF44C0128
+	str	r7, [r6]
+	ldr	r6, =#0xF44C012C
+	str	r7, [r6]
+	ldr	r6, =#0xF44C0130
+	str	r7, [r6]
+	ldr	r6, =#0xF44C0134
+	str	r7, [r6]
+	ldr	r6, =#0xF44C0138
+	str	r7, [r6]
+	ldr	r6, =#0xF44C0188
+	str	r7, [r6]
+	ldr	r6, =#0xF44C0034
+	str	r7, [r6]
+	ldr	r6, =#0xF44C00AC
+	str	r7, [r6]
+/*
+	ldr	r7, =#0x80000000
+	ldr	r6, =#0xC00300AC
+	str	r7, [r6]
+	ldr	r6, =#0xC00300B8
+	str	r7, [r6]
+	ldr	r6, =#0xC00300BC
+	str	r7, [r6]
+	ldr	r6, =#0xC00300C0
+	str	r7, [r6]
+	ldr	r6, =#0xC00300C4
+	str	r7, [r6]
+*/
+	ldr	r6, =#0xF42F0020
+	str	r7, [r6]
+	ldr	r6, =#0xF42F003C
+	str	r7, [r6]
+	ldr	r6, =#0xF42F0084
+	str	r7, [r6]
+	ldr	r6, =#0xF42F0090
+	str	r7, [r6]
+	ldr	r6, =#0xF42F0098
+	str	r7, [r6]
+	ldr	r6, =#0xF42F00D8
+	str	r7, [r6]
+
+	ldr	r7, =#0x166
+	ldr	r6, =#0xF45a3098
+	str	r7, [r6]
+
+	ldr	r6, =imx7ulp_suspend
 
 	/* Zzz, enter stop mode */
 	wfi
