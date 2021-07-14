@@ -21,6 +21,12 @@
 	compatible = "fsl,imx8mmea-ucom", "fsl,imx8mm";
 };
 
+&resmem {
+	linux,cma {
+		alloc-ranges = <0 0x40000000 0 0x60000000>;
+	};
+};
+
 &iomuxc {
 	pinctrl-names = "default";
 
@@ -325,5 +331,9 @@
 };
 
 &vpu_h1 {
+	status = "okay";
+};
+
+&vpu_v4l2 {
 	status = "okay";
 };
