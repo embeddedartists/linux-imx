@@ -19,11 +19,10 @@
 / {
 	model = "Embedded Artists i.MX8MM uCOM";
 	compatible = "fsl,imx8mmea-ucom", "fsl,imx8mm";
-};
 
-&resmem {
-	linux,cma {
-		alloc-ranges = <0 0x40000000 0 0x60000000>;
+	memory@40000000 {
+		device_type = "memory";
+		reg = <0x0 0x40000000 0 0x80000000>;
 	};
 };
 
