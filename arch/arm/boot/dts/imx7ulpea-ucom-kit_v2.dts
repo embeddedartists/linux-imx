@@ -47,9 +47,8 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		reg_usb_otg1_vbus: regulator@0 {
+		reg_usb_otg1_vbus: regulator-usb-otg1-vbus {
 			compatible = "regulator-fixed";
-			reg = <0>;
 			pinctrl-names = "default", "sleep";
 			pinctrl-0 = <&pinctrl_usbotg1_vbus>;
 			pinctrl-1 = <&pinctrl_usbotg1_vbus>;
@@ -405,23 +404,26 @@
 &usdhc1 {
         #address-cells = <1>;
         #size-cells = <0>;
-        pinctrl-names = "default", "state_100mhz", "state_200mhz";
-        pinctrl-0 = <&pinctrl_usdhc1>, <&pinctrl_usdhc1_gpio>;
-        pinctrl-1 = <&pinctrl_usdhc1_100mhz>, <&pinctrl_usdhc1_gpio>;
-        pinctrl-2 = <&pinctrl_usdhc1_200mhz>, <&pinctrl_usdhc1_gpio>;
-        keep-power-in-suspend;
-        non-removable;
-        pm-ignore-notify;
-        cap-power-off;
-        max-frequency = <150000000>; /* slow down UHS SDR104 clock */
-        mmc-pwrseq = <&usdhc1_pwrseq>;
+	assigned-clocks = <&scg1 IMX7ULP_CLK_APLL_PFD1>, <&pcc2 IMX7ULP_CLK_USDHC1>;
+	assigned-clock-parents = <0>, <&scg1 IMX7ULP_CLK_APLL_PFD1>;
+	assigned-clock-rates = <0>, <352800000>;
+	pinctrl-names = "default", "state_100mhz", "state_200mhz";
+	pinctrl-0 = <&pinctrl_usdhc1>, <&pinctrl_usdhc1_gpio>;
+	pinctrl-1 = <&pinctrl_usdhc1_100mhz>, <&pinctrl_usdhc1_gpio>;
+	pinctrl-2 = <&pinctrl_usdhc1_200mhz>, <&pinctrl_usdhc1_gpio>;
+	keep-power-in-suspend;
+	non-removable;
+	pm-ignore-notify;
+	cap-power-off;
+	max-frequency = <150000000>; /* slow down UHS SDR104 clock */
+	mmc-pwrseq = <&usdhc1_pwrseq>;
 	vqmmc-supply = <&vldo1_reg>;
-        status = "okay";
-        brcmf: bcrmf@1 {
-                reg = <1>;
-                compatible = "brcm,bcm4329-fmac";
-                interrupt-parent = <&gpio_ptc>;
-                interrupts = <12 IRQ_TYPE_LEVEL_LOW>;  /* WL_HOST_WAKE = PTC12 active low for M.2. */
-                interrupt-names = "host-wake";
-        };
+	status = "okay";
+	brcmf: bcrmf@1 {
+		reg = <1>;
+		compatible = "brcm,bcm4329-fmac";
+		interrupt-parent = <&gpio_ptc>;
+		interrupts = <12 IRQ_TYPE_LEVEL_LOW>;  /* WL_HOST_WAKE = PTC12 active low for M.2. */
+		interrupt-names = "host-wake";
+	};
 };

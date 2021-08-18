@@ -31,27 +31,22 @@
 		ranges;
 
 		vdev0vring0: vdev0vring0@9ff00000 {
-                        compatible = "shared-dma-pool";
 			reg = <0x9ff00000 0x8000>;
 			no-map;
 		};
 		vdev0vring1: vdev0vring1@9ff08000 {
-                        compatible = "shared-dma-pool";
 			reg = <0x9ff08000 0x8000>;
 			no-map;
 		};
 		vdev1vring0: vdev1vring0@9ff10000 {
-                        compatible = "shared-dma-pool";
 			reg = <0x9ff10000 0x8000>;
 			no-map;
 		};
 		vdev1vring1: vdev1vring1@9ff18000 {
-                        compatible = "shared-dma-pool";
 			reg = <0x9ff18000 0x8000>;
 			no-map;
 		};
 		vdev1vring3 {
-			compatible = "shared-dma-pool";
 			reg = <0x9ff20000 0xe0000>;
 			no-map;
 		};
@@ -62,9 +57,8 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		reg_vsd_3v3: regulator@1 {
+		reg_vsd_3v3: regulator-vsd-3v3 {
 			compatible = "regulator-fixed";
-			reg = <1>;
 			regulator-name = "VSD_3V3";
 			regulator-min-microvolt = <3300000>;
 			regulator-max-microvolt = <3300000>;
@@ -163,6 +157,7 @@
 
 &cpu0 {
 	fsl,ldo-enabled-mode;
+	cpu-supply= <&sw1_reg>;
 };
 
 &mmdc {
@@ -284,6 +279,9 @@
 
 /* eMMC */
 &usdhc0 {
+	assigned-clocks = <&scg1 IMX7ULP_CLK_APLL_PFD1>, <&pcc2 IMX7ULP_CLK_USDHC0>;
+	assigned-clock-parents = <0>, <&scg1 IMX7ULP_CLK_APLL_PFD1>;
+	assigned-clock-rates = <0>, <352800000>;
 	pinctrl-names = "default", "state_100mhz", "state_200mhz", "sleep";
 	pinctrl-0 = <&pinctrl_usdhc0_8bit>;
 	pinctrl-1 = <&pinctrl_usdhc0_8bit>;
