@@ -25,15 +25,23 @@
 			reg = <0 0x80000000 0 0x1000000>;
 		};
 
+		rsc_table: rsc_table@b8000000 {
+			reg = <0 0xb8000000 0 0x8000>;
+			no-map;
+		};
+
 		vdev0vring0: vdev0vring0@b8000000 {
-			compatible = "shared-dma-pool";
 			reg = <0 0xb8000000 0 0x8000>;
 			no-map;
 		};
 
 		vdev0vring1: vdev0vring1@b8008000 {
-			compatible = "shared-dma-pool";
 			reg = <0 0xb8008000 0 0x8000>;
+			no-map;
+		};
+
+		rsc-table {
+			reg = <0 0xb80ff000 0 0x1000>;
 			no-map;
 		};
 
@@ -53,7 +61,7 @@
 		mboxes = <&mu 0 1
 			  &mu 1 1
 			  &mu 3 1>;
-		memory-region = <&vdev0vring0>, <&vdev0vring1>, <&vdevbuffer>;
+		memory-region = <&vdevbuffer>, <&vdev0vring0>, <&vdev0vring1>, <&rsc_table>;
 		syscon = <&src>;
 	};
 };
@@ -75,10 +83,6 @@
 	vdev-nums = <1>;
 	reg = <0x0 0xb8000000 0x0 0x10000>;
 	memory-region = <&vdevbuffer>;
-	status = "disabled";
-};
-
-&sdma1{
 	status = "disabled";
 };
 
