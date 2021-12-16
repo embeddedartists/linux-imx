@@ -380,6 +380,11 @@
 #define DPTX_FORCE_LANES			0x10
 #define DPTX_HPD_STATE				0x11
 #define DPTX_ADJUST_LT				0x12
+#define DPTX_I2C_READ              0x15
+#define DPTX_I2C_WRITE             0x16
+#define DPTX_GET_LAST_I2C_STATUS   0x17
+
+
 
 /* HDMI TX opcode */
 #define HDMI_TX_READ				0x00
@@ -607,6 +612,12 @@ enum vic_pxl_encoding_format {
 	Y_ONLY = 0x10,
 };
 
+enum link_training_type {
+	DP_TX_FULL_LINK_TRAINING,
+	DP_TX_FAST_LINK_TRAINING,
+	DP_TX_NO_AUX_LINK_TRAINING
+};
+
 struct video_info {
 	bool h_sync_polarity;
 	bool v_sync_polarity;
@@ -648,6 +659,7 @@ struct cdns_mhdp_bridge {
 
 struct cdns_mhdp_connector {
 	struct drm_connector base;
+	struct drm_connector_state new_state;
 	bool is_mst_connector;
 	struct drm_dp_mst_port *port;
 	struct cdns_mhdp_bridge *bridge;
@@ -770,12 +782,15 @@ struct cdns_mhdp_device {
 
 	u32 lane_mapping;
 	bool link_up;
+	bool force_disconnected_sts;
 	bool power_up;
 	bool plugged;
 	bool force_mode_set;
 	bool is_hpd;
+	bool is_dp;
 	bool is_ls1028a;
 	struct mutex lock;
+	struct mutex api_lock;
 	struct mutex iolock;
 
 	int irq[IRQ_NUM];
@@ -785,6 +800,11 @@ struct cdns_mhdp_device {
 			u8 dpcd[DP_RECEIVER_CAP_SIZE];
 			u32 rate;
 			u8 num_lanes;
+			u8 vswing[4];
+			u8 preemphasis[4];
+			u8 force_vswing;
+			u8 force_preemphasis;
+			enum link_training_type link_training_type;
 			struct drm_dp_aux	aux;
 			struct cdns_mhdp_host	host;
 			struct cdns_mhdp_sink	sink;
@@ -818,6 +838,12 @@ u32 cdns_mhdp_get_event(struct cdns_mhdp_device *mhdp);
 int cdns_mhdp_dpcd_write(struct cdns_mhdp_device *mhdp, u32 addr, u8 value);
 int cdns_mhdp_dpcd_read(struct cdns_mhdp_device *mhdp,
 			u32 addr, u8 *data, u16 len);
+
+int cdns_mhdp_get_last_i2c_status(struct cdns_mhdp_device *mhdp, u8 *resp);
+int cdns_mhdp_i2c_write(struct cdns_mhdp_device *mhdp, u8 addr,
+			u8 *value, u8 mot, u16 len, u16 *respLength);
+int cdns_mhdp_i2c_read(struct cdns_mhdp_device *mhdp, u8 addr, u8 *data,
+	u16 len, u8 mot, u16 *respLength);
 int cdns_mhdp_get_edid_block(void *mhdp, u8 *edid,
 			     unsigned int block, size_t length);
 int cdns_mhdp_train_link(struct cdns_mhdp_device *mhdp);

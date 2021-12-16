@@ -708,7 +708,9 @@ static noinline int replay_one_extent(struct btrfs_trans_handle *trans,
 			 */
 			ret = btrfs_lookup_data_extent(fs_info, ins.objectid,
 						ins.offset);
-			if (ret == 0) {
+			if (ret < 0) {
+				goto out;
+			} else if (ret == 0) {
 				btrfs_init_generic_ref(&ref,
 						BTRFS_ADD_DELAYED_REF,
 						ins.objectid, ins.offset, 0);
@@ -1752,6 +1754,7 @@ static noinline int fixup_inode_link_counts(struct btrfs_trans_handle *trans,
 			break;
 
 		if (ret == 1) {
+			ret = 0;
 			if (path->slots[0] == 0)
 				break;
 			path->slots[0]--;
@@ -1764,17 +1767,19 @@ static noinline int fixup_inode_link_counts(struct btrfs_trans_handle *trans,
 
 		ret = btrfs_del_item(trans, root, path);
 		if (ret)
-			goto out;
+			break;
 
 		btrfs_release_path(path);
 		inode = read_one_inode(root, key.offset);
-		if (!inode)
-			return -EIO;
+		if (!inode) {
+			ret = -EIO;
+			break;
+		}
 
 		ret = fixup_inode_link_count(trans, root, inode);
 		iput(inode);
 		if (ret)
-			goto out;
+			break;
 
 		/*
 		 * fixup on a directory may create new entries,
@@ -1783,8 +1788,6 @@ static noinline int fixup_inode_link_counts(struct btrfs_trans_handle *trans,
 		 */
 		key.offset = (u64)-1;
 	}
-	ret = 0;
-out:
 	btrfs_release_path(path);
 	return ret;
 }
@@ -1823,8 +1826,6 @@ static noinline int link_to_fixup_dir(struct btrfs_trans_handle *trans,
 		ret = btrfs_update_inode(trans, root, inode);
 	} else if (ret == -EEXIST) {
 		ret = 0;
-	} else {
-		BUG(); /* Logic Error */
 	}
 	iput(inode);
 
@@ -4069,7 +4070,8 @@ static noinline int copy_items(struct btrfs_trans_handle *trans,
 	return ret;
 }
 
-static int extent_cmp(void *priv, struct list_head *a, struct list_head *b)
+static int extent_cmp(void *priv, const struct list_head *a,
+		      const struct list_head *b)
 {
 	struct extent_map *em1, *em2;
 
@@ -6062,7 +6064,8 @@ static int btrfs_log_inode_parent(struct btrfs_trans_handle *trans,
 	 * (since logging them is pointless, a link count of 0 means they
 	 * will never be accessible).
 	 */
-	if (btrfs_inode_in_log(inode, trans->transid) ||
+	if ((btrfs_inode_in_log(inode, trans->transid) &&
+	     list_empty(&ctx->ordered_extents)) ||
 	    inode->vfs_inode.i_nlink == 0) {
 		ret = BTRFS_NO_LOG_SYNC;
 		goto end_no_trans;
@@ -6348,6 +6351,7 @@ next:
 error:
 	if (wc.trans)
 		btrfs_end_transaction(wc.trans);
+	clear_bit(BTRFS_FS_LOG_RECOVERING, &fs_info->flags);
 	btrfs_free_path(path);
 	return ret;
 }
@@ -6442,7 +6446,6 @@ void btrfs_log_new_name(struct btrfs_trans_handle *trans,
 			struct btrfs_inode *inode, struct btrfs_inode *old_dir,
 			struct dentry *parent)
 {
-	struct btrfs_fs_info *fs_info = trans->fs_info;
 	struct btrfs_log_ctx ctx;
 
 	/*
@@ -6456,8 +6459,8 @@ void btrfs_log_new_name(struct btrfs_trans_handle *trans,
 	 * if this inode hasn't been logged and directory we're renaming it
 	 * from hasn't been logged, we don't need to log it
 	 */
-	if (inode->logged_trans <= fs_info->last_trans_committed &&
-	    (!old_dir || old_dir->logged_trans <= fs_info->last_trans_committed))
+	if (!inode_logged(trans, inode) &&
+	    (!old_dir || !inode_logged(trans, old_dir)))
 		return;
 
 	btrfs_init_log_ctx(&ctx, &inode->vfs_inode);

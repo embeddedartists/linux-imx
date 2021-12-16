@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 NXP Semiconductor, Inc.
+ * Copyright 2021 NXP
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,12 +25,5 @@ int cdns_mhdp_hdcp_tx_respond_receiver_id_valid(struct cdns_mhdp_device *mhdp,
 					u8 val);
 int cdns_mhdp_hdcp_tx_test_keys(struct cdns_mhdp_device *mhdp, u8 type, u8 resp);
 int cdns_mhdp_hdcp_tx_reauth(struct cdns_mhdp_device *mhdp, u8 msg);
-
-int cdns_hdmi_hdcp_init(struct cdns_mhdp_device *mhdp, struct device_node *of_node);
-int cdns_hdmi_hdcp_enable(struct cdns_mhdp_device *mhdp);
-int cdns_hdmi_hdcp_disable(struct cdns_mhdp_device *mhdp);
-void cdns_hdmi_hdcp_atomic_check(struct drm_connector *connector,
-			   struct drm_connector_state *old_state,
-			   struct drm_connector_state *new_state);
 
 #endif /* CDNS_HDMI_HDCP_H */

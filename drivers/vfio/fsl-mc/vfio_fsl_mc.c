@@ -162,6 +162,33 @@ err_reg_init:
 	return ret;
 }
 
+static int vfio_fsl_mc_reset_device(struct vfio_fsl_mc_device *vdev)
+{
+	struct fsl_mc_device *mc_dev = vdev->mc_dev;
+	u16 token;
+	int ret = 0;
+
+	if (is_fsl_mc_bus_dprc(vdev->mc_dev)) {
+		return dprc_reset_container(mc_dev->mc_io, 0,
+					mc_dev->mc_handle,
+					mc_dev->obj_desc.id,
+					DPRC_RESET_OPTION_NON_RECURSIVE);
+	} else {
+		int err;
+
+		err = fsl_mc_obj_open(mc_dev->mc_io, 0, mc_dev->obj_desc.id,
+				      mc_dev->obj_desc.type,
+				      &token);
+		if (err)
+			return err;
+		ret = fsl_mc_obj_reset(mc_dev->mc_io, 0, token);
+		err = fsl_mc_obj_close(mc_dev->mc_io, 0, token);
+		if (err)
+			return err;
+	}
+	return ret;
+}
+
 static void vfio_fsl_mc_release(void *device_data)
 {
 	struct vfio_fsl_mc_device *vdev = device_data;
@@ -177,10 +204,7 @@ static void vfio_fsl_mc_release(void *device_data)
 		vfio_fsl_mc_regions_cleanup(vdev);
 
 		/* reset the device before cleaning up the interrupts */
-		ret = dprc_reset_container(mc_cont->mc_io, 0,
-		      mc_cont->mc_handle,
-			  mc_cont->obj_desc.id,
-			  DPRC_RESET_OPTION_NON_RECURSIVE);
+		ret = vfio_fsl_mc_reset_device(vdev);
 
 		if (ret) {
 			dev_warn(&mc_cont->dev, "VFIO_FLS_MC: reset device has failed (%d)\n",
@@ -569,23 +593,39 @@ static int vfio_fsl_mc_init_device(struct vfio_fsl_mc_device *vdev)
 		dev_err(&mc_dev->dev, "VFIO_FSL_MC: Failed to setup DPRC (%d)\n", ret);
 		goto out_nc_unreg;
 	}
-
-	ret = dprc_scan_container(mc_dev, false);
-	if (ret) {
-		dev_err(&mc_dev->dev, "VFIO_FSL_MC: Container scanning failed (%d)\n", ret);
-		goto out_dprc_cleanup;
-	}
-
 	return 0;
 
-out_dprc_cleanup:
-	dprc_remove_devices(mc_dev, NULL, 0);
-	dprc_cleanup(mc_dev);
 out_nc_unreg:
 	bus_unregister_notifier(&fsl_mc_bus_type, &vdev->nb);
-	vdev->nb.notifier_call = NULL;
-
 	return ret;
+}
+
+static int vfio_fsl_mc_scan_container(struct fsl_mc_device *mc_dev)
+{
+	int ret;
+
+	/* non dprc devices do not scan for other devices */
+	if (!is_fsl_mc_bus_dprc(mc_dev))
+		return 0;
+	ret = dprc_scan_container(mc_dev, false);
+	if (ret) {
+		dev_err(&mc_dev->dev,
+			"VFIO_FSL_MC: Container scanning failed (%d)\n", ret);
+		dprc_remove_devices(mc_dev, NULL, 0);
+		return ret;
+	}
+	return 0;
+}
+
+static void vfio_fsl_uninit_device(struct vfio_fsl_mc_device *vdev)
+{
+	struct fsl_mc_device *mc_dev = vdev->mc_dev;
+
+	if (!is_fsl_mc_bus_dprc(mc_dev))
+		return;
+
+	dprc_cleanup(mc_dev);
+	bus_unregister_notifier(&fsl_mc_bus_type, &vdev->nb);
 }
 
 static int vfio_fsl_mc_probe(struct fsl_mc_device *mc_dev)
@@ -608,29 +648,39 @@ static int vfio_fsl_mc_probe(struct fsl_mc_device *mc_dev)
 	}
 
 	vdev->mc_dev = mc_dev;
-
-	ret = vfio_add_group_dev(dev, &vfio_fsl_mc_ops, vdev);
-	if (ret) {
-		dev_err(dev, "VFIO_FSL_MC: Failed to add to vfio group\n");
-		goto out_group_put;
-	}
+	mutex_init(&vdev->igate);
 
 	ret = vfio_fsl_mc_reflck_attach(vdev);
 	if (ret)
-		goto out_group_dev;
+		goto out_group_put;
 
 	ret = vfio_fsl_mc_init_device(vdev);
 	if (ret)
 		goto out_reflck;
 
-	mutex_init(&vdev->igate);
+	ret = vfio_add_group_dev(dev, &vfio_fsl_mc_ops, vdev);
+	if (ret) {
+		dev_err(dev, "VFIO_FSL_MC: Failed to add to vfio group\n");
+		goto out_device;
+	}
 
+	/*
+	 * This triggers recursion into vfio_fsl_mc_probe() on another device
+	 * and the vfio_fsl_mc_reflck_attach() must succeed, which relies on the
+	 * vfio_add_group_dev() above. It has no impact on this vdev, so it is
+	 * safe to be after the vfio device is made live.
+	 */
+	ret = vfio_fsl_mc_scan_container(mc_dev);
+	if (ret)
+		goto out_group_dev;
 	return 0;
 
-out_reflck:
-	vfio_fsl_mc_reflck_put(vdev->reflck);
 out_group_dev:
 	vfio_del_group_dev(dev);
+out_device:
+	vfio_fsl_uninit_device(vdev);
+out_reflck:
+	vfio_fsl_mc_reflck_put(vdev->reflck);
 out_group_put:
 	vfio_iommu_group_put(group, dev);
 	return ret;
@@ -647,15 +697,9 @@ static int vfio_fsl_mc_remove(struct fsl_mc_device *mc_dev)
 
 	mutex_destroy(&vdev->igate);
 
+	dprc_remove_devices(mc_dev, NULL, 0);
+	vfio_fsl_uninit_device(vdev);
 	vfio_fsl_mc_reflck_put(vdev->reflck);
-
-	if (is_fsl_mc_bus_dprc(mc_dev)) {
-		dprc_remove_devices(mc_dev, NULL, 0);
-		dprc_cleanup(mc_dev);
-	}
-
-	if (vdev->nb.notifier_call)
-		bus_unregister_notifier(&fsl_mc_bus_type, &vdev->nb);
 
 	vfio_iommu_group_put(mc_dev->dev.iommu_group, dev);
 

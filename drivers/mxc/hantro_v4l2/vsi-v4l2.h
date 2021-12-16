@@ -20,7 +20,7 @@
 #ifndef VSI_V4L2_H
 #define VSI_V4L2_H
 
-#define MAX_STREAMS 100
+#define MAX_STREAMS 200
 #define MAX_GOP_SIZE 8
 #define MAX_INTRA_PIC_RATE 0x7fffffff
 #define NO_RESPONSE_SEQID 0xFFFFFFFE
@@ -90,6 +90,7 @@ enum hw_dec_formats {
 	DEC_HAS_VC1_L,
 	DEC_HAS_RV,
 	DEC_HAS_AVS2,
+	DEC_HAS_XVID,
 	DEC_HAS_CSC,
 	DEC_FORMATS_MAX
 };
@@ -102,7 +103,7 @@ enum v4l2_daemon_cmd_id {
 	V4L2_DAEMON_VIDIOC_STREAMON = 0,//for streamon and start
 	V4L2_DAEMON_VIDIOC_BUF_RDY,
 	V4L2_DAEMON_VIDIOC_CMD_STOP, //this is for flush.
-	V4L2_DAEMON_VIDIOC_STREAMOFF,	//enc destroy
+	V4L2_DAEMON_VIDIOC_DESTROY_ENC,	//enc destroy
 	V4L2_DAEMON_VIDIOC_ENC_RESET,	//enc reset, as in spec
 	//above are enc cmds
 
@@ -129,6 +130,7 @@ enum v4l2_daemon_cmd_id {
 	V4L2_DAEMON_VIDIOC_CROPCHANGE,
 	V4L2_DAEMON_VIDIOC_WARNONOPTION,
 	V4L2_DAEMON_VIDIOC_STREAMOFF_CAPTURE_DONE,
+	V4L2_DAEMON_VIDIOC_STREAMOFF_OUTPUT_DONE,
 	V4L2_DAEMON_VIDIOC_TOTAL_AMOUNT,
 };
 
@@ -155,6 +157,7 @@ enum v4l2_daemon_codec_fmt {
 	V4L2_DAEMON_CODEC_DEC_VC1_L,
 	V4L2_DAEMON_CODEC_DEC_RV,
 	V4L2_DAEMON_CODEC_DEC_AVS2,
+	V4L2_DAEMON_CODEC_DEC_XVID,
 	V4L2_DAEMON_CODEC_UNKNOW_TYPE,
 };
 
@@ -440,6 +443,8 @@ struct v4l2_daemon_enc_h26x_cmd {
 	u32 vuiColorPrimaries;
 	u32 vuiTransferCharacteristics;
 	u32 vuiMatrixCoefficients;
+
+	u32 idrHdr;
 };
 
 struct v4l2_daemon_enc_jpeg_cmd {

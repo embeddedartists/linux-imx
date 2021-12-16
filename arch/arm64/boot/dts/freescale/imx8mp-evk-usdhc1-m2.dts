@@ -69,7 +69,9 @@
 	pinctrl-2 = <&pinctrl_usdhc1_200mhz>;
 	keep-power-in-suspend;
 	non-removable;
+	wakeup-source;
 	mmc-pwrseq = <&usdhc1_pwrseq>;
+	fsl,sdio-interrupt-enabled;
 	status = "okay";
 
 	wifi_wake_host {

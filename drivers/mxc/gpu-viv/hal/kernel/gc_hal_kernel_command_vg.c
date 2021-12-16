@@ -65,8 +65,8 @@
 extern gceSTATUS
 drv_signal_mgr_add(
     gctUINT32 Pid,
-    gctINT32 Coid,
     gctINT32 Rcvid,
+    const struct sigevent *Event,
     gctUINT64 Signal,
     gctPOINTER *Handle);
 #endif
@@ -559,7 +559,7 @@ _AllocateTaskContainer(
         /* Set the result. */
         * Buffer = buffer;
 
-        gcmkFOOTER_ARG("*Buffer=0x%x",*Buffer);
+        gcmkFOOTER_ARG("*Buffer=%p",*Buffer);
         /* Success. */
         return gcvSTATUS_OK;
     }
@@ -851,9 +851,8 @@ _ScheduleTasks(
                 {
                     gcmkTRACE_ZONE(
                         gcvLEVEL_VERBOSE, gcvZONE_COMMAND,
-                        "  first task container for the block added\n",
-                        block
-                        );
+                        "  first task container for the block %d added\n",
+                        block);
 
                     /* Nothing yet, set the container buffer pointer. */
                     kernelTaskEntry->container = container;
@@ -904,13 +903,6 @@ _ScheduleTasks(
 
                     gcmkVERIFY_OK(_RemoveRecordFromProcesDB(Command, taskHeader));
 
-                    gcmkTRACE_ZONE(
-                            gcvLEVEL_VERBOSE, gcvZONE_COMMAND,
-                            "    task ID = %d, size = %d\n",
-                            ((gcsTASK_HEADER_PTR) (userTask + 1))->id,
-                            userTask->size
-                            );
-
                     /* Copy the task data. */
                     if(needCopy)
                     {
@@ -937,13 +929,13 @@ _ScheduleTasks(
 
                         gcmkVERIFY_OK(gckOS_GetProcessID(&pid));
 
-                        taskSignal->coid  = TaskTable->coid;
                         taskSignal->rcvid = TaskTable->rcvid;
+                        taskSignal->event = TaskTable->event;
 
                         gcmkERR_BREAK(drv_signal_mgr_add(
                                     pid,
-                                    taskSignal->coid,
                                     taskSignal->rcvid,
+                                    &taskSignal->event,
                                     gcmPTR_TO_UINT64(taskSignal->signal),
                                     &signal));
 
@@ -1555,7 +1547,7 @@ _TaskIncrement(
         gcsTASK_INCREMENT_PTR task = (gcsTASK_INCREMENT_PTR) TaskHeader->task;
 
         /* Convert physical into logical address. */
-        gctUINT32_PTR logical;
+        gctUINT32_PTR logical = gcvNULL;
         gcmkERR_BREAK(gckOS_MapPhysical(
             Command->os,
             task->address,
@@ -1599,7 +1591,7 @@ _TaskDecrement(
         gcsTASK_DECREMENT_PTR task = (gcsTASK_DECREMENT_PTR) TaskHeader->task;
 
         /* Convert physical into logical address. */
-        gctUINT32_PTR logical;
+        gctUINT32_PTR logical = gcvNULL;
         gcmkERR_BREAK(gckOS_MapPhysical(
             Command->os,
             task->address,
@@ -1646,7 +1638,7 @@ _TaskSignal(
         /* Map the signal into kernel space. */
 #ifdef __QNXNTO__
         status = gckOS_UserSignal(
-            Command->os, task->signal, task->rcvid, task->coid
+            Command->os, task->signal, task->rcvid, &task->event
             );
 #else
         status = gckOS_UserSignal(
@@ -3050,7 +3042,7 @@ gckVGCOMMAND_Construct(
         /* Return gckVGCOMMAND object pointer. */
         *Command = command;
 
-        gcmkFOOTER_ARG("*Command=0x%x",*Command);
+        gcmkFOOTER_ARG("*Command=%p",*Command);
         /* Success. */
         return gcvSTATUS_OK;
     }
@@ -3373,7 +3365,7 @@ gckVGCOMMAND_Allocate(
 {
     gceSTATUS status;
 
-    gcmkHEADER_ARG("Command=%p Size=0x%x CommandBuffer=%p Data=0x%x",
+    gcmkHEADER_ARG("Command=%p Size=0x%x CommandBuffer=%p Data=%p",
         Command, Size, CommandBuffer, Data);
 
     /* Verify the arguments. */
@@ -3577,8 +3569,8 @@ gckVGCOMMAND_Commit(
     userTaskTableMapped = gcvTRUE;
 
     /* Update the signal info. */
-    TaskTable->coid  = Context->coid;
     TaskTable->rcvid = Context->rcvid;
+    TaskTable->event = Context->event;
 #endif
 
     gcmkONERROR(gckOS_GetProcessID((gctUINT32_PTR)&pid));
@@ -3650,7 +3642,7 @@ gckVGCOMMAND_Commit(
                     Command->os,
                     Context->userSignal,
                     Context->rcvid,
-                    Context->coid
+                    &Context->event
                     ));
 #else
         gcmkONERROR(gckOS_UserSignal(

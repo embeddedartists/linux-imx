@@ -24,6 +24,7 @@
 #include <linux/time64.h>
 
 #include <drm/drm_atomic_helper.h>
+#include <drm/drm_atomic_state_helper.h>
 #include <drm/drm_bridge.h>
 #include <drm/drm_mipi_dsi.h>
 #include <drm/drm_of.h>
@@ -57,6 +58,9 @@
 #define PXL_VLD(x)	IMX_SC_C_PXL_LINK_MST ## x ## _VLD
 #define PXL_ADDR(x)	IMX_SC_C_PXL_LINK_MST ## x ## _ADDR
 
+#define IMX8ULP_DSI_CM_MASK	BIT(1)
+#define IMX8ULP_DSI_CM_NORMAL	BIT(1)
+
 /* Possible valid PHY reference clock rates*/
 static u32 phyref_rates[] = {
 	27000000,
@@ -85,8 +89,10 @@ enum transfer_direction {
 	DSI_PACKET_RECEIVE,
 };
 
-#define NWL_DSI_ENDPOINT_LCDIF 0
-#define NWL_DSI_ENDPOINT_DCSS 1
+#define NWL_DSI_ENDPOINT_LCDIF	0
+#define NWL_DSI_ENDPOINT_DCSS	1
+#define NWL_DSI_ENDPOINT_DCNANO	0
+#define NWL_DSI_ENDPOINT_EPDC	1
 
 struct nwl_dsi_plat_clk_config {
 	const char *id;
@@ -203,11 +209,17 @@ struct nwl_dsi_platform_data {
 	nwl_dsi_clks clks;
 	u32 reg_tx_ulps;
 	u32 reg_pxl2dpi;
+	u32 reg_cm;
 	u32 max_instances;
 	u32 tx_clk_rate;
 	u32 rx_clk_rate;
 	bool mux_present;
 	bool shared_phy;
+	u32 bit_bta_timeout;
+	u32 bit_hs_tx_timeout;
+	bool use_lcdif_or_dcss;
+	bool use_dcnano_or_epdc;
+	bool rx_clk_quirk;	/* enable rx_esc clock to access registers */
 };
 
 
@@ -281,7 +293,7 @@ static u32 ps2bc(struct nwl_dsi *dsi, unsigned long long ps)
 	u32 bpp = mipi_dsi_pixel_format_to_bpp(dsi->format);
 
 	return DIV64_U64_ROUND_UP(ps * dsi->mode.clock * bpp,
-				  dsi->lanes * 8 * NSEC_PER_SEC);
+				  dsi->lanes * 8ULL * NSEC_PER_SEC);
 }
 
 /*
@@ -314,13 +326,15 @@ static int nwl_dsi_config_host(struct nwl_dsi *dsi)
 	DRM_DEV_DEBUG_DRIVER(dsi->dev, "DSI Lanes %d\n", dsi->lanes);
 	nwl_dsi_write(dsi, NWL_DSI_CFG_NUM_LANES, dsi->lanes - 1);
 
-	if (dsi->dsi_mode_flags & MIPI_DSI_CLOCK_NON_CONTINUOUS) {
+	if (dsi->dsi_mode_flags & MIPI_DSI_CLOCK_NON_CONTINUOUS)
 		nwl_dsi_write(dsi, NWL_DSI_CFG_NONCONTINUOUS_CLK, 0x01);
-		nwl_dsi_write(dsi, NWL_DSI_CFG_AUTOINSERT_EOTP, 0x01);
-	} else {
+	else
 		nwl_dsi_write(dsi, NWL_DSI_CFG_NONCONTINUOUS_CLK, 0x00);
+
+	if (dsi->dsi_mode_flags & MIPI_DSI_MODE_EOT_PACKET)
 		nwl_dsi_write(dsi, NWL_DSI_CFG_AUTOINSERT_EOTP, 0x00);
-	}
+	else
+		nwl_dsi_write(dsi, NWL_DSI_CFG_AUTOINSERT_EOTP, 0x01);
 
 	/* values in byte clock cycles */
 	cycles = ui2bc(dsi, cfg->clk_pre);
@@ -354,6 +368,7 @@ static int nwl_dsi_config_dpi(struct nwl_dsi *dsi)
 	bool burst_mode;
 	int hfront_porch, hback_porch, vfront_porch, vback_porch;
 	int hsync_len, vsync_len;
+	int hfp, hbp, hsa;
 
 	hfront_porch = dsi->mode.hsync_start - dsi->mode.hdisplay;
 	hsync_len = dsi->mode.hsync_end - dsi->mode.hsync_start;
@@ -407,9 +422,33 @@ static int nwl_dsi_config_dpi(struct nwl_dsi *dsi)
 			      dsi->mode.hdisplay);
 	}
 
-	nwl_dsi_write(dsi, NWL_DSI_HFP, hfront_porch);
-	nwl_dsi_write(dsi, NWL_DSI_HBP, hback_porch);
-	nwl_dsi_write(dsi, NWL_DSI_HSA, hsync_len);
+	if (of_device_is_compatible(dsi->panel_bridge->of_node,
+				    "raydium,rm68200")) {
+		int bytes = mipi_dsi_pixel_format_to_bpp(dsi->format) >> 3;
+
+		/*
+		 * FIXME: This is a workaround for display shift
+		 * of the RM68200 panel. It is based on previous
+		 * knowledge got from support task for external
+		 * DSI bridges by turning the hfp/hbp/hsa to be
+		 * in bytes and substracting certain magic values.
+		 * Furthermore, rounding hsa up to 2 is needed.
+		 * This can be fixed as soon as formulas to
+		 * determine the settings are available.
+		 */
+		hfp = bytes * hfront_porch - 12;
+		hbp = bytes * hback_porch - 10;
+		hsa = bytes * hsync_len - 10;
+		hsa = roundup(hsa, 2);
+	} else {
+		hfp = hfront_porch;
+		hbp = hback_porch;
+		hsa = hsync_len;
+	}
+
+	nwl_dsi_write(dsi, NWL_DSI_HFP, hfp);
+	nwl_dsi_write(dsi, NWL_DSI_HBP, hbp);
+	nwl_dsi_write(dsi, NWL_DSI_HSA, hsa);
 
 	nwl_dsi_write(dsi, NWL_DSI_ENABLE_MULT_PKTS, 0x0);
 	nwl_dsi_write(dsi, NWL_DSI_BLLP_MODE, 0x1);
@@ -434,7 +473,7 @@ static int nwl_dsi_init_interrupts(struct nwl_dsi *dsi)
 	irq_enable = ~(u32)(NWL_DSI_TX_PKT_DONE_MASK |
 			    NWL_DSI_RX_PKT_HDR_RCVD_MASK |
 			    NWL_DSI_TX_FIFO_OVFLW_MASK |
-			    NWL_DSI_HS_TX_TIMEOUT_MASK);
+			    dsi->pdata->bit_hs_tx_timeout);
 
 	nwl_dsi_write(dsi, NWL_DSI_IRQ_MASK, irq_enable);
 
@@ -749,7 +788,7 @@ static irqreturn_t nwl_dsi_irq_handler(int irq, void *data)
 	if (irq_status & NWL_DSI_TX_FIFO_OVFLW)
 		DRM_DEV_ERROR_RATELIMITED(dsi->dev, "tx fifo overflow\n");
 
-	if (irq_status & NWL_DSI_HS_TX_TIMEOUT)
+	if (irq_status & dsi->pdata->bit_hs_tx_timeout)
 		DRM_DEV_ERROR_RATELIMITED(dsi->dev, "HS tx timeout\n");
 
 	if (irq_status & NWL_DSI_TX_PKT_DONE ||
@@ -838,13 +877,27 @@ static int nwl_dsi_disable(struct nwl_dsi *dsi)
 	/* Disabling the clock before the phy breaks enabling dsi again */
 	clk_disable_unprepare(dsi->tx_esc_clk);
 
+	/* Disable rx_esc clock as registers are not accessed any more. */
+	if (dsi->pdata->rx_clk_quirk)
+		clk_disable_unprepare(dsi->rx_esc_clk);
+
 	return 0;
 }
 
-static void nwl_dsi_bridge_disable(struct drm_bridge *bridge)
+static void
+nwl_dsi_bridge_atomic_post_disable(struct drm_bridge *bridge,
+				   struct drm_bridge_state *old_bridge_state)
 {
 	struct nwl_dsi *dsi = bridge_to_dsi(bridge);
 	int ret;
+
+	/*
+	 * Call panel_bridge's post_disable() callback(if any) so that
+	 * it may send any MIPI DSI command before this MIPI DSI controller
+	 * and it's PHY are disabled.
+	 */
+	if (dsi->panel_bridge->funcs->post_disable)
+		dsi->panel_bridge->funcs->post_disable(dsi->panel_bridge);
 
 	nwl_dsi_disable(dsi);
 
@@ -1106,10 +1159,44 @@ static int nwl_dsi_get_dphy_params(struct nwl_dsi *dsi,
 	return 0;
 }
 
-static bool nwl_dsi_bridge_mode_fixup(struct drm_bridge *bridge,
-				      const struct drm_display_mode *mode,
-				      struct drm_display_mode *adjusted)
+static enum drm_mode_status
+nwl_dsi_bridge_mode_valid(struct drm_bridge *bridge,
+			  const struct drm_display_info *info,
+			  const struct drm_display_mode *mode)
 {
+	struct nwl_dsi *dsi = bridge_to_dsi(bridge);
+	struct mode_config *config;
+	unsigned long pll_rate;
+	int bit_rate;
+
+	bit_rate = nwl_dsi_get_bit_clock(dsi, mode->clock * 1000, dsi->lanes);
+
+	DRM_DEV_DEBUG_DRIVER(dsi->dev, "Validating mode:");
+	drm_mode_debug_printmodeline(mode);
+
+	if (bit_rate > MBPS(1500))
+		return MODE_CLOCK_HIGH;
+
+	if (bit_rate < MBPS(80))
+		return MODE_CLOCK_LOW;
+
+	config = nwl_dsi_mode_probe(dsi, mode);
+	if (!config)
+		return MODE_NOCLOCK;
+
+	pll_rate = config->pll_rates[config->phy_rate_idx];
+	if (dsi->pll_clk && !pll_rate)
+		nwl_dsi_setup_pll_config(config, dsi->clk_drop_lvl);
+
+	return MODE_OK;
+}
+
+static int nwl_dsi_bridge_atomic_check(struct drm_bridge *bridge,
+				       struct drm_bridge_state *bridge_state,
+				       struct drm_crtc_state *crtc_state,
+				       struct drm_connector_state *conn_state)
+{
+	struct drm_display_mode *adjusted = &crtc_state->adjusted_mode;
 	struct nwl_dsi *dsi = bridge_to_dsi(bridge);
 	struct mode_config *config;
 	unsigned long pll_rate;
@@ -1119,16 +1206,16 @@ static bool nwl_dsi_bridge_mode_fixup(struct drm_bridge *bridge,
 
 	config = nwl_dsi_mode_probe(dsi, adjusted);
 	if (!config)
-		return false;
+		return -EINVAL;
 
 	DRM_DEV_DEBUG_DRIVER(dsi->dev, "lanes=%u, data_rate=%lu\n",
 			     config->lanes, config->bitclock);
 	if (config->lanes < 2 || config->lanes > 4)
-		return false;
+		return -EINVAL;
 
 	/* Max data rate for this controller is 1.5Gbps */
 	if (config->bitclock > 1500000000)
-		return false;
+		return -EINVAL;
 
 	pll_rate = config->pll_rates[config->phy_rate_idx];
 	if (dsi->pll_clk && pll_rate) {
@@ -1151,7 +1238,7 @@ static bool nwl_dsi_bridge_mode_fixup(struct drm_bridge *bridge,
 		adjusted->crtc_clock = (pll_rate / div) / 1000;
 	}
 
-	if (!dsi->use_dcss) {
+	if (!dsi->use_dcss && !dsi->pdata->use_dcnano_or_epdc) {
 		/* At least LCDIF + NWL needs active high sync */
 		adjusted->flags |= (DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC);
 		adjusted->flags &= ~(DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC);
@@ -1160,39 +1247,7 @@ static bool nwl_dsi_bridge_mode_fixup(struct drm_bridge *bridge,
 		adjusted->flags |= (DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC);
 	}
 
-	return true;
-}
-
-static enum drm_mode_status
-nwl_dsi_bridge_mode_valid(struct drm_bridge *bridge,
-			  const struct drm_display_info *info,
-			  const struct drm_display_mode *mode)
-{
-	struct nwl_dsi *dsi = bridge_to_dsi(bridge);
-	struct mode_config *config;
-	unsigned long pll_rate;
-	int bit_rate;
-
-	bit_rate = nwl_dsi_get_bit_clock(dsi, mode->clock * 1000, dsi->lanes);
- 
-	DRM_DEV_DEBUG_DRIVER(dsi->dev, "Validating mode:");
-	drm_mode_debug_printmodeline(mode);
-
-	if (bit_rate > MBPS(1500))
-		return MODE_CLOCK_HIGH;
-
-	if (bit_rate < MBPS(80))
-		return MODE_CLOCK_LOW;
-
-	config = nwl_dsi_mode_probe(dsi, mode);
-	if (!config)
-		return MODE_NOCLOCK;
-
-	pll_rate = config->pll_rates[config->phy_rate_idx];
-	if (dsi->pll_clk && !pll_rate)
-		nwl_dsi_setup_pll_config(config, dsi->clk_drop_lvl);
-
-	return MODE_OK;
+	return 0;
 }
 
 static void
@@ -1235,13 +1290,6 @@ nwl_dsi_bridge_mode_set(struct drm_bridge *bridge,
 	if (ret < 0)
 		return;
 
-	/*
-	 * If hs clock is unchanged, we're all good - all parameters are
-	 * derived from it atm.
-	 */
-	if (new_cfg.mipi_dphy.hs_clk_rate == dsi->phy_cfg.mipi_dphy.hs_clk_rate)
-		return;
-
 	DRM_DEV_DEBUG_DRIVER(dev,
 			     "PHY at ref rate: %lu (actual: %lu)\n",
 			     phy_ref_rate, clk_get_rate(dsi->phy_ref_clk));
@@ -1250,7 +1298,9 @@ nwl_dsi_bridge_mode_set(struct drm_bridge *bridge,
 	memcpy(&dsi->phy_cfg, &new_cfg, sizeof(new_cfg));
 }
 
-static void nwl_dsi_bridge_pre_enable(struct drm_bridge *bridge)
+static void
+nwl_dsi_bridge_atomic_pre_enable(struct drm_bridge *bridge,
+				 struct drm_bridge_state *old_bridge_state)
 {
 	struct nwl_dsi *dsi = bridge_to_dsi(bridge);
 	int ret;
@@ -1269,6 +1319,17 @@ static void nwl_dsi_bridge_pre_enable(struct drm_bridge *bridge)
 		return;
 	if (dsi->pixel_clk && clk_prepare_enable(dsi->pixel_clk) < 0)
 		return;
+	/*
+	 * Enable rx_esc clock for some platforms to access DSI host controller
+	 * and PHY registers.
+	 */
+	if (dsi->pdata->rx_clk_quirk && clk_prepare_enable(dsi->rx_esc_clk) < 0)
+		return;
+
+	/* Always use normal mode(full mode) for Type-4 display */
+	if (dsi->pdata->reg_cm)
+		regmap_update_bits(dsi->csr, dsi->pdata->reg_cm,
+				   IMX8ULP_DSI_CM_MASK, IMX8ULP_DSI_CM_NORMAL);
 
 	/* Step 1 from DSI reset-out instructions */
 	ret = dsi->pdata->pclk_reset(dsi, false);
@@ -1296,7 +1357,9 @@ static void nwl_dsi_bridge_pre_enable(struct drm_bridge *bridge)
 	drm_bridge_chain_enable(dsi->panel_bridge);
 }
 
-static void nwl_dsi_bridge_enable(struct drm_bridge *bridge)
+static void
+nwl_dsi_bridge_atomic_enable(struct drm_bridge *bridge,
+			     struct drm_bridge_state *old_bridge_state)
 {
 	struct nwl_dsi *dsi = bridge_to_dsi(bridge);
 	int ret;
@@ -1364,14 +1427,17 @@ static void nwl_dsi_bridge_detach(struct drm_bridge *bridge)
 }
 
 static const struct drm_bridge_funcs nwl_dsi_bridge_funcs = {
-	.pre_enable = nwl_dsi_bridge_pre_enable,
-	.enable     = nwl_dsi_bridge_enable,
-	.disable    = nwl_dsi_bridge_disable,
-	.mode_fixup = nwl_dsi_bridge_mode_fixup,
-	.mode_set   = nwl_dsi_bridge_mode_set,
-	.mode_valid = nwl_dsi_bridge_mode_valid,
-	.attach	    = nwl_dsi_bridge_attach,
-	.detach	    = nwl_dsi_bridge_detach,
+	.atomic_duplicate_state	= drm_atomic_helper_bridge_duplicate_state,
+	.atomic_destroy_state	= drm_atomic_helper_bridge_destroy_state,
+	.atomic_reset		= drm_atomic_helper_bridge_reset,
+	.atomic_check		= nwl_dsi_bridge_atomic_check,
+	.atomic_pre_enable	= nwl_dsi_bridge_atomic_pre_enable,
+	.atomic_enable		= nwl_dsi_bridge_atomic_enable,
+	.atomic_post_disable	= nwl_dsi_bridge_atomic_post_disable,
+	.mode_set		= nwl_dsi_bridge_mode_set,
+	.mode_valid		= nwl_dsi_bridge_mode_valid,
+	.attach			= nwl_dsi_bridge_attach,
+	.detach			= nwl_dsi_bridge_detach,
 };
 
 static void nwl_dsi_encoder_destroy(struct drm_encoder *encoder)
@@ -1515,8 +1581,9 @@ static int nwl_dsi_parse_dt(struct nwl_dsi *dsi)
 		return ret;
 	}
 
-	/* For these two regs we need a mapping to MIPI-DSI CSR */
-	if (dsi->pdata->reg_tx_ulps || dsi->pdata->reg_pxl2dpi) {
+	/* For these three regs, we need a mapping to MIPI-DSI CSR */
+	if (dsi->pdata->reg_tx_ulps || dsi->pdata->reg_pxl2dpi ||
+	    dsi->pdata->reg_cm) {
 		dsi->csr = syscon_regmap_lookup_by_phandle(np, "csr");
 		if (IS_ERR(dsi->csr)) {
 			ret = PTR_ERR(dsi->csr);
@@ -1572,36 +1639,60 @@ static int nwl_dsi_parse_dt(struct nwl_dsi *dsi)
 static int nwl_dsi_select_input(struct nwl_dsi *dsi)
 {
 	struct device_node *remote;
-	u32 use_dcss = 1;
+	u32 use_dcss_or_epdc = 1;
 	int ret;
 
 	/* If there is no mux, nothing to do here */
 	if (!dsi->pdata->mux_present)
 		return 0;
 
-	remote = of_graph_get_remote_node(dsi->dev->of_node, 0,
-					  NWL_DSI_ENDPOINT_LCDIF);
-	if (remote) {
-		use_dcss = 0;
-	} else {
+	if (dsi->pdata->use_lcdif_or_dcss) {
 		remote = of_graph_get_remote_node(dsi->dev->of_node, 0,
-						  NWL_DSI_ENDPOINT_DCSS);
-		if (!remote) {
-			DRM_DEV_ERROR(dsi->dev,
-				      "No valid input endpoint found\n");
-			return -EINVAL;
+						  NWL_DSI_ENDPOINT_LCDIF);
+		if (remote) {
+			use_dcss_or_epdc = 0;
+		} else {
+			remote = of_graph_get_remote_node(dsi->dev->of_node, 0,
+							  NWL_DSI_ENDPOINT_DCSS);
+			if (!remote) {
+				DRM_DEV_ERROR(dsi->dev,
+					      "No valid input endpoint found\n");
+				return -EINVAL;
+			}
 		}
+
+		DRM_DEV_INFO(dsi->dev, "Using %s as input source\n",
+			     (use_dcss_or_epdc) ? "DCSS" : "LCDIF");
+	} else if (dsi->pdata->use_dcnano_or_epdc) {
+		remote = of_graph_get_remote_node(dsi->dev->of_node, 0,
+						  NWL_DSI_ENDPOINT_DCNANO);
+		if (remote) {
+			use_dcss_or_epdc = 0;
+		} else {
+			remote = of_graph_get_remote_node(dsi->dev->of_node, 0,
+							  NWL_DSI_ENDPOINT_EPDC);
+			if (!remote) {
+				DRM_DEV_ERROR(dsi->dev,
+					      "No valid input endpoint found\n");
+				return -EINVAL;
+			}
+		}
+
+		DRM_DEV_INFO(dsi->dev, "Using %s as input source\n",
+			     (use_dcss_or_epdc) ? "EPDC" : "DCNANO");
+	} else {
+		DRM_DEV_ERROR(dsi->dev, "No valid input endpoint found\n");
+		return -EINVAL;
 	}
 
-	DRM_DEV_INFO(dsi->dev, "Using %s as input source\n",
-		     (use_dcss) ? "DCSS" : "LCDIF");
-	ret = mux_control_try_select(dsi->mux, use_dcss);
+	ret = mux_control_try_select(dsi->mux, use_dcss_or_epdc);
 	if (ret < 0)
 		DRM_DEV_ERROR(dsi->dev, "Failed to select input: %d\n", ret);
 
 	of_node_put(remote);
 
-	dsi->use_dcss = use_dcss;
+	if (of_device_is_compatible(dsi->dev->of_node, "fsl,imx8mq-nwl-dsi"))
+		dsi->use_dcss = use_dcss_or_epdc;
 
 	return ret;
 }
@@ -1621,7 +1712,7 @@ static int nwl_dsi_deselect_input(struct nwl_dsi *dsi)
 	return ret;
 }
 
-static int imx8mq_dsi_pclk_reset(struct nwl_dsi *dsi, bool reset)
+static int imx8_common_dsi_pclk_reset(struct nwl_dsi *dsi, bool reset)
 {
 	int ret = 0;
 
@@ -1636,7 +1727,7 @@ static int imx8mq_dsi_pclk_reset(struct nwl_dsi *dsi, bool reset)
 
 }
 
-static int imx8mq_dsi_mipi_reset(struct nwl_dsi *dsi, bool reset)
+static int imx8_common_dsi_mipi_reset(struct nwl_dsi *dsi, bool reset)
 {
 	int ret = 0;
 
@@ -1658,7 +1749,7 @@ static int imx8mq_dsi_mipi_reset(struct nwl_dsi *dsi, bool reset)
 
 }
 
-static int imx8mq_dsi_dpi_reset(struct nwl_dsi *dsi, bool reset)
+static int imx8_common_dsi_dpi_reset(struct nwl_dsi *dsi, bool reset)
 {
 	int ret = 0;
 
@@ -1770,11 +1861,14 @@ static const struct drm_bridge_timings nwl_dsi_timings = {
 };
 
 static const struct nwl_dsi_platform_data imx8mq_dev = {
-	.pclk_reset = &imx8mq_dsi_pclk_reset,
-	.mipi_reset = &imx8mq_dsi_mipi_reset,
-	.dpi_reset = &imx8mq_dsi_dpi_reset,
+	.pclk_reset = &imx8_common_dsi_pclk_reset,
+	.mipi_reset = &imx8_common_dsi_mipi_reset,
+	.dpi_reset = &imx8_common_dsi_dpi_reset,
 	.clks = NWL_DSI_CORE_CLK | NWL_DSI_LCDIF_CLK,
 	.mux_present = true,
+	.bit_hs_tx_timeout = BIT(29),
+	.bit_bta_timeout = BIT(31),
+	.use_lcdif_or_dcss = true,
 };
 
 static const struct nwl_dsi_platform_data imx8qm_dev = {
@@ -1788,6 +1882,8 @@ static const struct nwl_dsi_platform_data imx8qm_dev = {
 	.tx_clk_rate = 18000000,
 	.rx_clk_rate = 72000000,
 	.shared_phy = false,
+	.bit_hs_tx_timeout = BIT(29),
+	.bit_bta_timeout = BIT(31),
 };
 
 static const struct nwl_dsi_platform_data imx8qx_dev = {
@@ -1801,12 +1897,28 @@ static const struct nwl_dsi_platform_data imx8qx_dev = {
 	.tx_clk_rate = 18000000,
 	.rx_clk_rate = 72000000,
 	.shared_phy = true,
+	.bit_hs_tx_timeout = BIT(29),
+	.bit_bta_timeout = BIT(31),
+};
+
+static const struct nwl_dsi_platform_data imx8ulp_dev = {
+	.pclk_reset = &imx8_common_dsi_pclk_reset,
+	.mipi_reset = &imx8_common_dsi_mipi_reset,
+	.dpi_reset = &imx8_common_dsi_dpi_reset,
+	.clks = NWL_DSI_CORE_CLK,
+	.reg_cm = 0x8,
+	.mux_present = true,
+	.bit_hs_tx_timeout = BIT(31),
+	.bit_bta_timeout = BIT(29),
+	.use_dcnano_or_epdc = true,
+	.rx_clk_quirk = true,
 };
 
 static const struct of_device_id nwl_dsi_dt_ids[] = {
 	{ .compatible = "fsl,imx8mq-nwl-dsi", .data = &imx8mq_dev, },
 	{ .compatible = "fsl,imx8qm-nwl-dsi", .data = &imx8qm_dev, },
 	{ .compatible = "fsl,imx8qx-nwl-dsi", .data = &imx8qx_dev, },
+	{ .compatible = "fsl,imx8ulp-nwl-dsi", .data = &imx8ulp_dev, },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, nwl_dsi_dt_ids);

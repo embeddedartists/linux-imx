@@ -54,16 +54,6 @@ static noinline void dump_vnode(struct afs_vnode *vnode, struct afs_vnode *paren
 }
 
 /*
- * Set the file size and block count.  Estimate the number of 512 bytes blocks
- * used, rounded up to nearest 1K for consistency with other AFS clients.
- */
-static void afs_set_i_size(struct afs_vnode *vnode, u64 size)
-{
-	i_size_write(&vnode->vfs_inode, size);
-	vnode->vfs_inode.i_blocks = ((size + 1023) >> 10) << 1;
-}
-
-/*
  * Initialise an inode from the vnode status.
  */
 static int afs_inode_init_from_status(struct afs_operation *op,
@@ -102,13 +92,13 @@ static int afs_inode_init_from_status(struct afs_operation *op,
 
 	switch (status->type) {
 	case AFS_FTYPE_FILE:
-		inode->i_mode	= S_IFREG | status->mode;
+		inode->i_mode	= S_IFREG | (status->mode & S_IALLUGO);
 		inode->i_op	= &afs_file_inode_operations;
 		inode->i_fop	= &afs_file_operations;
 		inode->i_mapping->a_ops	= &afs_fs_aops;
 		break;
 	case AFS_FTYPE_DIR:
-		inode->i_mode	= S_IFDIR | status->mode;
+		inode->i_mode	= S_IFDIR |  (status->mode & S_IALLUGO);
 		inode->i_op	= &afs_dir_inode_operations;
 		inode->i_fop	= &afs_dir_file_operations;
 		inode->i_mapping->a_ops	= &afs_dir_aops;
@@ -198,7 +188,7 @@ static void afs_apply_status(struct afs_operation *op,
 	if (status->mode != vnode->status.mode) {
 		mode = inode->i_mode;
 		mode &= ~S_IALLUGO;
-		mode |= status->mode;
+		mode |= status->mode & S_IALLUGO;
 		WRITE_ONCE(inode->i_mode, mode);
 	}
 
@@ -293,8 +283,9 @@ void afs_vnode_commit_status(struct afs_operation *op, struct afs_vnode_param *v
 			op->flags &= ~AFS_OPERATION_DIR_CONFLICT;
 		}
 	} else if (vp->scb.have_status) {
-		if (vp->dv_before + vp->dv_delta != vp->scb.status.data_version &&
-		    vp->speculative)
+		if (vp->speculative &&
+		    (test_bit(AFS_VNODE_MODIFYING, &vnode->flags) ||
+		     vp->dv_before != vnode->status.data_version))
 			/* Ignore the result of a speculative bulk status fetch
 			 * if it splits around a modification op, thereby
 			 * appearing to regress the data version.
@@ -909,6 +900,7 @@ int afs_setattr(struct dentry *dentry, struct iattr *attr)
 	}
 	op->ctime = attr->ia_ctime;
 	op->file[0].update_ctime = 1;
+	op->file[0].modification = true;
 
 	op->ops = &afs_setattr_operation;
 	ret = afs_do_sync_operation(op);

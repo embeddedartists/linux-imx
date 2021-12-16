@@ -96,6 +96,8 @@
 #define ESDHC_STROBE_DLL_STS_SLV_LOCK	0x1
 
 #define ESDHC_VEND_SPEC2		0xc8
+#define ESDHC_VEND_SPEC2_TUNING_EN_MASK	0x00000070
+#define ESDHC_VEND_SPEC2_TUNING_EN_SHIFT	4
 #define ESDHC_VEND_SPEC2_EN_BUSY_IRQ	(1 << 8)
 
 #define ESDHC_TUNING_CTRL		0xcc
@@ -272,7 +274,6 @@ static struct esdhc_soc_data usdhc_imx8qxp_data = {
 	.flags = ESDHC_FLAG_USDHC | ESDHC_FLAG_STD_TUNING
 			| ESDHC_FLAG_HAVE_CAP1 | ESDHC_FLAG_HS200
 			| ESDHC_FLAG_HS400 | ESDHC_FLAG_HS400_ES
-			| ESDHC_FLAG_CQHCI
 			| ESDHC_FLAG_STATE_LOST_IN_LPMODE
 			| ESDHC_FLAG_CLK_RATE_LOST_IN_PM_RUNTIME,
 };
@@ -281,7 +282,6 @@ static struct esdhc_soc_data usdhc_imx8mm_data = {
 	.flags = ESDHC_FLAG_USDHC | ESDHC_FLAG_STD_TUNING
 			| ESDHC_FLAG_HAVE_CAP1 | ESDHC_FLAG_HS200
 			| ESDHC_FLAG_HS400 | ESDHC_FLAG_HS400_ES
-			/*| ESDHC_FLAG_CQHCI*/
 			| ESDHC_FLAG_STATE_LOST_IN_LPMODE
 			| ESDHC_FLAG_BUSFREQ,
 };
@@ -1183,6 +1183,7 @@ static void esdhc_reset_tuning(struct sdhci_host *host)
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 	struct pltfm_imx_data *imx_data = sdhci_pltfm_priv(pltfm_host);
 	u32 ctrl;
+	int ret;
 
 	/* Reset the tuning circuit */
 	if (esdhc_is_usdhc(imx_data)) {
@@ -1195,7 +1196,22 @@ static void esdhc_reset_tuning(struct sdhci_host *host)
 		} else if (imx_data->socdata->flags & ESDHC_FLAG_STD_TUNING) {
 			ctrl = readl(host->ioaddr + SDHCI_AUTO_CMD_STATUS);
 			ctrl &= ~ESDHC_MIX_CTRL_SMPCLK_SEL;
+			ctrl &= ~ESDHC_MIX_CTRL_EXE_TUNE;
 			writel(ctrl, host->ioaddr + SDHCI_AUTO_CMD_STATUS);
+			/* Make sure ESDHC_MIX_CTRL_EXE_TUNE cleared */
+			ret = readl_poll_timeout(host->ioaddr + SDHCI_AUTO_CMD_STATUS,
+				ctrl, !(ctrl & ESDHC_MIX_CTRL_EXE_TUNE), 1, 50);
+			if (ret == -ETIMEDOUT)
+				dev_warn(mmc_dev(host->mmc),
+				 "Warning! clear execute tuning bit failed\n");
+			/*
+			 * SDHCI_INT_DATA_AVAIL is W1C bit, set this bit will clear the
+			 * usdhc IP internal logic flag execute_tuning_with_clr_buf, which
+			 * will finally make sure the normal data transfer logic correct.
+			 */
+			ctrl = readl(host->ioaddr + SDHCI_INT_STATUS);
+			ctrl |= SDHCI_INT_DATA_AVAIL;
+			writel(ctrl, host->ioaddr + SDHCI_INT_STATUS);
 		}
 	}
 }
@@ -1417,6 +1433,14 @@ static void sdhci_esdhc_imx_hwinit(struct sdhci_host *host)
 			writel(tmp, host->ioaddr + ESDHC_TUNING_CTRL);
 		}
 
+		/* uSDHC auto tuning mechanism should use DAT[0] and CMD lines
+		 * if SDIO card is enabling SDIO Interrupts on DAT[1].
+		 */
+		if (imx_data->boarddata.sdio_interrupt_enabled)
+			esdhc_clrset_le(host, ESDHC_VEND_SPEC2_TUNING_EN_MASK,
+					0x6 << ESDHC_VEND_SPEC2_TUNING_EN_SHIFT,
+			                ESDHC_VEND_SPEC2);
+
 		/*
 		 * On i.MX8MM, we are running Dual Linux OS, with 1st Linux using SD Card
 		 * as rootfs storage, 2nd Linux using eMMC as rootfs storage. We let the
@@ -1525,6 +1549,9 @@ sdhci_esdhc_imx_probe_dt(struct platform_device *pdev,
 				&boarddata->strobe_dll_delay_target);
 	if (of_find_property(np, "no-1-8-v", NULL))
 		host->quirks2 |= SDHCI_QUIRK2_NO_1_8_V;
+
+	if (of_property_read_bool(np, "fsl,sdio-interrupt-enabled"))
+		boarddata->sdio_interrupt_enabled = true;
 
 	if (of_property_read_u32(np, "fsl,delay-line", &boarddata->delay_line))
 		boarddata->delay_line = 0;
