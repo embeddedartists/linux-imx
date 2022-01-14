@@ -223,7 +223,7 @@
 		bd7181x,pmic-buck1-uses-i2c-dvs;
 		bd7181x,pmic-buck1-dvs-voltage = <1250000>, <1000000>; /* VDD_ARM */
 		bd7181x,pmic-buck2-uses-i2c-dvs;
-		bd7181x,pmic-buck2-dvs-voltage = <1250000>, <1000000>; /* VDD_SOC */
+		bd7181x,pmic-buck2-dvs-voltage = <1150000>, <950000>; /* VDD_SOC */
 
 		gpo {
 			rohm,mode = <0x30>;	/* 0b0011_0000 all gpos with cmos output mode */
