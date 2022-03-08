@@ -291,14 +291,19 @@ static int rm68200_prepare(struct drm_panel *panel)
 		return ret;
 	}
 
+	// Embedded Artists: Moved the "enable gpio" up so that it
+	// goes high before resetting the display. The original code
+	// did it after the reset which prevents the display from
+	// getting initialized.
+	gpiod_set_value_cansleep(ctx->enable_gpio, 1);
+	msleep(20);
+
 	if (ctx->reset_gpio) {
 		gpiod_set_value_cansleep(ctx->reset_gpio, 1);
 		msleep(20);
 		gpiod_set_value_cansleep(ctx->reset_gpio, 0);
 		msleep(100);
 	}
-
-	gpiod_set_value_cansleep(ctx->enable_gpio, 1);
 
 	ctx->prepared = true;
 
