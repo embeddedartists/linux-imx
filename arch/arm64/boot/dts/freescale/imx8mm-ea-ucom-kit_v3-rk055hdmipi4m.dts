@@ -55,7 +55,7 @@
 };
 
 &i2c3 {
-        /delete-node/adv_bridge;
+        /delete-node/adv7535@3d;
 
         /* Note that jumper J7 on the RK055HDMIPI4M display must be in
            the 2-3 position in order for the touch interface to work. */
