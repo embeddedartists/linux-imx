@@ -1,0 +1,87 @@
+/*
+ * Copyright 2022 Embedded Artists AB
+ *
+ * The code contained herein is licensed under the GNU General Public
+ * License. You may obtain a copy of the GNU General Public License
+ * Version 2 or later at the following locations:
+ *
+ * http://www.opensource.org/licenses/gpl-license.html
+ * http://www.gnu.org/copyleft/gpl.html
+ */
+
+/dts-v1/;
+
+#include "imx8mm-ea-ucom-kit_v3.dts"
+
+/ {
+
+        regulators {
+                compatible = "simple-bus";
+
+		reg_vref_3v3: regulator-vref-3v3 {
+			compatible = "regulator-fixed";
+			regulator-name = "vref-3v3";
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+		};
+	};
+};
+
+&mipi_dsi {
+        status = "okay";
+
+        panel@0 {
+                compatible = "raydium,rm68200";
+                reg = <0>;
+                enable-gpios = <&gpio_buff 10 GPIO_ACTIVE_HIGH>; /* PCA6416: LCD_BL_PWR */
+                reset-gpios = <&gpio_buff 2 GPIO_ACTIVE_LOW>;    /* PCA6416: DISP_MIPI_RST */
+                power-supply = <&reg_vref_3v3>;
+                /*backlight = <&pwm_backlight>;*/
+
+                port {
+                        rm68200_from_dsim: endpoint {
+                                remote-endpoint = <&dsim_to_rm68200>;
+                        };
+                };
+        };
+
+        port@1 {
+               /delete-node/dsim_to_adv7535;
+
+               dsim_to_rm68200: endpoint {
+                        remote-endpoint = <&rm68200_from_dsim>;
+               };
+        };
+};
+
+&i2c3 {
+        /delete-node/adv7535@3d;
+
+        /* Note that jumper J7 on the RK055HDMIPI4M display must be in
+           the 2-3 position in order for the touch interface to work. */
+        goodix@14 {
+                compatible = "goodix,gt911";
+                reg = <0x14>;
+                pinctrl-names = "default";
+                pinctrl-0 = <&pinctrl_mipi_dsi_touch>;
+                interrupt-parent = <&gpio1>;
+                interrupts = <5 IRQ_TYPE_EDGE_FALLING>;
+                irq-gpios = <&gpio1 5 GPIO_ACTIVE_HIGH>;     /* GPIO_C 1.5 */
+                reset-gpios = <&gpio1 6 GPIO_ACTIVE_HIGH>;   /* GPIO_D 1.6 */
+                touchscreen-size-x = <720>;
+                touchscreen-size-y = <1280>;
+        };
+};
+
+&iomuxc {
+
+        imx8mmea-kit {
+
+                pinctrl_mipi_dsi_touch: mipi_dsi_touch {
+                        fsl,pins = <
+                                MX8MM_IOMUXC_GPIO1_IO05_GPIO1_IO5               0x16
+                                MX8MM_IOMUXC_GPIO1_IO06_GPIO1_IO6               0x16
+                        >;
+                };
+	};
+};
