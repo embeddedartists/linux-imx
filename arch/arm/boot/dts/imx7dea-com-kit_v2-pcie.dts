@@ -1,0 +1,47 @@
+/*
+ * Copyright (C) 2015 Freescale Semiconductor, Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+/dts-v1/;
+ 
+#include "imx7dea-com-kit_v2.dts"
+
+
+&gpio_buff {
+	hog_DIR_WL_DEV_WAKE {
+		gpio-hog;
+		gpios = <9 0>;
+		/delete-property/ output-low;
+		output-high;
+	};
+};
+
+&usdhc1_pwrseq {
+	status = "disabled";
+};
+
+&iomuxc {
+	imx7d-sdb-kit {
+		pinctrl_hog_1: hoggrp-1 {
+			fsl,pins = <
+				MX7D_PAD_GPIO1_IO08__SD1_VSELECT        0x33 /* Murata: 5K pullup - MAX drive strength for SD1_VSELECT */
+			>;
+		};
+	};
+};
+
+&pcie {
+	status = "okay";
+};
+
+&usdhc1 {
+	status = "disabled";
+};
+
+&gpio1 {
+	/delete-node/ sd1_vselect_gpio;
+};
