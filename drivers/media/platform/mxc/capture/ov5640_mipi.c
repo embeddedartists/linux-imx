@@ -105,13 +105,15 @@ struct ov5640_mode_info {
  */
 static struct sensor_data ov5640_data;
 static int pwn_gpio, rst_gpio;
+static int powon_active, rst_active;
 
 static struct reg_value ov5640_init_setting_30fps_VGA[] = {
 
 	{0x3103, 0x11, 0, 0}, {0x3008, 0x82, 0, 5}, {0x3008, 0x42, 0, 0},
 	{0x3103, 0x03, 0, 0}, {0x3017, 0x00, 0, 0}, {0x3018, 0x00, 0, 0},
-	{0x3034, 0x18, 0, 0}, {0x3035, 0x14, 0, 0}, {0x3036, 0x38, 0, 0},
-	{0x3037, 0x13, 0, 0}, {0x3108, 0x01, 0, 0}, {0x3630, 0x36, 0, 0},
+	{0x3034, 0x18, 0, 0}, {0x3035, 0x11, 0, 0}, {0x3036, 0x38, 0, 0},
+	{0x3037, 0x11, 0, 0}, {0x3108, 0x01, 0, 0}, {0x303D, 0x10, 0, 0},
+	{0x303B, 0x19, 0, 0}, {0x3630, 0x36, 0, 0},
 	{0x3631, 0x0e, 0, 0}, {0x3632, 0xe2, 0, 0}, {0x3633, 0x12, 0, 0},
 	{0x3621, 0xe0, 0, 0}, {0x3704, 0xa0, 0, 0}, {0x3703, 0x5a, 0, 0},
 	{0x3715, 0x78, 0, 0}, {0x3717, 0x01, 0, 0}, {0x370b, 0x60, 0, 0},
@@ -142,7 +144,7 @@ static struct reg_value ov5640_init_setting_30fps_VGA[] = {
 	{0x300e, 0x45, 0, 0}, {0x302e, 0x08, 0, 0}, {0x4300, 0x3f, 0, 0},
 	{0x501f, 0x00, 0, 0}, {0x4713, 0x03, 0, 0}, {0x4407, 0x04, 0, 0},
 	{0x440e, 0x00, 0, 0}, {0x460b, 0x35, 0, 0}, {0x460c, 0x22, 0, 0},
-	{0x4837, 0x0a, 0, 0}, {0x4800, 0x04, 0, 0}, {0x3824, 0x02, 0, 0},
+	{0x4837, 0x0a, 0, 0}, {0x4800, 0x14, 0, 0}, {0x3824, 0x02, 0, 0},
 	{0x5000, 0xa7, 0, 0}, {0x5001, 0xa3, 0, 0}, {0x5180, 0xff, 0, 0},
 	{0x5181, 0xf2, 0, 0}, {0x5182, 0x00, 0, 0}, {0x5183, 0x14, 0, 0},
 	{0x5184, 0x25, 0, 0}, {0x5185, 0x24, 0, 0}, {0x5186, 0x09, 0, 0},
@@ -695,33 +697,43 @@ static struct i2c_driver ov5640_i2c_driver = {
 
 static void ov5640_standby(s32 enable)
 {
+	if (!gpio_is_valid(pwn_gpio))
+		return;
+
 	if (enable)
-		gpio_set_value(pwn_gpio, 1);
+		gpio_set_value(pwn_gpio, powon_active);
 	else
-		gpio_set_value(pwn_gpio, 0);
+		gpio_set_value(pwn_gpio, !powon_active);
 
 	msleep(100);
 }
 
 static void ov5640_reset(void)
 {
+	if (!gpio_is_valid(rst_gpio))
+		return;
+
 	/* camera reset */
-	gpio_set_value(rst_gpio, 1);
+	gpio_set_value(rst_gpio, !rst_active);
 
 	/* camera power dowmn */
-	gpio_set_value(pwn_gpio, 1);
-	msleep(5);
+	if (gpio_is_valid(pwn_gpio)) {
+		gpio_set_value(pwn_gpio, !powon_active);
+		msleep(5);
 
-	gpio_set_value(pwn_gpio, 0);
-	msleep(5);
+		gpio_set_value(pwn_gpio, powon_active);
+		msleep(5);
+	}
 
-	gpio_set_value(rst_gpio, 0);
+	gpio_set_value(rst_gpio, rst_active);
 	msleep(1);
 
-	gpio_set_value(rst_gpio, 1);
+	gpio_set_value(rst_gpio, !rst_active);
 	msleep(5);
 
-	gpio_set_value(pwn_gpio, 1);
+	if (gpio_is_valid(pwn_gpio))
+		gpio_set_value(pwn_gpio, !powon_active);
+
 }
 
 static int ov5640_power_on(struct device *dev)
@@ -1496,6 +1508,82 @@ static int ioctl_g_ifparm(struct v4l2_int_device *s, struct v4l2_ifparm *p)
 	return 0;
 }
 
+/*
+ * Find capture mode given wanted width and height at current
+ * frame rate
+ */
+static const struct ov5640_mode_info *
+ov5640_find_mode(enum ov5640_frame_rate fr,
+		int width,
+		int height)
+{
+	struct ov5640_mode_info *mode = NULL;
+	int i;
+	int min_err = INT_MAX;
+
+	for (i = 0; i < ov5640_mode_MAX; i++) {
+		int w = ov5640_mode_info_data[fr][i].width;
+		int h = ov5640_mode_info_data[fr][i].height;
+		int err = abs(width-w)+abs(height-h);
+
+		if (err < min_err) {
+			min_err = err;
+			mode = &ov5640_mode_info_data[fr][i];
+		}
+
+		if (err == 0) break;
+	}
+	return mode;
+}
+
+/*!
+ * ioctl_s_fmt_cap - V4L2 sensor interface handler for ioctl_s_fmt_cap
+ * @s: pointer to standard V4L2 device structure
+ * @f: pointer to standard V4L2 v4l2_format structure
+ *
+ * Returns the sensor's current pixel format in the v4l2_format
+ * parameter.
+ */
+static int ioctl_s_fmt_cap(struct v4l2_int_device *s, struct v4l2_format *f)
+{
+	int ret = 0;
+	u32 fps;
+	struct sensor_data *sensor = s->priv;
+	const struct ov5640_mode_info *mode = NULL;
+	enum ov5640_frame_rate frame_rate = ov5640_30_fps;
+
+	switch (f->type) {
+	/* This is the only case currently handled. */
+	case V4L2_BUF_TYPE_VIDEO_CAPTURE:
+
+		fps = sensor->streamcap.timeperframe.denominator /
+			sensor->streamcap.timeperframe.numerator;
+
+		if (fps == 15)
+			frame_rate = ov5640_15_fps;
+		else if (fps == 30)
+			frame_rate = ov5640_30_fps;
+
+		mode = ov5640_find_mode(frame_rate,
+			f->fmt.pix.width, f->fmt.pix.height);
+
+		if(mode) {
+			sensor->pix.width = f->fmt.pix.width = mode->width;
+			sensor->pix.height = f->fmt.pix.height = mode->height;
+
+			sensor->streamcap.capturemode = mode->mode;
+		}
+		break;
+	default:
+		ret = -EINVAL;
+		pr_err("%s: unhandled data stream type=%d\n",
+			__func__, f->type);
+		break;
+	}
+	return ret;
+}
+
+
 /*!
  * ioctl_s_power - V4L2 sensor interface handler for VIDIOC_S_POWER ioctl
  * @s: pointer to standard V4L2 device structure
@@ -1970,7 +2058,7 @@ static struct v4l2_int_ioctl_desc ov5640_ioctl_desc[] = {
 /*	{vidioc_int_try_fmt_cap_num,
 				(v4l2_int_ioctl_func *)ioctl_try_fmt_cap}, */
 	{vidioc_int_g_fmt_cap_num, (v4l2_int_ioctl_func *) ioctl_g_fmt_cap},
-/*	{vidioc_int_s_fmt_cap_num, (v4l2_int_ioctl_func *) ioctl_s_fmt_cap}, */
+	{vidioc_int_s_fmt_cap_num, (v4l2_int_ioctl_func *) ioctl_s_fmt_cap},
 	{vidioc_int_g_parm_num, (v4l2_int_ioctl_func *) ioctl_g_parm},
 	{vidioc_int_s_parm_num, (v4l2_int_ioctl_func *) ioctl_s_parm},
 /*	{vidioc_int_queryctrl_num, (v4l2_int_ioctl_func *)ioctl_queryctrl}, */
@@ -2008,30 +2096,39 @@ static int ov5640_probe(struct i2c_client *client,
 			const struct i2c_device_id *id)
 {
 	struct device *dev = &client->dev;
-	int retval;
+	int retval, init;
 	u8 chip_id_high, chip_id_low;
+	enum of_gpio_flags flags;
 
 	/* request power down pin */
-	pwn_gpio = of_get_named_gpio(dev->of_node, "pwn-gpios", 0);
-	if (!gpio_is_valid(pwn_gpio)) {
-		dev_warn(dev, "no sensor pwdn pin available");
-		return -EINVAL;
+	pwn_gpio = of_get_named_gpio_flags(dev->of_node, "pwn-gpios", 0, &flags);
+	if (gpio_is_valid(pwn_gpio)) {
+		/* powon_active - camera power on    */
+		/* !powon_active - camera power down */
+		powon_active = !(flags & OF_GPIO_ACTIVE_LOW);
+		init = (flags & OF_GPIO_ACTIVE_LOW) ? GPIOF_OUT_INIT_HIGH : GPIOF_OUT_INIT_LOW;
+
+		retval = devm_gpio_request_one(dev, pwn_gpio, init, "ov5640_mipi_pwdn");
+		if (retval < 0) {
+			dev_warn(dev, "request of pwn_gpio failed");
+			pwn_gpio = -EINVAL;
+		}
 	}
-	retval = devm_gpio_request_one(dev, pwn_gpio, GPIOF_OUT_INIT_HIGH,
-					"ov5640_mipi_pwdn");
-	if (retval < 0)
-		return retval;
 
 	/* request reset pin */
-	rst_gpio = of_get_named_gpio(dev->of_node, "rst-gpios", 0);
-	if (!gpio_is_valid(rst_gpio)) {
-		dev_warn(dev, "no sensor reset pin available");
-		return -EINVAL;
+	rst_gpio = of_get_named_gpio_flags(dev->of_node, "rst-gpios", 0, &flags);
+	if (gpio_is_valid(rst_gpio)) {
+		/* rst_active - camera reset        */
+		/* !rst_active - clear camera reset */
+		rst_active = !(flags & OF_GPIO_ACTIVE_LOW);
+		init = (flags & OF_GPIO_ACTIVE_LOW) ? GPIOF_OUT_INIT_HIGH : GPIOF_OUT_INIT_LOW;
+
+		retval = devm_gpio_request_one(dev, rst_gpio, init, "ov5640_mipi_reset");
+		if (retval < 0) {
+			dev_warn(dev, "request of ov5647_mipi_reset failed");
+			rst_gpio = -EINVAL;
+		}
 	}
-	retval = devm_gpio_request_one(dev, rst_gpio, GPIOF_OUT_INIT_HIGH,
-					"ov5640_mipi_reset");
-	if (retval < 0)
-		return retval;
 
 	/* Set initial values for the sensor struct. */
 	memset(&ov5640_data, 0, sizeof(ov5640_data));
