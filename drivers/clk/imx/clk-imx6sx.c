@@ -607,19 +607,19 @@ static void __init imx6sx_clocks_init(struct device_node *ccm_node)
 	clk_set_rate(hws[IMX6SX_CLK_ENET2_REF]->clk, 125000000);
 
 	/* Audio clocks */
-	clk_set_rate(hws[IMX6SX_CLK_PLL4_AUDIO_DIV]->clk, 393216000);
+	clk_set_rate(hws[IMX6SX_CLK_PLL4_AUDIO_DIV]->clk, 361267200);
 
 	clk_set_parent(hws[IMX6SX_CLK_SPDIF_SEL]->clk, hws[IMX6SX_CLK_PLL4_AUDIO_DIV]->clk);
 	clk_set_rate(hws[IMX6SX_CLK_SPDIF_PODF]->clk, 24576000);
 
-	clk_set_parent(hws[IMX6SX_CLK_AUDIO_SEL]->clk, hws[IMX6SX_CLK_PLL3_USB_OTG]->clk);
-	clk_set_rate(hws[IMX6SX_CLK_AUDIO_PODF]->clk, 24000000);
+	clk_set_parent(hws[IMX6SX_CLK_AUDIO_SEL]->clk, hws[IMX6SX_CLK_PLL4_AUDIO_DIV]->clk);
+	clk_set_rate(hws[IMX6SX_CLK_AUDIO_PODF]->clk, 11289600);
 
 	clk_set_parent(hws[IMX6SX_CLK_SSI1_SEL]->clk, hws[IMX6SX_CLK_PLL4_AUDIO_DIV]->clk);
 	clk_set_parent(hws[IMX6SX_CLK_SSI2_SEL]->clk, hws[IMX6SX_CLK_PLL4_AUDIO_DIV]->clk);
 	clk_set_parent(hws[IMX6SX_CLK_SSI3_SEL]->clk, hws[IMX6SX_CLK_PLL4_AUDIO_DIV]->clk);
 	clk_set_rate(hws[IMX6SX_CLK_SSI1_PODF]->clk, 24576000);
-	clk_set_rate(hws[IMX6SX_CLK_SSI2_PODF]->clk, 24576000);
+	clk_set_rate(hws[IMX6SX_CLK_SSI2_PODF]->clk, 11289600);
 	clk_set_rate(hws[IMX6SX_CLK_SSI3_PODF]->clk, 24576000);
 
 	clk_set_parent(hws[IMX6SX_CLK_ESAI_SEL]->clk, hws[IMX6SX_CLK_PLL4_AUDIO_DIV]->clk);
