@@ -63,9 +63,12 @@ static const char *uart_sels[] = { "pll3_80m", "osc", };
 static const char *ipg_per_sels[] = { "ipg", "osc", };
 static const char *ecspi_sels[] = { "pll3_60m", "osc", };
 static const char *can_sels[] = { "pll3_60m", "osc", "pll3_80m", };
-static const char *cko1_sels[]	= { "pll3_usb_otg", "pll2_bus", "pll1_sys", "pll5_video_div",
-				    "video_27m", "axi", "enfc", "ipu1_di0", "ipu1_di1", "ipu2_di0",
-				    "ipu2_di1", "ahb", "ipg", "ipg_per", "ckil", "pll4_audio_div", };
+static const char *cko1_sels_q[]        = { "pll3_usb_otg", "pll2_bus", "pll1_sys", "pll5_video_div",
+					"video_27m", "axi", "enfc", "ipu1_di0", "ipu1_di1", "ipu2_di0",
+					"ipu2_di1", "ahb", "ipg", "ipg_per", "ckil", "pll4_post_div", };
+static const char *cko1_sels_dl[]       = { "pll3_usb_otg", "pll2_bus", "pll1_sys", "pll5_video_div",
+					"video_27m", "axi", "enfc", "ipu1_di0", "ipu1_di1", "ipu2_di0",
+					"ipu2_di1", "ahb", "ipg", "ipg_per", "ckil", "pll4_audio_div", };
 static const char *cko2_sels[] = {
 	"mmdc_ch0_axi", "mmdc_ch1_axi", "usdhc4", "usdhc1",
 	"gpu2d_axi", "dummy", "ecspi_root", "gpu3d_axi",
@@ -766,7 +769,14 @@ static void __init imx6q_clocks_init(struct device_node *ccm_node)
 
 	hws[IMX6QDL_CLK_VDO_AXI_SEL]      = imx_clk_hw_mux("vdo_axi_sel",      base + 0x18, 11, 1, vdo_axi_sels,      ARRAY_SIZE(vdo_axi_sels));
 	hws[IMX6QDL_CLK_VPU_AXI_SEL]      = imx_clk_hw_mux("vpu_axi_sel",      base + 0x18, 14, 2, vpu_axi_sels,      ARRAY_SIZE(vpu_axi_sels));
-	hws[IMX6QDL_CLK_CKO1_SEL]         = imx_clk_hw_mux("cko1_sel",         base + 0x60, 0,  4, cko1_sels,         ARRAY_SIZE(cko1_sels));
+
+	if (clk_on_imx6q()) {
+		hws[IMX6QDL_CLK_CKO1_SEL]         = imx_clk_hw_mux("cko1_sel",         base + 0x60, 0,  4, cko1_sels_q,         ARRAY_SIZE(cko1_sels_q));
+	}
+	else {
+		hws[IMX6QDL_CLK_CKO1_SEL]         = imx_clk_hw_mux("cko1_sel",         base + 0x60, 0,  4, cko1_sels_dl,         ARRAY_SIZE(cko1_sels_dl));
+	}
+
 	hws[IMX6QDL_CLK_CKO2_SEL]         = imx_clk_hw_mux("cko2_sel",         base + 0x60, 16, 5, cko2_sels,         ARRAY_SIZE(cko2_sels));
 	hws[IMX6QDL_CLK_CKO]              = imx_clk_hw_mux("cko",              base + 0x60, 8, 1,  cko_sels,          ARRAY_SIZE(cko_sels));
 
