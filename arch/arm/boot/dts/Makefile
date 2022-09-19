@@ -640,6 +640,11 @@ dtb-$(CONFIG_SOC_IMX6Q) += \
 	imx6q-wandboard-revb1.dtb \
 	imx6q-wandboard-revd1.dtb \
 	imx6q-zii-rdu2.dtb \
+	imx6qea-com-kit_v2.dtb \
+	imx6qea-com-kit_v2-ov5640.dtb \
+	imx6qea-com-kit_v2-ov5640-pl.dtb \
+	imx6qea-com-kit_v2-pcie.dtb \
+	imx6qea-com-ptp.dtb \
 	imx6qp-nitrogen6_max.dtb \
 	imx6qp-nitrogen6_som2.dtb \
 	imx6qp-phytec-mira-rdk-nand.dtb \
