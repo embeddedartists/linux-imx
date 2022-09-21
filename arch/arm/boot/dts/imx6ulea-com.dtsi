@@ -70,6 +70,7 @@
 			compatible = "ethernet-phy-ieee802.3-c22";
 			reg = <2>;
 			micrel,led-mode = <1>;
+			micrel,rmii-override;
 			clocks = <&clks IMX6UL_CLK_ENET_REF>;
 			clock-names = "rmii-ref";
 		};
@@ -78,6 +79,7 @@
 			compatible = "ethernet-phy-ieee802.3-c22";
 			reg = <1>;
 			micrel,led-mode = <1>;
+			micrel,rmii-override;
 			clocks = <&clks IMX6UL_CLK_ENET2_REF>;
 			clock-names = "rmii-ref";
 		};

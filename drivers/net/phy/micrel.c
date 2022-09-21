@@ -33,6 +33,7 @@
 #define MII_KSZPHY_OMSO				0x16
 #define KSZPHY_OMSO_FACTORY_TEST		BIT(15)
 #define KSZPHY_OMSO_B_CAST_OFF			BIT(9)
+#define KSZPHY_OMSO_MII_B2B_OVERRIDE		BIT(7)
 #define KSZPHY_OMSO_NAND_TREE_ON		BIT(5)
 #define KSZPHY_OMSO_RMII_OVERRIDE		BIT(1)
 #define KSZPHY_OMSO_MII_OVERRIDE		BIT(0)
@@ -120,6 +121,7 @@ struct kszphy_priv {
 	int led_mode;
 	bool rmii_ref_clk_sel;
 	bool rmii_ref_clk_sel_val;
+	bool rmii_override;
 	u64 stats[ARRAY_SIZE(kszphy_hw_stats)];
 };
 
@@ -320,6 +322,24 @@ out:
 	return ret;
 }
 
+static int kszphy_rmii_override(struct phy_device *phydev)
+{
+	int ret;
+
+	ret = phy_read(phydev, MII_KSZPHY_OMSO);
+	if (ret < 0)
+		goto out;
+
+	/* clear MII Override before setting RMII override */
+	ret = ( ret & ~(KSZPHY_OMSO_MII_OVERRIDE|KSZPHY_OMSO_MII_B2B_OVERRIDE) );
+	ret = phy_write(phydev, MII_KSZPHY_OMSO, ret | KSZPHY_OMSO_RMII_OVERRIDE);
+out:
+	if (ret)
+		phydev_err(phydev, "failed to set rmii override\n");
+
+	return ret;
+}
+
 /* Some config bits need to be set again on resume, handle them here. */
 static int kszphy_config_reset(struct phy_device *phydev)
 {
@@ -431,12 +451,17 @@ static int ksz8051_match_phy_device(struct phy_device *phydev)
 
 static int ksz8081_config_init(struct phy_device *phydev)
 {
+	struct kszphy_priv *priv = phydev->priv;
+
 	/* KSZPHY_OMSO_FACTORY_TEST is set at de-assertion of the reset line
 	 * based on the RXER (KSZ8081RNA/RND) or TXC (KSZ8081MNX/RNB) pin. If a
 	 * pull-down is missing, the factory test mode should be cleared by
 	 * manually writing a 0.
 	 */
 	phy_clear_bits(phydev, MII_KSZPHY_OMSO, KSZPHY_OMSO_FACTORY_TEST);
+
+	if (priv->rmii_override)
+		kszphy_rmii_override(phydev);
 
 	return kszphy_config_init(phydev);
 }
@@ -1372,6 +1397,8 @@ static int kszphy_probe(struct phy_device *phydev)
 		priv->rmii_ref_clk_sel = true;
 		priv->rmii_ref_clk_sel_val = true;
 	}
+
+	priv->rmii_override = of_property_read_bool(np,"micrel,rmii-override");
 
 	return 0;
 }
