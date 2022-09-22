@@ -201,6 +201,7 @@
                 ar1021,swap_xy;
                 ar1021,invert_x;
                 #ar1021,invert_y;
+		status = "disabled";
         };
 
         /* eGalax touch controller through RGB display interface connector on Carrier Board */
@@ -212,7 +213,7 @@
                 interrupt-parent = <&gpio5>;
                 interrupts = <9 IRQ_TYPE_EDGE_FALLING>;
                 wakeup-gpios = <&gpio5 9 GPIO_ACTIVE_HIGH>;
-                status = "disabled";
+		status = "disabled";
         };
 
         /* FocalTech touch controller through RGB display interface connector on Carrier Board */
@@ -223,7 +224,7 @@
                 pinctrl-0 = <&pinctrl_rgb_connector>;
                 interrupt-parent = <&gpio5>;
                 interrupts = <9 IRQ_TYPE_EDGE_FALLING>;
-                status = "disabled";
+		status = "disabled";
         };
 
         /* Ilitek touch controller through RGB display interface connector on Carrier Board */
@@ -234,6 +235,7 @@
                 pinctrl-0 = <&pinctrl_rgb_connector>;
                 interrupt-parent = <&gpio5>;
                 interrupts = <9 IRQ_TYPE_EDGE_FALLING>;
+		status = "disabled";
         };
 
         /* Atmel MXT1664 touch controller through RGB display interface connector on Carrier Board */
@@ -244,7 +246,7 @@
                 pinctrl-0 = <&pinctrl_rgb_connector>;
                 interrupt-parent = <&gpio5>;
                 interrupts = <9 IRQ_TYPE_EDGE_FALLING>;
-                status = "disabled";
+		status = "disabled";
         };
 
         /* Sitronix touch controller through RGB display interface connector on Carrier Board */
@@ -255,6 +257,7 @@
                 pinctrl-0 = <&pinctrl_rgb_connector>;
                 interrupt-parent = <&gpio5>;
                 interrupts = <9 IRQ_TYPE_EDGE_FALLING>;
+		status = "disabled";
         };
 	rtc: pcf8523@68 {
 		compatible = "nxp,pcf8523";
@@ -562,9 +565,9 @@
                         native-mode = <&t_lcd>;
                         t_lcd: t_lcd_default {
                                 /* values may be changed in bootscript */
-                                clock-frequency = <33500000>;
-                                hactive = <800>;
-                                vactive = <480>;
+                                clock-frequency = <33336667>;
+                                hactive = <1280>;
+                                vactive = <720>;
                                 hback-porch = <89>;
                                 hfront-porch = <164>;
                                 vback-porch = <75>;
@@ -574,7 +577,7 @@
                                 hsync-active = <0>;
                                 vsync-active = <0>;
                                 de-active = <1>;
-                                pixelclk-active = <1>;
+                                pixelclk-active = <0>;
                         };
 
 

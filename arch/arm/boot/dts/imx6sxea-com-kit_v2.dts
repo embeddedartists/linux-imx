@@ -244,19 +244,19 @@
 			native-mode = <&t_lcd>;
 			t_lcd: t_lcd_default {
 				/* values may be changed in bootscript, default is for EA 7" display */
-				clock-frequency = <33500000>;
-				hactive = <800>;
-				vactive = <480>;
+				clock-frequency = <33336667>;
+				hactive = <1280>;
+				vactive = <720>;
 				hback-porch = <89>;
 				hfront-porch = <164>;
-				vback-porch = <75>;/*<23>;*/
-				vfront-porch = <75>;/*<10>;*/
+				vback-porch = <75>;
+				vfront-porch = <75>;
 				hsync-len = <10>;
 				vsync-len = <10>;
 				hsync-active = <0>;
 				vsync-active = <0>;
 				de-active = <1>;
-				pixelclk-active = <1>;
+				pixelclk-active = <0>;
 			};
 		};
 	};
@@ -267,7 +267,7 @@
 
 	display = <&display1>;
 	disp-dev = "ldb";
-	status = "okay";
+	status = "disabled";
 
 	assigned-clocks = <&clks IMX6SX_CLK_LCDIF2_SEL>;
 	assigned-clock-parents = <&clks IMX6SX_CLK_LDB_DI0>;
@@ -280,7 +280,7 @@
 };
 
 &ldb {
-	status = "okay";
+	status = "disabled";
 
 	lvds-channel@0 {
 		fsl,data-mapping = "spwg";
@@ -507,7 +507,7 @@
 		interrupt-parent = <&gpio2>;
 		interrupts = <15 IRQ_TYPE_EDGE_FALLING>;
 		wakeup-gpios = <&gpio2 15 GPIO_ACTIVE_HIGH>;
-		status = "okay";
+		status = "disabled";
 	};
 
 	/* FocalTech touch controller through RGB display interface connector on Carrier Board */
