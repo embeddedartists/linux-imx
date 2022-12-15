@@ -82,7 +82,6 @@
 &fec1 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_enet1>;
-	pinctrl-assert-gpios = <&gpio2 0 GPIO_ACTIVE_LOW>;
 	phy-mode = "rgmii-id";
 	phy-handle = <&ethphy1>;
 	fsl,magic-packet;
@@ -93,11 +92,41 @@
 		#size-cells = <0>;
 
 		ethphy1: ethernet-phy@1 {
+			compatible = "ethernet-phy-ieee802.3-c22";
 			reg = <1>;
+
+			/* Properties for the Atheros PHY */
+			at803x,led-act-blind-workaround;
+			at803x,eee-okay;
+			at803x,vddio-1p8v;
+
+			/* Properties for the Realtek PHY */
+			rtl821x,aldps-disable;
+			rtl821x,clkout-disable;
+
+			/* Properties applied to both PHYs but only needed for Realtek PHY*/
+			rx-internal-delay-ps = <2000>;
+			tx-internal-delay-ps = <2000>;
+			eee-broken-1000t;
 		};
 
 		ethphy2: ethernet-phy@2 {
+			compatible = "ethernet-phy-ieee802.3-c22";
 			reg = <2>;
+
+			/* Properties for the Atheros PHY */
+			at803x,led-act-blind-workaround;
+			at803x,eee-okay;
+			at803x,vddio-1p8v;
+
+			/* Properties for the Realtek PHY */
+			rtl821x,aldps-disable;
+			rtl821x,clkout-disable;
+
+			/* Properties applied to both PHYs but only needed for Realtek PHY*/
+			rx-internal-delay-ps = <2000>;
+			tx-internal-delay-ps = <2000>;
+			eee-broken-1000t;
 		};
 	};
 
@@ -324,7 +353,7 @@
 				MX6SX_PAD_RGMII1_RD2__ENET1_RX_DATA_2	0x3081
 				MX6SX_PAD_RGMII1_RD3__ENET1_RX_DATA_3	0x3081
 				MX6SX_PAD_RGMII1_RX_CTL__ENET1_RX_EN	0x3081
-				MX6SX_PAD_ENET1_COL__GPIO2_IO_0 	0x80000000
+				MX6SX_PAD_ENET1_COL__GPIO2_IO_0 	0x10b0  /* ENET_PWR_EN */
 				MX6SX_PAD_ENET2_RX_CLK__ENET2_REF_CLK_25M	0x91
 			>;
 		};
