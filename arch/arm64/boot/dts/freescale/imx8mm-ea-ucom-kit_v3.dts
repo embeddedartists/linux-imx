@@ -214,6 +214,15 @@
 			>;
 		};
 
+		pinctrl_ecspi1: ecspi1grp {
+			fsl,pins = <
+				MX8MM_IOMUXC_ECSPI1_SCLK_ECSPI1_SCLK		0x82  /* MIKROE-SCK */
+				MX8MM_IOMUXC_ECSPI1_MOSI_ECSPI1_MOSI		0x82  /* MIKROE-MOSI */
+				MX8MM_IOMUXC_ECSPI1_MISO_ECSPI1_MISO		0x82  /* MIKROE-MISO */
+				MX8MM_IOMUXC_ECSPI1_SS0_GPIO5_IO9		0x40000 /* MIKROE-CS */
+				MX8MM_IOMUXC_GPIO1_IO07_GPIO1_IO7		0x40000 /* MIKROE-INT */
+			>;
+		};
 	};
 };
 
@@ -244,10 +253,18 @@
 		gpio-line-names = "BT_REG_ON", "WL_REG_ON", "DISP_MIPI_RST",
 			"BT_DEV_WAKE", "USER_RGB_LED_RED", "USER_RGB_LED_BLUE",
 			"USER_RGB_LED_GREEN", "PCIE_PERST_L", "M2_B_DISABLE",
-			"M2_B_PWR_OFF", "LCD_BL_PWR", "",
-			"", "USER_BTN", "USER_LED_RED", "USER_LED_GREEN";
+			"M2_B_PWR_OFF", "LCD_BL_PWR", "SDIO_RST",
+			"SE05X_ENA", "USER_BTN", "USER_LED_RED", "USER_LED_GREEN";
 	};
 
+	/* GPIO Expander on the 2EL M.2 module. Will generate a message in the
+	   boot log if the 2EL M.2 is not mounted. */
+	pcal6408: gpio@20 {
+		compatible = "nxp,pcal9554b";
+		reg = <0x20>;
+		gpio-controller;
+		#gpio-cells = <2>;
+	};
 };
 
 &i2c3 {
@@ -380,5 +397,23 @@
 	status= "okay";
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_pwm1>;
+};
+
+/* SPI interface for the MIKROE connector. Can also be used for the SPI interface
+   of the 2EL M.2 module (requires uCOM Carrier Board rev B or later). */
+&ecspi1 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	fsl,spi-num-chipselects = <1>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_ecspi1>;
+	cs-gpios = <&gpio5 9 GPIO_ACTIVE_LOW>;
+	status = "okay";
+
+	spidev0: spi@0 {
+		reg = <0>;
+		compatible = "rohm,dh2228fv";
+		spi-max-frequency = <500000>;
+	};
 };
 
