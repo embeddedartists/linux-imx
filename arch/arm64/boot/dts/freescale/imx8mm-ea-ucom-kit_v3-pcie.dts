@@ -17,6 +17,10 @@
 	status = "disabled";
 };
 
+&pcie_phy {
+	status = "okay";
+};
+
 &pcie0 {
 	status = "okay";
 };
