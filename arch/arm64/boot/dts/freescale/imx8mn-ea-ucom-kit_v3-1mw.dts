@@ -1,0 +1,52 @@
+/*
+ * Copyright 2020 Embedded Artists AB
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+#include "imx8mn-ea-ucom-kit_v3.dts"
+
+&modem_reset {
+	reset-gpios = <&gpio2 6 GPIO_ACTIVE_LOW>;
+};
+
+&usdhc1_pwrseq {
+	reset-gpios = <&gpio2 10 GPIO_ACTIVE_LOW>; /* WL REG ON */
+};
+
+&pinctrl_usdhc1_gpio {
+	fsl,pins = <
+		MX8MN_IOMUXC_SD1_DATA7_GPIO2_IO9	0x1c4
+		MX8MN_IOMUXC_SD1_RESET_B_GPIO2_IO10	0x1c4 /* WL_REG_ON */
+		MX8MN_IOMUXC_SD1_DATA4_GPIO2_IO6        0x1c4 /* BT_REG_ON */
+		MX8MN_IOMUXC_SD1_DATA5_GPIO2_IO7	0xC6  /* BT_DEV_WAKE */
+	>;
+};
+
+&pinctrl_usdhc1_200mhz {
+	fsl,pins = <
+		MX8MN_IOMUXC_SD1_CLK_USDHC1_CLK		0x196
+		MX8MN_IOMUXC_SD1_CMD_USDHC1_CMD		0x1d6
+		MX8MN_IOMUXC_SD1_DATA0_USDHC1_DATA0	0x1d6
+		MX8MN_IOMUXC_SD1_DATA1_USDHC1_DATA1	0x1d6
+		MX8MN_IOMUXC_SD1_DATA2_USDHC1_DATA2	0x1d6
+		MX8MN_IOMUXC_SD1_DATA3_USDHC1_DATA3	0x1d6
+	>;
+};
+
+&gpio2 {
+	bt_dev_wake_gpio { /* TODO: Could likely remove this but it needs to be verified */
+		gpio-hog;
+		gpios = <7 GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "BT_DEV_WAKE";
+	};
+};
