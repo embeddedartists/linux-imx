@@ -25,7 +25,7 @@
 		#size-cells = <2>;
 		ranges;
 
-		m_core_reserved: m_core@0x80000000 {
+		m_core_reserved: m_core@80000000 {
 			no-map;
 			reg = <0 0x80000000 0 0x1000000>;
 		};
@@ -40,7 +40,7 @@
 			no-map;
 		};
 
-		rsc_table: rsc_table@b80ff000 {
+		rsc_table: rsc-table@b80ff000 {
 			reg = <0 0xb80ff000 0 0x1000>;
 			no-map;
 		};
@@ -54,15 +54,21 @@
 
 	};
 
+	sound-wm8731 {
+		status = "disabled";
+	};
+
 	imx8mn-cm7 {
 		compatible = "fsl,imx8mn-cm7";
 		rsc-da = <0xb8000000>;
+		clocks = <&clk IMX8MN_CLK_DUMMY>;
 		mbox-names = "tx", "rx", "rxdb";
 		mboxes = <&mu 0 1
 			  &mu 1 1
 			  &mu 3 1>;
 		memory-region = <&vdevbuffer>, <&vdev0vring0>, <&vdev0vring1>, <&rsc_table>;
 		status = "okay";
+		fsl,startup-delay-ms = <500>;
 	};
 };
 
@@ -90,6 +96,10 @@
 };
 
 &pwm3 {
+	status = "disabled";
+};
+
+&sai2 {
 	status = "disabled";
 };
 
