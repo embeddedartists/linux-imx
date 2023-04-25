@@ -96,7 +96,6 @@ dtb-$(CONFIG_ARCH_MXC) += imx8mm-icore-mx8mm-edimm2.2.dtb
 dtb-$(CONFIG_ARCH_MXC) += imx8mm-nitrogen-r2.dtb
 dtb-$(CONFIG_ARCH_MXC) += imx8mm-ea-ucom-kit_v2.dtb imx8mm-ea-ucom-kit_v2-m4.dtb imx8mm-ea-ucom-kit_v2-ov5640.dtb \
 			  imx8mm-ea-ucom-kit_v2-pcie.dtb imx8mm-ea-ucom-kit_v2-1mw.dtb \
-			  imx8mm-ea-ucom-ptp-1mw.dtb imx8mm-ea-ucom-ptp.dtb \
 			  imx8mm-ea-ucom-kit_v3.dtb imx8mm-ea-ucom-kit_v3-m4.dtb imx8mm-ea-ucom-kit_v3-pcie.dtb \
 			  imx8mm-ea-ucom-kit_v3-ov5640.dtb imx8mm-ea-ucom-kit_v3-1mw.dtb imx8mm-ea-ucom-kit_v3-rk055hdmipi4m.dtb
 dtb-$(CONFIG_ARCH_MXC) += imx8mn-bsh-smm-s2.dtb
@@ -118,7 +117,6 @@ dtb-$(CONFIG_ARCH_MXC) += imx8mn-evk-iqaudio-dacplus.dtb imx8mn-evk-iqaudio-dacp
 			  imx8mn-evk-hifiberry-dac2.dtb
 dtb-$(CONFIG_ARCH_MXC) += imx8mn-ea-ucom-kit_v2.dtb imx8mn-ea-ucom-kit_v2-m4.dtb imx8mn-ea-ucom-kit_v2-ov5640.dtb \
 			  imx8mn-ea-ucom-kit_v2-usb-host.dtb imx8mn-ea-ucom-kit_v2-1mw.dtb \
-			  imx8mn-ea-ucom-ptp-1mw.dtb imx8mn-ea-ucom-ptp.dtb \
 			  imx8mn-ea-ucom-kit_v3.dtb imx8mn-ea-ucom-kit_v3-m4.dtb imx8mn-ea-ucom-kit_v3-ov5640.dtb \
 			  imx8mn-ea-ucom-kit_v3-usb-host.dtb imx8mn-ea-ucom-kit_v3-1mw.dtb
 dtb-$(CONFIG_ARCH_MXC) += imx8mp-evk.dtb imx8mp-evk-rm67191.dtb imx8mp-evk-it6263-lvds-dual-channel.dtb \
