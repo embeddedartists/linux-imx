@@ -96,6 +96,15 @@
 		power-domains = <&mlmix>;
 	};
 
+	modem_reset: modem-reset {
+		compatible = "gpio-reset";
+		reset-gpios = <&pcal6524 19 GPIO_ACTIVE_LOW>;
+		initially-in-reset;
+		reset-delay-us = <2000>;
+		reset-post-delay-ms = <100>;
+		#reset-cells = <0>;
+	};
+
 	reg_usdhc2_vmmc: regulator-usdhc2 {
 		compatible = "regulator-fixed";
 		pinctrl-names = "default";
@@ -399,10 +408,10 @@
 &lpuart5 {
 	/* BT */
 	pinctrl-names = "default";
-	pinctrl-assert-gpios = <&pcal6524 19 GPIO_ACTIVE_HIGH>;
 	pinctrl-0 = <&pinctrl_uart5>;
 	status = "okay";
 
+	resets = <&modem_reset>;
 	fsl,uart-has-rtscts;
 };
 

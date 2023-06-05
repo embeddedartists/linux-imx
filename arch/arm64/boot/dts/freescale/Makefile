@@ -118,9 +118,9 @@ dtb-$(CONFIG_ARCH_MXC) += imx8mn-ab2.dtb imx8mn-ddr3l-ab2.dtb imx8mn-ddr4-ab2.dt
 dtb-$(CONFIG_ARCH_MXC) += imx8mn-evk-iqaudio-dacplus.dtb imx8mn-evk-iqaudio-dacpro.dtb imx8mn-evk-hifiberry-dacplus.dtb \
 			  imx8mn-evk-hifiberry-dac2.dtb
 dtb-$(CONFIG_ARCH_MXC) += imx8mn-ea-ucom-kit_v2.dtb imx8mn-ea-ucom-kit_v2-m4.dtb imx8mn-ea-ucom-kit_v2-ov5640.dtb \
-			  imx8mn-ea-ucom-kit_v2-usb-host.dtb imx8mn-ea-ucom-kit_v2-1mw.dtb \
+			  imx8mn-ea-ucom-kit_v2-usb-host.dtb imx8mn-ea-ucom-kit_v2-1mw.dtb imx8mn-ea-ucom-kit_v2-2ea.dtb \
 			  imx8mn-ea-ucom-kit_v3.dtb imx8mn-ea-ucom-kit_v3-m4.dtb imx8mn-ea-ucom-kit_v3-ov5640.dtb \
-			  imx8mn-ea-ucom-kit_v3-usb-host.dtb imx8mn-ea-ucom-kit_v3-1mw.dtb
+			  imx8mn-ea-ucom-kit_v3-usb-host.dtb imx8mn-ea-ucom-kit_v3-1mw.dtb imx8mn-ea-ucom-kit_v3-2ea.dtb
 dtb-$(CONFIG_ARCH_MXC) += imx8mp-evk.dtb imx8mp-evk-rm67191.dtb imx8mp-evk-it6263-lvds-dual-channel.dtb \
 			  imx8mp-evk-pcie-ep.dtb  imx8mp-evk-rpmsg.dtb imx8mp-evk-ecspi-slave.dtb \
 			  imx8mp-evk-jdi-wuxga-lvds-panel.dtb imx8mp-evk-flexcan2.dtb \
@@ -269,7 +269,7 @@ dtb-$(CONFIG_ARCH_MXC) += imx93-9x9-qsb.dtb \
 			  imx93-9x9-qsb-mt9m114.dtb \
 			  imx93-9x9-qsb-i3c.dtb \
 			  imx93-9x9-qsb-lpspi.dtb imx93-9x9-qsb-lpspi-slave.dtb
-dtb-$(CONFIG_ARCH_MXC) += imx93-ea-ucom-kit.dtb
+dtb-$(CONFIG_ARCH_MXC) += imx93-ea-ucom-kit.dtb imx93-ea-ucom-kit-2ea.dtb
 
 
 dtb-$(CONFIG_ARCH_MXC) += imx8mm-venice-gw72xx-0x-imx219.dtb

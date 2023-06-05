@@ -1,0 +1,20 @@
+#include "imx93-ea-ucom-kit.dts"
+
+/* Delete clashes from included DT */
+/ {
+	/delete-node/ modem-reset;
+};
+
+&lpuart5 {
+	/delete-property/ resets;
+};
+
+/* Add child node to serial port node to create serdev device */
+&lpuart5 {
+	bluetooth {
+		compatible = "infineon,cyw55572-bt";
+		shutdown-gpios = <&pcal6524 19 GPIO_ACTIVE_HIGH>;
+		max-speed = <3000000>;
+		brcm,requires-autobaud-mode;
+	};
+};
