@@ -682,9 +682,24 @@
 			MX93_PAD_CCM_CLKO1__GPIO3_IO26		0x31e  /* M.2 pin 21 */
 		>;
 	};
+
+	pinctrl_tpm4: tpm4grp {
+		fsl,pins = <
+			MX93_PAD_GPIO_IO05__TPM4_CH0	0x139e
+			MX93_PAD_GPIO_IO21__TPM4_CH1	0x139e  /* Shared with pinctrl_flexcan2 */
+			MX93_PAD_GPIO_IO13__TPM4_CH2	0x139e
+			MX93_PAD_GPIO_IO25__TPM4_CH3	0x139e
+		>;
+	};
 };
 
 &epxp {
 	status = "okay";
+};
+
+&tpm4 { /* PWM */
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_tpm4>;
+	status = "disabled";
 };
 
