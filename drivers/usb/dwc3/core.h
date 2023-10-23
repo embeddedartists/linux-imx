@@ -984,8 +984,6 @@ struct dwc3_scratchpad_array {
 struct dwc3_platform_data {
 	struct xhci_plat_priv *xhci_priv;
 	void	(*set_role_post)(struct dwc3 *dwc, u32 role);
-	unsigned long long quirks;
-#define DWC3_SOFT_ITP_SYNC	BIT(0)
 };
 
 /**
@@ -1136,6 +1134,7 @@ struct dwc3_platform_data {
  * @dis_split_quirk: set to disable split boundary.
  * @host_vbus_glitches: set to avoid vbus glitch during
  *                      xhci reset.
+ * @suspended: set to track suspend event due to U3/L2.
  * @imod_interval: set the interrupt moderation interval in 250ns
  *			increments or 0 to disable.
  * @max_cfg_eps: current max number of IN eps used across all USB configs.
@@ -1143,6 +1142,7 @@ struct dwc3_platform_data {
  *		     address.
  * @num_ep_resized: carries the current number endpoints which have had its tx
  *		    fifo resized.
+ * @debug_root: root debugfs directory for this device to put its files in.
  */
 struct dwc3 {
 	struct work_struct	drd_work;
@@ -1354,12 +1354,14 @@ struct dwc3 {
 
 	unsigned		dis_split_quirk:1;
 	unsigned		async_callbacks:1;
+	unsigned		suspended:1;
 
 	u16			imod_interval;
 
 	int			max_cfg_eps;
 	int			last_fifo_depth;
 	int			num_ep_resized;
+	struct dentry		*debug_root;
 };
 
 #define INCRX_BURST_MODE 0

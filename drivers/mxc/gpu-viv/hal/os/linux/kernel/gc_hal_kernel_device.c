@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -408,8 +408,10 @@ gc_load_show(void *m, void *data)
 
                 gcmkONERROR(gckHARDWARE_SetPowerState(Hardware, state));
 
-                if (hi_total_cycle_count[i] == 0)
-                    load[i] = 0;
+                if (hi_total_cycle_count[i] == 0) {
+                    len += fs_printf(ptr, "The current HW doesn't support use AHB register to read cycle counter.\n");
+                    goto OnError;
+                }
                 else
                     load[i] = (hi_total_cycle_count[i] - hi_total_idle_cycle_count[i]) * 100 / hi_total_cycle_count[i];
 

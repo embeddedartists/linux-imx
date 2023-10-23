@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -354,6 +354,7 @@ static int devfreq_cooling_handle_event_change(unsigned long event)
                 break;
             }
 #endif
+        gcmkFALLTHRU;
         case 2:
             FscaleVal = minFscale;
             printk("System is too hot. GPU3D will work at %d/64 clock.\n", minFscale);
@@ -1283,6 +1284,17 @@ static int patch_param(struct platform_device *pdev,
             args->compression &= ~gcvCOMPRESSION_OPTION_DEPTH;
         }
     }
+
+    {
+        const u32 *property;
+
+        property = of_get_property(pdev->dev.of_node, "timeout-scale", NULL);
+        if (property && *property > 0)
+        {
+            args->gpuTimeout *= *property;
+        }
+    }
+
 #endif
 
     res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "phys_baseaddr");

@@ -476,6 +476,18 @@ static const struct csis_pix_format mipi_csis_formats[] = {
 		.fmt_reg = MIPI_CSIS_ISPCFG_FMT_RAW8,
 		.data_alignment = 8,
 	}, {
+		.code = MEDIA_BUS_FMT_SGBRG8_1X8,
+		.fmt_reg = MIPI_CSIS_ISPCFG_FMT_RAW8,
+		.data_alignment = 8,
+	}, {
+		.code = MEDIA_BUS_FMT_SGRBG8_1X8,
+		.fmt_reg = MIPI_CSIS_ISPCFG_FMT_RAW8,
+		.data_alignment = 8,
+	}, {
+		.code = MEDIA_BUS_FMT_SRGGB8_1X8,
+		.fmt_reg = MIPI_CSIS_ISPCFG_FMT_RAW8,
+		.data_alignment = 8,
+	}, {
 		.code = MEDIA_BUS_FMT_SBGGR10_1X10,
 		.fmt_reg = MIPI_CSIS_ISPCFG_FMT_RAW10,
 		.data_alignment = 16,
@@ -957,6 +969,16 @@ static void disp_mix_gasket_config(struct csi_state *state)
 	case MEDIA_BUS_FMT_SBGGR8_1X8:
 		fmt_val = GASKET_0_CTRL_DATA_TYPE_RAW8;
 		break;
+	case MEDIA_BUS_FMT_SGBRG8_1X8:
+		fmt_val = GASKET_0_CTRL_DATA_TYPE_RAW8;
+		break;
+	case MEDIA_BUS_FMT_SGRBG8_1X8:
+		fmt_val = GASKET_0_CTRL_DATA_TYPE_RAW8;
+		break;
+	case MEDIA_BUS_FMT_SRGGB8_1X8:
+		fmt_val = GASKET_0_CTRL_DATA_TYPE_RAW8;
+		break;
+
 	case MEDIA_BUS_FMT_SBGGR10_1X10:
 		fmt_val = GASKET_0_CTRL_DATA_TYPE_RAW10;
 		break;
@@ -1294,6 +1316,18 @@ static int csis_s_fmt(struct v4l2_subdev *sd, struct csi_sam_format *fmt)
 	struct csi_state *state = container_of(sd, struct csi_state, sd);
 
 	switch (fmt->format) {
+	case V4L2_PIX_FMT_SBGGR8:
+	    code = MEDIA_BUS_FMT_SBGGR8_1X8;
+	    break;
+	case V4L2_PIX_FMT_SGBRG8:
+	    code = MEDIA_BUS_FMT_SGBRG8_1X8;
+	    break;
+	case V4L2_PIX_FMT_SGRBG8:
+	    code = MEDIA_BUS_FMT_SGRBG8_1X8;
+	    break;
+	case V4L2_PIX_FMT_SRGGB8:
+	    code = MEDIA_BUS_FMT_SRGGB8_1X8;
+	    break;
 	case V4L2_PIX_FMT_SBGGR10:
 	    code = MEDIA_BUS_FMT_SBGGR10_1X10;
 	    break;
@@ -1328,6 +1362,8 @@ static int csis_s_fmt(struct v4l2_subdev *sd, struct csi_sam_format *fmt)
 	state->csis_fmt = csis_format;
 	state->format.width = fmt->width;
 	state->format.height = fmt->height;
+	state->format.code = csis_format->code;
+
 	disp_mix_gasket_config(state);
 	mipi_csis_set_params(state);
 	return 0;
@@ -1749,9 +1785,9 @@ static int mipi_csis_imx8mp_gclk_get(struct csi_state *state)
 
 	state->csi_aclk = devm_clk_get_optional(dev, "media_blk_csi_aclk");
 	if (IS_ERR(state->csi_aclk)) {
-		if (PTR_ERR(state->csi_pclk) != -EPROBE_DEFER)
+		if (PTR_ERR(state->csi_aclk) != -EPROBE_DEFER)
 			dev_err(dev, "Failed to get media csi aclk\n");
-		return PTR_ERR(state->csi_pclk);
+		return PTR_ERR(state->csi_aclk);
 	}
 
 	return 0;

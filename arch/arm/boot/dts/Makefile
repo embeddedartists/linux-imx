@@ -748,14 +748,12 @@ dtb-$(CONFIG_SOC_IMX6UL) += \
 	imx6ul-14x14-evk-csi.dtb \
 	imx6ul-14x14-evk-emmc.dtb \
 	imx6ul-14x14-evk-btwifi.dtb \
-	imx6ul-14x14-evk-btwifi-sdio3_0.dtb \
 	imx6ul-14x14-evk-ecspi-slave.dtb \
 	imx6ul-14x14-evk-ecspi.dtb \
 	imx6ul-14x14-evk-gpmi-weim.dtb \
 	imx6ul-9x9-evk.dtb \
 	imx6ul-9x9-evk-ldo.dtb \
 	imx6ul-9x9-evk-btwifi.dtb \
-	imx6ul-9x9-evk-btwifi-sdio3_0.dtb \
 	imx6ul-ccimx6ulsbcexpress.dtb \
 	imx6ul-ccimx6ulsbcpro.dtb \
 	imx6ul-geam.dtb \
@@ -780,12 +778,10 @@ dtb-$(CONFIG_SOC_IMX6UL) += \
 	imx6ull-14x14-evk.dtb \
 	imx6ull-14x14-evk-emmc.dtb \
 	imx6ull-14x14-evk-btwifi.dtb \
-	imx6ull-14x14-evk-btwifi-sdio3_0.dtb \
 	imx6ull-14x14-evk-gpmi-weim.dtb \
 	imx6ull-9x9-evk.dtb \
 	imx6ull-9x9-evk-ldo.dtb \
 	imx6ull-9x9-evk-btwifi.dtb \
-	imx6ull-9x9-evk-btwifi-sdio3_0.dtb \
 	imx6ull-colibri-aster.dtb \
 	imx6ull-colibri-emmc-aster.dtb \
 	imx6ull-colibri-emmc-eval-v3.dtb \
@@ -811,10 +807,42 @@ dtb-$(CONFIG_SOC_IMX6UL) += \
 	imx6ull-tqma6ull2l-mba6ulx.dtb \
 	imx6ulz-14x14-evk.dtb \
 	imx6ulz-14x14-evk-btwifi.dtb \
-	imx6ulz-14x14-evk-btwifi-sdio3_0.dtb \
 	imx6ulz-14x14-evk-emmc.dtb \
 	imx6ulz-14x14-evk-gpmi-weim.dtb \
 	imx6ulz-bsh-smm-m2.dtb
+
+imx6ul-14x14-evk-reve-dtbs := imx6ul-14x14-evk.dtb imx6ul-14x14-evk-reve.dtbo
+imx6ul-14x14-evk-reve-csi-dtbs := imx6ul-14x14-evk-csi.dtb imx6ul-14x14-evk-reve.dtbo
+imx6ul-14x14-evk-reve-emmc-dtbs := imx6ul-14x14-evk-emmc.dtb imx6ul-14x14-evk-reve.dtbo
+imx6ul-14x14-evk-reve-btwifi-dtbs := imx6ul-14x14-evk-btwifi.dtb imx6ul-14x14-evk-reve.dtbo
+imx6ul-14x14-evk-reve-ecspi-slave-dtbs := imx6ul-14x14-evk-ecspi-slave.dtb imx6ul-14x14-evk-reve.dtbo
+imx6ul-14x14-evk-reve-ecspi-dtbs := imx6ul-14x14-evk-ecspi.dtb imx6ul-14x14-evk-reve.dtbo
+imx6ul-14x14-evk-reve-gpmi-weim-dtbs := imx6ul-14x14-evk-gpmi-weim.dtb imx6ul-14x14-evk-reve.dtbo
+imx6ull-14x14-evk-reve-dtbs := imx6ull-14x14-evk.dtb imx6ul-14x14-evk-reve.dtbo
+imx6ull-14x14-evk-reve-emmc-dtbs := imx6ull-14x14-evk-emmc.dtb imx6ul-14x14-evk-reve.dtbo
+imx6ull-14x14-evk-reve-btwifi-dtbs := imx6ull-14x14-evk-btwifi.dtb imx6ul-14x14-evk-reve.dtbo
+imx6ull-14x14-evk-reve-gpmi-weim-dtbs := imx6ull-14x14-evk-gpmi-weim.dtb imx6ul-14x14-evk-reve.dtbo
+imx6ulz-14x14-evk-reve-dtbs := imx6ulz-14x14-evk.dtb imx6ul-14x14-evk-reve.dtbo
+imx6ulz-14x14-evk-reve-btwifi-dtbs := imx6ulz-14x14-evk-btwifi.dtb imx6ul-14x14-evk-reve.dtbo
+imx6ulz-14x14-evk-reve-emmc-dtbs := imx6ulz-14x14-evk-emmc.dtb imx6ul-14x14-evk-reve.dtbo
+imx6ulz-14x14-evk-reve-gpmi-weim-dtbs := imx6ulz-14x14-evk-gpmi-weim.dtb imx6ul-14x14-evk-reve.dtbo
+dtb-$(CONFIG_SOC_IMX6UL) += \
+	imx6ul-14x14-evk-reve.dtb \
+	imx6ul-14x14-evk-reve-csi.dtb \
+	imx6ul-14x14-evk-reve-emmc.dtb \
+	imx6ul-14x14-evk-reve-btwifi.dtb \
+	imx6ul-14x14-evk-reve-ecspi-slave.dtb \
+	imx6ul-14x14-evk-reve-ecspi.dtb \
+	imx6ul-14x14-evk-reve-gpmi-weim.dtb \
+	imx6ull-14x14-evk-reve.dtb \
+	imx6ull-14x14-evk-reve-emmc.dtb \
+	imx6ull-14x14-evk-reve-btwifi.dtb \
+	imx6ull-14x14-evk-reve-gpmi-weim.dtb \
+	imx6ulz-14x14-evk-reve.dtb \
+	imx6ulz-14x14-evk-reve-btwifi.dtb \
+	imx6ulz-14x14-evk-reve-emmc.dtb \
+	imx6ulz-14x14-evk-reve-gpmi-weim.dtb
+
 dtb-$(CONFIG_SOC_IMX7D) += \
 	imx7d-cl-som-imx7.dtb \
 	imx7d-colibri-aster.dtb \

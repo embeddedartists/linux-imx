@@ -19,6 +19,7 @@
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/slab.h>
+#include <linux/spinlock.h>
 #include <linux/syscore_ops.h>
 #include <linux/gpio/driver.h>
 #include <linux/of.h>
@@ -62,6 +63,7 @@ struct mxc_gpio_port {
 	struct clk *clk;
 	int irq;
 	int irq_high;
+	void (*mx_irq_handler)(struct irq_desc *desc);
 	struct irq_domain *domain;
 	struct gpio_chip gc;
 	struct device *dev;
@@ -162,6 +164,7 @@ static int gpio_set_irq_type(struct irq_data *d, u32 type)
 {
 	struct irq_chip_generic *gc = irq_data_get_irq_chip_data(d);
 	struct mxc_gpio_port *port = gc->private;
+	unsigned long flags;
 	u32 bit, val;
 	u32 gpio_idx = d->hwirq;
 	int edge;
@@ -200,6 +203,8 @@ static int gpio_set_irq_type(struct irq_data *d, u32 type)
 		return -EINVAL;
 	}
 
+	raw_spin_lock_irqsave(&port->gc.bgpio_lock, flags);
+
 	if (GPIO_EDGE_SEL >= 0) {
 		val = readl(port->base + GPIO_EDGE_SEL);
 		if (edge == GPIO_INT_BOTH_EDGES)
@@ -220,14 +225,19 @@ static int gpio_set_irq_type(struct irq_data *d, u32 type)
 	writel(1 << gpio_idx, port->base + GPIO_ISR);
 	port->pad_type[gpio_idx] = type;
 
-	return 0;
+	raw_spin_unlock_irqrestore(&port->gc.bgpio_lock, flags);
+
+	return port->gc.direction_input(&port->gc, gpio_idx);
 }
 
 static void mxc_flip_edge(struct mxc_gpio_port *port, u32 gpio)
 {
 	void __iomem *reg = port->base;
+	unsigned long flags;
 	u32 bit, val;
 	int edge;
+
+	raw_spin_lock_irqsave(&port->gc.bgpio_lock, flags);
 
 	reg += GPIO_ICR1 + ((gpio & 0x10) >> 2); /* lower or upper register */
 	bit = gpio & 0xf;
@@ -243,9 +253,12 @@ static void mxc_flip_edge(struct mxc_gpio_port *port, u32 gpio)
 	} else {
 		pr_err("mxc: invalid configuration for GPIO %d: %x\n",
 		       gpio, edge);
-		return;
+		goto unlock;
 	}
 	writel(val | (edge << (bit << 1)), reg);
+
+unlock:
+	raw_spin_unlock_irqrestore(&port->gc.bgpio_lock, flags);
 }
 
 /* handle 32 interrupts in one status register */
@@ -488,6 +501,8 @@ static int mxc_gpio_probe(struct platform_device *pdev)
 		 * is more robust and easier.
 		 */
 		irq_set_chained_handler(port->irq, mx2_gpio_irq_handler);
+		port->irq_high = -1;
+		port->mx_irq_handler = mx2_gpio_irq_handler;
 	} else {
 		/* setup one handler for each entry */
 		irq_set_chained_handler_and_data(port->irq,
@@ -497,6 +512,7 @@ static int mxc_gpio_probe(struct platform_device *pdev)
 			irq_set_chained_handler_and_data(port->irq_high,
 							 mx3_gpio_irq_handler,
 							 port);
+		port->mx_irq_handler = mx3_gpio_irq_handler;
 	}
 
 	err = bgpio_init(&port->gc, &pdev->dev, 4,
@@ -637,6 +653,9 @@ static int __maybe_unused mxc_gpio_runtime_suspend(struct device *dev)
 
 	mxc_gpio_save_regs(port);
 	clk_disable_unprepare(port->clk);
+	irq_set_chained_handler_and_data(port->irq, NULL, NULL);
+	if (port->irq_high > 0)
+		irq_set_chained_handler_and_data(port->irq_high, NULL, NULL);
 
 	return 0;
 }
@@ -647,9 +666,21 @@ static int __maybe_unused mxc_gpio_runtime_resume(struct device *dev)
 	struct mxc_gpio_port *port = platform_get_drvdata(pdev);
 	int ret;
 
+	irq_set_chained_handler_and_data(port->irq,
+					 port->mx_irq_handler, port);
+	if (port->irq_high > 0)
+		/* setup handler for GPIO 16 to 31 */
+		irq_set_chained_handler_and_data(port->irq_high,
+						 port->mx_irq_handler,
+						 port);
+
 	ret = clk_prepare_enable(port->clk);
-	if (ret)
+	if (ret) {
+		irq_set_chained_handler_and_data(port->irq, NULL, NULL);
+		if (port->irq_high > 0)
+			irq_set_chained_handler_and_data(port->irq_high, NULL, NULL);
 		return ret;
+	}
 
 	mxc_gpio_restore_regs(port);
 

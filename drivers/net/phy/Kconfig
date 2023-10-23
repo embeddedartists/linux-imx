@@ -190,11 +190,6 @@ config LXT_PHY
 	help
 	  Currently supports the lxt970, lxt971
 
-config INPHI_PHY
-	tristate "Inphi CDR 10G/25G Ethernet PHY"
-	help
-	  Currently supports the IN112525_S03 part @ 25G
-
 config INTEL_XWAY_PHY
 	tristate "Intel XWAY PHYs"
 	help
@@ -266,6 +261,13 @@ config MOTORCOMM_PHY
 	help
 	  Enables support for Motorcomm network PHYs.
 	  Currently supports the YT8511 gigabit PHY.
+
+config MTIP_BACKPLANE_PHY
+	tristate "MoreThanIP copper backplane PHYs"
+	help
+	  Enable support for the MoreThanIP copper backplane Auto-Negotiation
+	  and Link Training blocks, as implemented on the QorIQ and Layerscape
+	  SoCs.
 
 config NATIONAL_PHY
 	tristate "National Semiconductor PHYs"

@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -555,9 +555,10 @@ gckMMU_FillFlatMappingWithPage16M(IN gckMMU Mmu, IN gctUINT64 PhysBase, IN gctSI
 
     if (needShiftMapping) {
         gctUINT32 mEntries;
-        gctUINT32 sEntries;
 
 #if gcdENABLE_40BIT_VA
+        gctUINT32 sEntries;
+
         if (!PhysBase) {
             mEntries =
                 (gctUINT32)((flatSize + Mmu->reserveRangeSize + (1ULL << gcdMMU_MTLB_SHIFT) - 1) /
@@ -580,7 +581,6 @@ gckMMU_FillFlatMappingWithPage16M(IN gckMMU Mmu, IN gctUINT64 PhysBase, IN gctSI
         gcmkONERROR(_GetMtlbFreeSpace(Mmu, mEntries, &mStart, &mEnd));
 
         sStart = mStart % gcdMMU_STLB_16M_ENTRY_NUM;
-        sEntries = mEntries;
 #endif
     }
 
@@ -3703,6 +3703,8 @@ gckMMU_FillFlatMapping(IN gckMMU Mmu, IN gctUINT64 PhysBase,
             break;
         }
     /* FALLTHRU */
+    gcmkFALLTHRU;
+
     case gcvPAGE_TYPE_1M:
         gcmkONERROR(gckMMU_FillFlatMappingWithPage1M(Mmu, PhysBase, flatSize, Reserved,
                                                      needShiftMapping, specificFlatMapping,

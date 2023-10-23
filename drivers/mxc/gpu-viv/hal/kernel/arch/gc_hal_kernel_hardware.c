@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -2622,9 +2622,16 @@ gckHARDWARE_InitializeHardware(IN gckHARDWARE Hardware)
 
     if (_IsHardwareMatch(Hardware, gcv4000, 0x5222) ||
         _IsHardwareMatch(Hardware, gcv2000, 0x5108) ||
+        _IsHardwareMatch(Hardware, gcv7000, 0x6009) ||
         _IsHardwareMatch(Hardware, gcv7000, 0x6202) ||
         _IsHardwareMatch(Hardware, gcv7000, 0x6203) ||
         _IsHardwareMatch(Hardware, gcv7000, 0x6204) ||
+        _IsHardwareMatch(Hardware, gcv7000, 0x6205) ||
+        _IsHardwareMatch(Hardware, gcv7000, 0x6212) ||
+        _IsHardwareMatch(Hardware, gcv7000, 0x6214) ||
+        _IsHardwareMatch(Hardware, gcv600, 0x4653) ||
+        _IsHardwareMatch(Hardware, gcv8000, 0x6201) ||
+        _IsHardwareMatch(Hardware, gcv8000, 0x6204) ||
         (gckHARDWARE_IsFeatureAvailable(Hardware, gcvFEATURE_TX_DESCRIPTOR) &&
          !gckHARDWARE_IsFeatureAvailable(Hardware, gcvFEATURE_TX_DESC_CACHE_CLOCKGATE_FIX))) {
         if (regPMC == 0) {
@@ -5695,6 +5702,7 @@ _PmSetPowerOnDirection(IN gckHARDWARE Hardware,
 
         requireInit = gcvTRUE;
         /* FALLTHRU */
+        gcmkFALLTHRU;
 
     case gcvPOWER_SUSPEND:
         /* Clock on. */
@@ -5771,6 +5779,7 @@ _PmSetPowerOffDirection(IN gckHARDWARE Hardware,
             break;
         }
         /* FALLTHRU */
+        gcmkFALLTHRU;
 
     case gcvPOWER_IDLE:
         /* Stop. */
@@ -5790,6 +5799,7 @@ _PmSetPowerOffDirection(IN gckHARDWARE Hardware,
         }
 
         /* FALLTHRU */
+        gcmkFALLTHRU;
 
     case gcvPOWER_SUSPEND:
         if (Hardware->kernel->threadInitialized == gcvTRUE) {
@@ -5968,6 +5978,7 @@ _QchannelPowerOnDirection(IN gckHARDWARE Hardware, IN gceCHIPPOWERSTATE State)
 
         requireInit = gcvTRUE;
         /* FALLTHRU */
+        gcmkFALLTHRU;
 
     case gcvPOWER_SUSPEND:
         /* Power on, clock on. */
@@ -6041,6 +6052,7 @@ _QchannelPowerOffDirection(IN gckHARDWARE Hardware,
             break;
         }
         /* FALLTHRU */
+        gcmkFALLTHRU;
 
     case gcvPOWER_IDLE:
         /* Stop. */
@@ -6056,6 +6068,7 @@ _QchannelPowerOffDirection(IN gckHARDWARE Hardware,
         }
 
         /* FALLTHRU */
+        gcmkFALLTHRU;
 
     case gcvPOWER_SUSPEND:
         if (Hardware->kernel->threadInitialized == gcvTRUE) {
@@ -6150,6 +6163,7 @@ gckHARDWARE_SetPowerState(IN gckHARDWARE Hardware,
     case gcvPOWER_SUSPEND_TIMEOUT:
         timeout = gcvTRUE;
         /* FALLTHRU */
+        gcmkFALLTHRU;
     case gcvPOWER_OFF_BROADCAST:
     case gcvPOWER_IDLE_BROADCAST:
     case gcvPOWER_SUSPEND_BROADCAST:

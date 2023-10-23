@@ -210,7 +210,7 @@ struct hw_bank {
  * @rev: The revision number for controller
  * @power_lost_work: work item when controller power is lost
  * @power_lost_wq: work queue for controller power is lost
- * @mutex: protect code from concorrent running
+ * @mutex: protect code from concorrent running when doing role switch
  */
 struct ci_hdrc {
 	struct device			*dev;
@@ -259,6 +259,7 @@ struct ci_hdrc {
 	bool				id_event;
 	bool				b_sess_valid_event;
 	bool				imx28_write_fix;
+	bool				has_portsc_pec_bug;
 	bool				supports_runtime_pm;
 	bool				in_lpm;
 	bool				wakeup_int;

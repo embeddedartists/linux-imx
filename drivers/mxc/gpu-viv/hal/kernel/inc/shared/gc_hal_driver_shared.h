@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -1267,6 +1267,21 @@ typedef struct _gcsHAL_INTERFACE {
     } u;
 } gcsHAL_INTERFACE;
 
+typedef struct _gcsEVENT_INTERFACE {
+    /* Command code. */
+    gceHAL_COMMAND_CODES        command;
+
+    /* Union of command structures. */
+    union _evtu {
+        gcsHAL_UNLOCK_VIDEO_MEMORY          UnlockVideoMemory;
+        gcsHAL_COMMIT_DONE                  CommitDone;
+        gcsHAL_SIGNAL                       Signal;
+        gcsHAL_WRITE_DATA                   WriteData;
+        gcsHAL_TIMESTAMP                    TimeStamp;
+        gcsHAL_DESTROY_MMU                  DestroyMmu;
+    } u;
+}gcsEVENT_INTERFACE;
+
 #if VIVANTE_PROFILER
 typedef struct _gcsHAL_PROFILER_INTERFACE {
     /* Command code. */
@@ -1368,7 +1383,7 @@ typedef struct _gcsQUEUE {
     gctUINT64                   next;
 
     /* Event information. */
-    gcsHAL_INTERFACE            iface;
+    gcsEVENT_INTERFACE          iface;
 } gcsQUEUE;
 
 /* A record chunk include multiple records to save allocation. */

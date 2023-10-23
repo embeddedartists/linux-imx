@@ -2,7 +2,7 @@
 *
 *    The MIT License (MIT)
 *
-*    Copyright (c) 2014 - 2022 Vivante Corporation
+*    Copyright (c) 2014 - 2023 Vivante Corporation
 *
 *    Permission is hereby granted, free of charge, to any person obtaining a
 *    copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 *
 *    The GPL License (GPL)
 *
-*    Copyright (C) 2014 - 2022 Vivante Corporation
+*    Copyright (C) 2014 - 2023 Vivante Corporation
 *
 *    This program is free software; you can redistribute it and/or
 *    modify it under the terms of the GNU General Public License
@@ -3114,14 +3114,18 @@ _FuncInit_MMU(IN gcsFUNCTION_EXECUTION_PTR Execution)
     if (hardware->largeVA)
         mode = gcvMMU_MODE_4K;
 
-#if defined(CONFIG_ZONE_DMA32) || defined(CONFIG_ZONE_DMA)
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 37)
     if (!gckHARDWARE_IsFeatureAvailable(hardware,
                                         gcvFEATURE_MMU_PAGE_DESCRIPTOR)) {
-        flags |= gcvALLOC_FLAG_4GB_ADDR | gcvALLOC_FLAG_4K_PAGES;
-    }
-#    endif
+#ifdef __linux__
+#if defined(CONFIG_ZONE_DMA32) || defined(CONFIG_ZONE_DMA)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 37)
+    flags |= gcvALLOC_FLAG_4GB_ADDR | gcvALLOC_FLAG_4K_PAGES;
 #endif
+#endif
+#else
+    flags |= gcvALLOC_FLAG_4GB_ADDR;
+#endif
+    }
 
 #if gcdENABLE_CACHEABLE_COMMAND_BUFFER
     flags |= gcvALLOC_FLAG_CACHEABLE;
@@ -3155,6 +3159,11 @@ _FuncInit_MMU(IN gcsFUNCTION_EXECUTION_PTR Execution)
 
     Execution->funcCmd[0].funcVidMemBytes = 1024;
     /* Allocate mmu command buffer within 32bit space */
+    if (!gckHARDWARE_IsFeatureAvailable(hardware, gcvFEATURE_MMU_PAGE_DESCRIPTOR))
+    {
+        /* Ensure address of command buffer for MMU setup does not exceed 32 bit */
+        flags |= gcvALLOC_FLAG_4GB_ADDR;
+    }
     gcmkONERROR(gckKERNEL_AllocateVideoMemory(hardware->kernel, 64,
                                               gcvVIDMEM_TYPE_COMMAND, flags,
                                               &Execution->funcCmd[0].funcVidMemBytes, &pool,
