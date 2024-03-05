@@ -441,6 +441,9 @@
 	pinctrl-0 = <&pinctrl_uart5>;
 	status = "okay";
 
+	/delete-property/ dmas;
+	/delete-property/ dma-names;
+
 	resets = <&modem_reset>;
 	fsl,uart-has-rtscts;
 };
