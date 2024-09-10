@@ -1,0 +1,20 @@
+#include "imx8mm-ea-ucom-kit_v2.dts"
+
+/* Delete clashes from included DT */
+/ {
+	/delete-node/ modem-reset;
+};
+
+&uart1 {
+	/delete-property/ resets;
+};
+
+/* Add child node to serial port node to create serdev device */
+&uart1 {
+	bluetooth {
+		compatible = "infineon,cyw55572-bt";
+		shutdown-gpios = <&gpio_buff 0 GPIO_ACTIVE_HIGH>;
+		max-speed = <3000000>;
+		brcm,requires-autobaud-mode;
+	};
+};

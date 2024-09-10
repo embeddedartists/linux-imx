@@ -95,6 +95,12 @@ dtb-$(CONFIG_ARCH_MXC) += imx8mm-emtop-baseboard.dtb
 dtb-$(CONFIG_ARCH_MXC) += imx8mm-icore-mx8mm-ctouch2.dtb
 dtb-$(CONFIG_ARCH_MXC) += imx8mm-icore-mx8mm-edimm2.2.dtb
 dtb-$(CONFIG_ARCH_MXC) += imx8mm-nitrogen-r2.dtb
+dtb-$(CONFIG_ARCH_MXC) += imx8mm-ea-ucom-kit_v2.dtb imx8mm-ea-ucom-kit_v2-m4.dtb imx8mm-ea-ucom-kit_v2-ov5640.dtb \
+			  imx8mm-ea-ucom-kit_v2-pcie.dtb imx8mm-ea-ucom-kit_v2-1mw.dtb \
+			  imx8mm-ea-ucom-kit_v2-2ea.dtb imx8mm-ea-ucom-kit_v2-pcie-2ea.dtb \
+			  imx8mm-ea-ucom-kit_v3.dtb imx8mm-ea-ucom-kit_v3-m4.dtb imx8mm-ea-ucom-kit_v3-pcie.dtb \
+			  imx8mm-ea-ucom-kit_v3-2ea.dtb imx8mm-ea-ucom-kit_v3-pcie-2ea.dtb \
+			  imx8mm-ea-ucom-kit_v3-ov5640.dtb imx8mm-ea-ucom-kit_v3-1mw.dtb imx8mm-ea-ucom-kit_v3-rk055hdmipi4m.dtb
 
 dtb-$(CONFIG_ARCH_MXC) += imx8mn-bsh-smm-s2.dtb
 dtb-$(CONFIG_ARCH_MXC) += imx8mn-bsh-smm-s2pro.dtb

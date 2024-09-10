@@ -1,0 +1,511 @@
+/*
+ * Copyright 2020 Embedded Artists AB
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/dts-v1/;
+
+#include <dt-bindings/phy/phy-imx8-pcie.h>
+#include "imx8mm-ea-ucom.dtsi"
+
+/ {
+	model = "Embedded Artists i.MX8MM uCOM Kit";
+	compatible = "fsl,imx8mmea-ucom", "fsl,imx8mm";
+
+	chosen {
+		bootargs = "console=ttymxc1,115200 earlycon=ec_imx6q,0x30890000,115200";
+		stdout-path = &uart2;
+	};
+
+	modem_reset: modem-reset {
+		compatible = "gpio-reset";
+		reset-gpios = <&gpio_buff 0 GPIO_ACTIVE_LOW>;
+		initially-in-reset;
+		reset-delay-us = <2000>;
+		reset-post-delay-ms = <100>;
+		#reset-cells = <0>;
+	};
+
+
+	pcie0_refclk: pcie0-refclk {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <100000000>;
+	};
+
+	reg_pcie0: regulator-pcie {
+		compatible = "regulator-fixed";
+		regulator-name = "MPCIE_3V3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpio = <&gpio_buff 1 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+
+	regulators {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		reg_usdhc2_vmmc: regulator-usdhc2 {
+			compatible = "regulator-fixed";
+			regulator-name = "VSD_3V3";
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+			gpio = <&gpio2 19 GPIO_ACTIVE_HIGH>;
+			off-on-delay = <20000>;
+			enable-active-high;
+		};
+
+		reg_usbotg1_vbus: regulator-usbotg1 {
+			compatible = "regulator-fixed";
+			regulator-name = "usbotg_vbus";
+			regulator-min-microvolt = <5000000>;
+			regulator-max-microvolt = <5000000>;
+			gpio = <&gpio1 12 GPIO_ACTIVE_HIGH>;
+			off-on-delay = <20000>;
+			enable-active-high;
+		};
+
+		/* add construct for "fmac" to control WL_REG_ON signal */
+		usdhc1_pwrseq: usdhc1_pwrseq {
+			compatible = "mmc-pwrseq-simple";
+			reset-gpios = <&gpio_buff 1 GPIO_ACTIVE_LOW>; /* WL REG ON */
+			post-power-on-delay-ms = <120>;
+			status = "okay";
+		};
+
+	};
+
+	sound-wm8731 {
+		compatible = "simple-audio-card";
+		simple-audio-card,name = "wm8731-audio";
+		simple-audio-card,format = "i2s";
+		simple-audio-card,frame-master = <&cpudai>;
+		simple-audio-card,bitclock-master = <&cpudai>;
+		simple-audio-card,widgets =
+			"Line", "Left Line Out Jack",
+			"Line", "Right Line Out Jack";
+		simple-audio-card,routing =
+			"Left Line Out Jack", "LOUT",
+			"Right Line Out Jack", "ROUT";
+
+		cpudai: simple-audio-card,cpu {
+			sound-dai = <&sai2>;
+			dai-tdm-slot-num = <2>;
+			dai-tdm-slot-width = <32>;
+		};
+
+		simple-audio-card,codec {
+			sound-dai = <&wm8731>;
+			clocks = <&clk IMX8MM_CLK_SAI2_ROOT>;
+		};
+	};
+
+};
+
+&iomuxc {
+	pinctrl-names = "default";
+
+	imx8mmea-ucom-kit {
+
+		pinctrl_mipi_dsi_en: mipi_dsi_en {
+			fsl,pins = <
+				MX8MM_IOMUXC_GPIO1_IO08_GPIO1_IO8		0x16
+			>;
+		};
+
+		pinctrl_pcie0: pcie0grp {
+			fsl,pins = <
+				MX8MM_IOMUXC_I2C4_SCL_PCIE1_CLKREQ_B	0x61 /* open drain, pull up */
+			>;
+		};
+
+		pinctrl_sai2: sai2grp {
+			fsl,pins = <
+				MX8MM_IOMUXC_SAI2_MCLK_SAI2_MCLK	0xd6
+				MX8MM_IOMUXC_SAI2_TXD0_SAI2_TX_DATA0	0xd6
+				MX8MM_IOMUXC_SAI2_TXC_SAI2_TX_BCLK	0xd6
+				MX8MM_IOMUXC_SAI2_RXD0_SAI2_RX_DATA0	0xd6
+				MX8MM_IOMUXC_SAI2_TXFS_SAI2_TX_SYNC	0xd6
+			>;
+		};
+
+		pinctrl_uart1: uart1grp {
+			fsl,pins = <
+				MX8MM_IOMUXC_UART1_RXD_UART1_DCE_RX	0x140
+				MX8MM_IOMUXC_UART1_TXD_UART1_DCE_TX	0x140
+				MX8MM_IOMUXC_UART3_RXD_UART1_DCE_CTS_B	0x140
+				MX8MM_IOMUXC_UART3_TXD_UART1_DCE_RTS_B	0x140
+			>;
+		};
+
+		pinctrl_uart2: uart2grp {
+			fsl,pins = <
+				MX8MM_IOMUXC_UART2_RXD_UART2_DCE_RX	0x140
+				MX8MM_IOMUXC_UART2_TXD_UART2_DCE_TX	0x140
+			>;
+		};
+
+		pinctrl_usdhc1_gpio: usdhc1grpgpio {
+			fsl,pins = <
+				MX8MM_IOMUXC_SD1_DATA7_GPIO2_IO9	0x1c4
+
+			>;
+		};
+
+		pinctrl_usdhc1: usdhc1grp {
+			fsl,pins = <
+				MX8MM_IOMUXC_SD1_CLK_USDHC1_CLK		0x190
+				MX8MM_IOMUXC_SD1_CMD_USDHC1_CMD		0x1d0
+				MX8MM_IOMUXC_SD1_DATA0_USDHC1_DATA0	0x1d0
+				MX8MM_IOMUXC_SD1_DATA1_USDHC1_DATA1	0x1d0
+				MX8MM_IOMUXC_SD1_DATA2_USDHC1_DATA2	0x1d0
+				MX8MM_IOMUXC_SD1_DATA3_USDHC1_DATA3	0x1d0
+			>;
+		};
+
+		pinctrl_usdhc1_100mhz: usdhc1grp100mhz {
+			fsl,pins = <
+				MX8MM_IOMUXC_SD1_CLK_USDHC1_CLK		0x194
+				MX8MM_IOMUXC_SD1_CMD_USDHC1_CMD		0x1d4
+				MX8MM_IOMUXC_SD1_DATA0_USDHC1_DATA0	0x1d4
+				MX8MM_IOMUXC_SD1_DATA1_USDHC1_DATA1	0x1d4
+				MX8MM_IOMUXC_SD1_DATA2_USDHC1_DATA2	0x1d4
+				MX8MM_IOMUXC_SD1_DATA3_USDHC1_DATA3	0x1d4
+			>;
+		};
+
+		pinctrl_usdhc1_200mhz: usdhc1grp200mhz {
+			fsl,pins = <
+				MX8MM_IOMUXC_SD1_CLK_USDHC1_CLK		0x192
+				MX8MM_IOMUXC_SD1_CMD_USDHC1_CMD		0x1d4
+				MX8MM_IOMUXC_SD1_DATA0_USDHC1_DATA0	0x1d4
+				MX8MM_IOMUXC_SD1_DATA1_USDHC1_DATA1	0x1d4
+				MX8MM_IOMUXC_SD1_DATA2_USDHC1_DATA2	0x1d4
+				MX8MM_IOMUXC_SD1_DATA3_USDHC1_DATA3	0x1d4
+			>;
+		};
+
+		pinctrl_usdhc2_gpio: usdhc2grpgpio {
+			fsl,pins = <
+				MX8MM_IOMUXC_SD2_RESET_B_GPIO2_IO19     0x41
+				MX8MM_IOMUXC_SD2_CD_B_GPIO2_IO12	0x1c4
+			>;
+		};
+
+		pinctrl_usdhc2: usdhc2grp {
+			fsl,pins = <
+				MX8MM_IOMUXC_SD2_CLK_USDHC2_CLK		0x190
+				MX8MM_IOMUXC_SD2_CMD_USDHC2_CMD		0x1d0
+				MX8MM_IOMUXC_SD2_DATA0_USDHC2_DATA0	0x1d0
+				MX8MM_IOMUXC_SD2_DATA1_USDHC2_DATA1	0x1d0
+				MX8MM_IOMUXC_SD2_DATA2_USDHC2_DATA2	0x1d0
+				MX8MM_IOMUXC_SD2_DATA3_USDHC2_DATA3	0x1d0
+				MX8MM_IOMUXC_GPIO1_IO04_USDHC2_VSELECT	0x1d0
+			>;
+		};
+
+		pinctrl_usdhc2_100mhz: usdhc2grp100mhz {
+			fsl,pins = <
+				MX8MM_IOMUXC_SD2_CLK_USDHC2_CLK		0x194
+				MX8MM_IOMUXC_SD2_CMD_USDHC2_CMD		0x1d4
+				MX8MM_IOMUXC_SD2_DATA0_USDHC2_DATA0	0x1d4
+				MX8MM_IOMUXC_SD2_DATA1_USDHC2_DATA1	0x1d4
+				MX8MM_IOMUXC_SD2_DATA2_USDHC2_DATA2	0x1d4
+				MX8MM_IOMUXC_SD2_DATA3_USDHC2_DATA3	0x1d4
+				MX8MM_IOMUXC_GPIO1_IO04_USDHC2_VSELECT	0x1d0
+			>;
+		};
+
+		pinctrl_usdhc2_200mhz: usdhc2grp200mhz {
+			fsl,pins = <
+				MX8MM_IOMUXC_SD2_CLK_USDHC2_CLK		0x196
+				MX8MM_IOMUXC_SD2_CMD_USDHC2_CMD		0x1d6
+				MX8MM_IOMUXC_SD2_DATA0_USDHC2_DATA0	0x1d6
+				MX8MM_IOMUXC_SD2_DATA1_USDHC2_DATA1	0x1d6
+				MX8MM_IOMUXC_SD2_DATA2_USDHC2_DATA2	0x1d6
+				MX8MM_IOMUXC_SD2_DATA3_USDHC2_DATA3	0x1d6
+				MX8MM_IOMUXC_GPIO1_IO04_USDHC2_VSELECT	0x1d0
+			>;
+		};
+
+		pinctrl_wdog: wdoggrp {
+			fsl,pins = <
+				MX8MM_IOMUXC_GPIO1_IO02_WDOG1_WDOG_B		0xc6
+			>;
+		};
+
+		pinctrl_pwm1: pwm1grp {
+			fsl,pins = <
+				MX8MM_IOMUXC_GPIO1_IO01_PWM1_OUT		0x06
+			>;
+		};
+
+		pinctrl_usbotg1: usbotg1grp {
+			fsl,pins = <
+				MX8MM_IOMUXC_GPIO1_IO12_GPIO1_IO12		0x1d6
+				MX8MM_IOMUXC_GPIO1_IO13_USB1_OTG_OC		0x1d6
+			>;
+		};
+
+		/* Expansion Board */
+		pinctrl_exp_conn: expconngrp {
+			fsl,pins = <
+										/* GPIO_H Not Connected */
+										/* GPIO_J Not Connected */
+				/*MX8MM_IOMUXC_GPIO1_IO00_GPIO1_IO0	0xC6       GPIO_K ADV7535 INT (on adapter board) */
+				/*MX8MM_IOMUXC_GPIO1_IO08_GPIO1_IO8	0xC6	   GPIO_P MIPI_DSI_EN */
+										/* GPIO_Q Not Connected */
+										/* GPIO_R Not Connected */
+										/* GPIO_S Not Connected */
+										/* GPIO_T Not Connected */
+										/* GPIO_U Not Connected */
+										/* GPIO_V Not Connected */
+										/* GPIO_W Not Connected */
+										/* GPIO_X Not Connected */
+										/* GPIO_Y Not Connected */
+										/* GPIO_Z Not Connected */
+										/* GPIO_AA Not Connected */
+										/* GPIO_AB Not Connected */
+										/* GPIO_AC Not Connected */
+										/* GPIO_AD Not Connected */
+										/* GPIO_AE Not Connected */
+										/* GPIO_AF Not Connected */
+										/* GPIO_AG Not Connected */
+										/* GPIO_AH Not Connected */
+
+				MX8MM_IOMUXC_SD1_RESET_B_GPIO2_IO10	0xC6	/* GPIO_AJ */
+				MX8MM_IOMUXC_SD1_DATA5_GPIO2_IO7	0xC6	/* GPIO_AK */
+				MX8MM_IOMUXC_SD1_DATA4_GPIO2_IO6	0xC6	/* GPIO_AL */
+
+				/*MX8MM_IOMUXC_SD2_WP_GPIO2_IO20	0xC6	   GPIO_AP MIDI DSI (on adapter board) */
+										/* GPIO_AQ Not Connected */
+										/* GPIO_AR Not Connected */
+										/* GPIO_AS Not Connected */
+										/* GPIO_AT Not Connected */
+										/* GPIO_AU Not Connected */
+										/* GPIO_AV Not Connected */
+			>;
+		};
+
+	};
+};
+
+&i2c1 {
+
+	wm8731: wm8731@1a {
+		#sound-dai-cells = <0>;
+		compatible = "wlf,wm8731";
+		reg = <0x1a>;
+		clocks = <&clk IMX8MM_CLK_SAI2_ROOT>;
+		clock-names = "mclk";
+        };
+};
+
+&i2c2 {
+
+	gpio_buff: pca6416@20 {
+		compatible = "ti,tca6416";
+		reg = <0x20>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		gpio-line-names = "BT_REG_ON", "WL_REG_ON", "VBAT_VSEL",
+			"BT_DEV_WAKE", "", "AUD_CODEC_MUX_CTRL1",
+			"VDDIO_VSEL", "PCIE_PERST_L", "",
+			"DIR_WL_DEV_WAKE", "PCIE_CLK_MUX_CTRL", "AUD_CODEC_MUX_CTRL2",
+			"DIR_BT_AUD_WS_CLK", "USER_BTN", "USER_LED1", "USER_LED2";
+
+		hog_VBAT_VSEL {
+			gpio-hog;
+			gpios = <2 0>;
+			output-low; /* LOW = 3.3V, HIGH = 3.6V */
+		};
+		hog_AUD_CODEC_MUX_CTRL1 {
+			gpio-hog;
+			gpios = <5 0>;
+			output-low;
+		};
+		hog_VDDIO_VSEL {
+			gpio-hog;
+			gpios = <6 0>;
+			output-low; /* LOW = 1.8V, HIGH = 3.3V */
+		};
+		hog_DIR_WL_DEV_WAKE {
+			gpio-hog;
+			gpios = <9 0>;
+			output-low;
+		};
+		hog_PCIE_CLK_MUX_CTRL {
+			gpio-hog;
+			gpios = <10 0>;
+			output-low; /* LOW = External Reference Clock, HIGH = i.MX Generated Clock */
+		};
+		hog_AUD_CODEC_MUX_CTRL2 {
+			gpio-hog;
+			gpios = <11 0>;
+			output-low;
+		};
+	};
+
+	adv_bridge: adv7535@3d {
+		compatible = "adi,adv7533";
+		reg = <0x3d>;
+		adi,dsi-lanes = <4>;
+		status = "okay";
+
+		port {
+			adv7535_from_dsim: endpoint {
+				remote-endpoint = <&dsim_to_adv7535>;
+			};
+		};
+	};
+};
+
+&lcdif {
+	status = "okay";
+};
+
+&mipi_dsi {
+	status = "okay";
+
+	port@1 {
+		dsim_to_adv7535: endpoint {
+			remote-endpoint = <&adv7535_from_dsim>;
+			attach-bridge;
+		};
+	};
+};
+
+&sai2 {
+	#sound-dai-cells = <0>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_sai2>;
+	assigned-clocks = <&clk IMX8MM_CLK_SAI2>;
+	assigned-clock-parents = <&clk IMX8MM_AUDIO_PLL2_OUT>;
+	assigned-clock-rates = <11289600>;
+	status = "okay";
+};
+
+&pcie_phy {
+	fsl,refclk-pad-mode = <IMX8_PCIE_REFCLK_PAD_INPUT>;
+	fsl,tx-deemph-gen1 = <0x2d>;
+	fsl,tx-deemph-gen2 = <0xf>;
+	clocks = <&pcie0_refclk>;
+	status = "disabled";
+};
+
+&pcie0{
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_pcie0>;
+	reset-gpio = <&gpio_buff 7 GPIO_ACTIVE_LOW>;   /* PCIE_PERST_L */
+	clocks = <&clk IMX8MM_CLK_PCIE1_ROOT>,
+		 <&clk IMX8MM_CLK_PCIE1_AUX>,
+		 <&pcie0_refclk>;
+	clock-names = "pcie", "pcie_aux", "pcie_bus";
+	assigned-clocks = <&clk IMX8MM_CLK_PCIE1_AUX>,
+			  <&clk IMX8MM_CLK_PCIE1_CTRL>;
+	assigned-clock-rates = <10000000>, <250000000>;
+	assigned-clock-parents = <&clk IMX8MM_SYS_PLL2_50M>,
+				 <&clk IMX8MM_SYS_PLL2_250M>;
+	vpcie-supply = <&reg_pcie0>;
+	status = "disabled";
+};
+
+&uart1 { /* Bluetooth UART */
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart1>;
+	status = "okay";
+
+	assigned-clocks = <&clk IMX8MM_CLK_UART1>;
+	assigned-clock-parents = <&clk IMX8MM_SYS_PLL1_80M>;
+
+	resets = <&modem_reset>;
+	fsl,uart-has-rtscts;
+};
+
+&uart2 { /* Console */
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart2>;
+	status = "okay";
+};
+
+&uart3 { /* Disabled as pins are used by Bluetooth for RTS/CTS */
+	status = "disabled";
+};
+
+&usbotg1 {
+	dr_mode = "otg";
+	picophy,pre-emp-curr-control = <3>;
+	picophy,dc-vol-level-adjust = <7>;
+	status = "okay";
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_usbotg1>;
+	vbus-supply = <&reg_usbotg1_vbus>;
+};
+
+&usbotg2 {
+	dr_mode = "host";
+	picophy,pre-emp-curr-control = <3>;
+	picophy,dc-vol-level-adjust = <7>;
+	status = "okay";
+};
+
+/* M.2 connector */
+&usdhc1 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	pinctrl-names = "default", "state_100mhz", "state_200mhz";
+	pinctrl-0 = <&pinctrl_usdhc1>, <&pinctrl_usdhc1_gpio>;
+	pinctrl-1 = <&pinctrl_usdhc1_100mhz>, <&pinctrl_usdhc1_gpio>;
+	pinctrl-2 = <&pinctrl_usdhc1_200mhz>, <&pinctrl_usdhc1_gpio>;
+	keep-power-in-suspend;
+	non-removable;
+	pm-ignore-notify;
+	cap-power-off;
+	mmc-pwrseq = <&usdhc1_pwrseq>;
+	status = "okay";
+	brcmf: bcrmf@1 {
+		reg = <1>;
+		compatible = "brcm,bcm4329-fmac";
+		interrupt-parent = <&gpio2>;
+		interrupts = <9 IRQ_TYPE_LEVEL_LOW>;  /* WL_HOST_WAKE = GPIO2_IO09 active low for M.2. */
+		interrupt-names = "host-wake";
+	};
+};
+
+/* uSD connector on carrier board */
+&usdhc2 {
+	pinctrl-names = "default", "state_100mhz", "state_200mhz";
+	pinctrl-0 = <&pinctrl_usdhc2>, <&pinctrl_usdhc2_gpio>;
+	pinctrl-1 = <&pinctrl_usdhc2_100mhz>, <&pinctrl_usdhc2_gpio>;
+	pinctrl-2 = <&pinctrl_usdhc2_200mhz>, <&pinctrl_usdhc2_gpio>;
+	bus-width = <4>;
+	cd-gpios = <&gpio2 12 GPIO_ACTIVE_LOW>;
+	vmmc-supply = <&reg_usdhc2_vmmc>;
+	status = "okay";
+};
+
+&wdog1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_wdog>;
+	fsl,ext-reset-output;
+	status = "okay";
+};
+
+&pwm1 {
+	status= "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_pwm1>;
+};
+
