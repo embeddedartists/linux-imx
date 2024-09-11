@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Low-Level PCI Support for the SH7780
  *
  *  Copyright (C) 2005 - 2010  Paul Mundt
- *
- * This file is subject to the terms and conditions of the GNU General Public
- * License.  See the file "COPYING" in the main directory of this archive
- * for more details.
  */
 #include <linux/types.h>
 #include <linux/kernel.h>
@@ -19,7 +16,14 @@
 #include <linux/log2.h>
 #include "pci-sh4.h"
 #include <asm/mmu.h>
-#include <asm/sizes.h>
+#include <linux/sizes.h>
+
+#if defined(CONFIG_CPU_BIG_ENDIAN)
+# define PCICR_ENDIANNESS SH4_PCICR_BSWP
+#else
+# define PCICR_ENDIANNESS 0
+#endif
+
 
 static struct resource sh7785_pci_resources[] = {
 	{
@@ -74,7 +78,7 @@ struct pci_errors {
 	{ SH4_PCIINT_MLCK,	"master lock error" },
 	{ SH4_PCIINT_TABT,	"target-target abort" },
 	{ SH4_PCIINT_TRET,	"target retry time out" },
-	{ SH4_PCIINT_MFDE,	"master function disable erorr" },
+	{ SH4_PCIINT_MFDE,	"master function disable error" },
 	{ SH4_PCIINT_PRTY,	"address parity error" },
 	{ SH4_PCIINT_SERR,	"SERR" },
 	{ SH4_PCIINT_TWDP,	"data parity error for target write" },
@@ -144,7 +148,7 @@ static irqreturn_t sh7780_pci_serr_irq(int irq, void *dev_id)
 
 	printk(KERN_DEBUG "PCI: system error received: ");
 	pcibios_report_status(PCI_STATUS_SIG_SYSTEM_ERROR, 1);
-	printk("\n");
+	pr_cont("\n");
 
 	/* Deassert SERR */
 	__raw_writel(SH4_PCIINTM_SDIM, hose->reg_base + SH4_PCIINTM);
@@ -175,7 +179,7 @@ static int __init sh7780_pci_setup_irqs(struct pci_channel *hose)
 	ret = request_irq(hose->serr_irq, sh7780_pci_serr_irq, 0,
 			  "PCI SERR interrupt", hose);
 	if (unlikely(ret)) {
-		printk(KERN_ERR "PCI: Failed hooking SERR IRQ\n");
+		pr_err("PCI: Failed hooking SERR IRQ\n");
 		return ret;
 	}
 
@@ -246,7 +250,7 @@ static int __init sh7780_pci_init(void)
 	const char *type;
 	int ret, i;
 
-	printk(KERN_NOTICE "PCI: Starting initialization.\n");
+	pr_notice("PCI: Starting initialization.\n");
 
 	chan->reg_base = 0xfe040000;
 
@@ -254,7 +258,7 @@ static int __init sh7780_pci_init(void)
 	__raw_writel(PCIECR_ENBL, PCIECR);
 
 	/* Reset */
-	__raw_writel(SH4_PCICR_PREFIX | SH4_PCICR_PRST,
+	__raw_writel(SH4_PCICR_PREFIX | SH4_PCICR_PRST | PCICR_ENDIANNESS,
 		     chan->reg_base + SH4_PCICR);
 
 	/*
@@ -266,7 +270,7 @@ static int __init sh7780_pci_init(void)
 
 	id = __raw_readw(chan->reg_base + PCI_VENDOR_ID);
 	if (id != PCI_VENDOR_ID_RENESAS) {
-		printk(KERN_ERR "PCI: Unknown vendor ID 0x%04x.\n", id);
+		pr_err("PCI: Unknown vendor ID 0x%04x.\n", id);
 		return -ENODEV;
 	}
 
@@ -277,20 +281,20 @@ static int __init sh7780_pci_init(void)
 	       (id == PCI_DEVICE_ID_RENESAS_SH7785) ? "SH7785" :
 					  NULL;
 	if (unlikely(!type)) {
-		printk(KERN_ERR "PCI: Found an unsupported Renesas host "
-		       "controller, device id 0x%04x.\n", id);
+		pr_err("PCI: Found an unsupported Renesas host controller, device id 0x%04x.\n",
+		       id);
 		return -EINVAL;
 	}
 
-	printk(KERN_NOTICE "PCI: Found a Renesas %s host "
-	       "controller, revision %d.\n", type,
-	       __raw_readb(chan->reg_base + PCI_REVISION_ID));
+	pr_notice("PCI: Found a Renesas %s host controller, revision %d.\n",
+		  type, __raw_readb(chan->reg_base + PCI_REVISION_ID));
 
 	/*
 	 * Now throw it in to register initialization mode and
 	 * start the real work.
 	 */
-	__raw_writel(SH4_PCICR_PREFIX, chan->reg_base + SH4_PCICR);
+	__raw_writel(SH4_PCICR_PREFIX | PCICR_ENDIANNESS,
+		     chan->reg_base + SH4_PCICR);
 
 	memphys = __pa(memory_start);
 	memsize = roundup_pow_of_two(memory_end - memory_start);
@@ -380,7 +384,8 @@ static int __init sh7780_pci_init(void)
 	 * Initialization mode complete, release the control register and
 	 * enable round robin mode to stop device overruns/starvation.
 	 */
-	__raw_writel(SH4_PCICR_PREFIX | SH4_PCICR_CFIN | SH4_PCICR_FTO,
+	__raw_writel(SH4_PCICR_PREFIX | SH4_PCICR_CFIN | SH4_PCICR_FTO |
+		     PCICR_ENDIANNESS,
 		     chan->reg_base + SH4_PCICR);
 
 	ret = register_pci_controller(chan);
@@ -389,9 +394,9 @@ static int __init sh7780_pci_init(void)
 
 	sh7780_pci66_init(chan);
 
-	printk(KERN_NOTICE "PCI: Running at %dMHz.\n",
-	       (__raw_readw(chan->reg_base + PCI_STATUS) & PCI_STATUS_66MHZ) ?
-	       66 : 33);
+	pr_notice("PCI: Running at %dMHz.\n",
+		  (__raw_readw(chan->reg_base + PCI_STATUS) & PCI_STATUS_66MHZ)
+		  ? 66 : 33);
 
 	return 0;
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Detection routine for the NCR53c710 based BVME6000 SCSI Controllers for Linux.
  *
@@ -34,7 +35,7 @@ static struct scsi_host_template bvme6000_scsi_driver_template = {
 
 static struct platform_device *bvme6000_scsi_device;
 
-static __devinit int
+static int
 bvme6000_probe(struct platform_device *dev)
 {
 	struct Scsi_Host *host;
@@ -88,7 +89,7 @@ bvme6000_probe(struct platform_device *dev)
 	return -ENODEV;
 }
 
-static __devexit int
+static int
 bvme6000_device_remove(struct platform_device *dev)
 {
 	struct Scsi_Host *host = platform_get_drvdata(dev);
@@ -105,10 +106,9 @@ bvme6000_device_remove(struct platform_device *dev)
 static struct platform_driver bvme6000_scsi_driver = {
 	.driver = {
 		.name		= "bvme6000-scsi",
-		.owner		= THIS_MODULE,
 	},
 	.probe		= bvme6000_probe,
-	.remove		= __devexit_p(bvme6000_device_remove),
+	.remove		= bvme6000_device_remove,
 };
 
 static int __init bvme6000_scsi_init(void)

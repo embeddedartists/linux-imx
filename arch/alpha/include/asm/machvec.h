@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __ALPHA_MACHVEC_H
 #define __ALPHA_MACHVEC_H 1
 
@@ -33,6 +34,7 @@ struct alpha_machine_vector
 
 	int nr_irqs;
 	int rtc_port;
+	int rtc_boot_cpu_only;
 	unsigned int max_asn;
 	unsigned long max_isa_dma_address;
 	unsigned long irq_probe_mask;
@@ -44,9 +46,9 @@ struct alpha_machine_vector
 	void (*mv_pci_tbi)(struct pci_controller *hose,
 			   dma_addr_t start, dma_addr_t end);
 
-	unsigned int (*mv_ioread8)(void __iomem *);
-	unsigned int (*mv_ioread16)(void __iomem *);
-	unsigned int (*mv_ioread32)(void __iomem *);
+	unsigned int (*mv_ioread8)(const void __iomem *);
+	unsigned int (*mv_ioread16)(const void __iomem *);
+	unsigned int (*mv_ioread32)(const void __iomem *);
 
 	void (*mv_iowrite8)(u8, void __iomem *);
 	void (*mv_iowrite16)(u16, void __iomem *);
@@ -90,21 +92,12 @@ struct alpha_machine_vector
 	void (*kill_arch)(int);
 
 	u8 (*pci_swizzle)(struct pci_dev *, u8 *);
-	int (*pci_map_irq)(struct pci_dev *, u8, u8);
+	int (*pci_map_irq)(const struct pci_dev *, u8, u8);
 	struct pci_ops *pci_ops;
 
 	struct _alpha_agp_info *(*agp_info)(void);
 
-	unsigned int (*rtc_get_time)(struct rtc_time *);
-	int (*rtc_set_time)(struct rtc_time *);
-
 	const char *vector_name;
-
-	/* NUMA information */
-	int (*pa_to_nid)(unsigned long);
-	int (*cpuid_to_nid)(int);
-	unsigned long (*node_mem_start)(int);
-	unsigned long (*node_mem_size)(int);
 
 	/* System specific parameters.  */
 	union {
@@ -126,13 +119,19 @@ extern struct alpha_machine_vector alpha_mv;
 
 #ifdef CONFIG_ALPHA_GENERIC
 extern int alpha_using_srm;
+extern int alpha_using_qemu;
 #else
-#ifdef CONFIG_ALPHA_SRM
-#define alpha_using_srm 1
-#else
-#define alpha_using_srm 0
-#endif
+# ifdef CONFIG_ALPHA_SRM
+#  define alpha_using_srm 1
+# else
+#  define alpha_using_srm 0
+# endif
+# ifdef CONFIG_ALPHA_QEMU
+#  define alpha_using_qemu 1
+# else
+#  define alpha_using_qemu 0
+# endif
 #endif /* GENERIC */
 
-#endif
+#endif /* __KERNEL__ */
 #endif /* __ALPHA_MACHVEC_H */

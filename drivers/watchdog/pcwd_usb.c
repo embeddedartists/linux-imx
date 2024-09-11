@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  *	Berkshire USB-PC Watchdog Card Driver
  *
@@ -10,11 +11,6 @@
  *	  Rob Radez <rob@osinvestor.com>,
  *	  Greg Kroah-Hartman <greg@kroah.com>
  *
- *	This program is free software; you can redistribute it and/or
- *	modify it under the terms of the GNU General Public License
- *	as published by the Free Software Foundation; either version
- *	2 of the License, or (at your option) any later version.
- *
  *	Neither Wim Van Sebroeck nor Iguana vzw. admit liability nor
  *	provide warranty for any of this software. This material is
  *	provided "AS-IS" and at no charge.
@@ -24,13 +20,15 @@
  *	http://www.berkprod.com/ or http://www.pcwatchdog.com/
  */
 
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/module.h>	/* For module specific items */
 #include <linux/moduleparam.h>	/* For new moduleparam's */
 #include <linux/types.h>	/* For standard types (like size_t) */
 #include <linux/errno.h>	/* For the -ENODEV/... values */
 #include <linux/kernel.h>	/* For printk/panic/... */
 #include <linux/delay.h>	/* For mdelay function */
-#include <linux/miscdevice.h>	/* For MODULE_ALIAS_MISCDEV(WATCHDOG_MINOR) */
+#include <linux/miscdevice.h>	/* For struct miscdevice */
 #include <linux/watchdog.h>	/* For the watchdog specific items */
 #include <linux/notifier.h>	/* For notifier support */
 #include <linux/reboot.h>	/* For reboot_notifier stuff */
@@ -43,34 +41,15 @@
 #include <linux/uaccess.h>	/* For copy_to_user/put_user/... */
 
 
-#ifdef CONFIG_USB_DEBUG
-	static int debug = 1;
-#else
-	static int debug;
-#endif
-
-/* Use our own dbg macro */
-#undef dbg
-#define dbg(format, arg...) \
-	do { if (debug) printk(KERN_DEBUG PFX format "\n" , ## arg); } while (0)
-
 /* Module and Version Information */
 #define DRIVER_VERSION "1.02"
 #define DRIVER_AUTHOR "Wim Van Sebroeck <wim@iguana.be>"
 #define DRIVER_DESC "Berkshire USB-PC Watchdog driver"
-#define DRIVER_LICENSE "GPL"
 #define DRIVER_NAME "pcwd_usb"
-#define PFX DRIVER_NAME ": "
 
 MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_DESCRIPTION(DRIVER_DESC);
-MODULE_LICENSE(DRIVER_LICENSE);
-MODULE_ALIAS_MISCDEV(WATCHDOG_MINOR);
-MODULE_ALIAS_MISCDEV(TEMP_MINOR);
-
-/* Module Parameters */
-module_param(debug, int, 0);
-MODULE_PARM_DESC(debug, "Debug enabled or not");
+MODULE_LICENSE("GPL");
 
 #define WATCHDOG_HEARTBEAT 0	/* default heartbeat =
 						delay-time from dip-switches */
@@ -80,8 +59,8 @@ MODULE_PARM_DESC(heartbeat, "Watchdog heartbeat in seconds. "
 	"(0<heartbeat<65536 or 0=delay-time from dip-switches, default="
 				__MODULE_STRING(WATCHDOG_HEARTBEAT) ")");
 
-static int nowayout = WATCHDOG_NOWAYOUT;
-module_param(nowayout, int, 0);
+static bool nowayout = WATCHDOG_NOWAYOUT;
+module_param(nowayout, bool, 0);
 MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default="
 				__MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
 
@@ -90,7 +69,7 @@ MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default="
 #define USB_PCWD_PRODUCT_ID	0x1140
 
 /* table of devices that work with this driver */
-static struct usb_device_id usb_pcwd_table[] = {
+static const struct usb_device_id usb_pcwd_table[] = {
 	{ USB_DEVICE(USB_PCWD_VENDOR_ID, USB_PCWD_PRODUCT_ID) },
 	{ }					/* Terminating entry */
 };
@@ -188,6 +167,7 @@ static void usb_pcwd_intr_done(struct urb *urb)
 	struct usb_pcwd_private *usb_pcwd =
 				(struct usb_pcwd_private *)urb->context;
 	unsigned char *data = usb_pcwd->intr_buffer;
+	struct device *dev = &usb_pcwd->interface->dev;
 	int retval;
 
 	switch (urb->status) {
@@ -197,17 +177,17 @@ static void usb_pcwd_intr_done(struct urb *urb)
 	case -ENOENT:
 	case -ESHUTDOWN:
 		/* this urb is terminated, clean up */
-		dbg("%s - urb shutting down with status: %d", __func__,
-								urb->status);
+		dev_dbg(dev, "%s - urb shutting down with status: %d",
+			__func__, urb->status);
 		return;
 	/* -EPIPE:  should clear the halt */
 	default:		/* error */
-		dbg("%s - nonzero urb status received: %d", __func__,
-								urb->status);
+		dev_dbg(dev, "%s - nonzero urb status received: %d",
+			__func__, urb->status);
 		goto resubmit;
 	}
 
-	dbg("received following data cmd=0x%02x msb=0x%02x lsb=0x%02x",
+	dev_dbg(dev, "received following data cmd=0x%02x msb=0x%02x lsb=0x%02x",
 		data[0], data[1], data[2]);
 
 	usb_pcwd->cmd_command  = data[0];
@@ -220,20 +200,24 @@ static void usb_pcwd_intr_done(struct urb *urb)
 resubmit:
 	retval = usb_submit_urb(urb, GFP_ATOMIC);
 	if (retval)
-		printk(KERN_ERR PFX "can't resubmit intr, "
-			"usb_submit_urb failed with result %d\n", retval);
+		pr_err("can't resubmit intr, usb_submit_urb failed with result %d\n",
+		       retval);
 }
 
 static int usb_pcwd_send_command(struct usb_pcwd_private *usb_pcwd,
 		unsigned char cmd, unsigned char *msb, unsigned char *lsb)
 {
 	int got_response, count;
-	unsigned char buf[6];
+	unsigned char *buf;
 
 	/* We will not send any commands if the USB PCWD device does
 	 * not exist */
 	if ((!usb_pcwd) || (!usb_pcwd->exists))
 		return -1;
+
+	buf = kmalloc(6, GFP_KERNEL);
+	if (buf == NULL)
+		return 0;
 
 	/* The USB PC Watchdog uses a 6 byte report format.
 	 * The board currently uses only 3 of the six bytes of the report. */
@@ -242,17 +226,19 @@ static int usb_pcwd_send_command(struct usb_pcwd_private *usb_pcwd,
 	buf[2] = *lsb;			/* Byte 2 = Data LSB */
 	buf[3] = buf[4] = buf[5] = 0;	/* All other bytes not used */
 
-	dbg("sending following data cmd=0x%02x msb=0x%02x lsb=0x%02x",
+	dev_dbg(&usb_pcwd->interface->dev,
+		"sending following data cmd=0x%02x msb=0x%02x lsb=0x%02x",
 		buf[0], buf[1], buf[2]);
 
 	atomic_set(&usb_pcwd->cmd_received, 0);
 
 	if (usb_control_msg(usb_pcwd->udev, usb_sndctrlpipe(usb_pcwd->udev, 0),
 			HID_REQ_SET_REPORT, HID_DT_REPORT,
-			0x0200, usb_pcwd->interface_number, buf, sizeof(buf),
-			USB_COMMAND_TIMEOUT) != sizeof(buf)) {
-		dbg("usb_pcwd_send_command: error in usb_control_msg for "
-				"cmd 0x%x 0x%x 0x%x\n", cmd, *msb, *lsb);
+			0x0200, usb_pcwd->interface_number, buf, 6,
+			USB_COMMAND_TIMEOUT) != 6) {
+		dev_dbg(&usb_pcwd->interface->dev,
+			"usb_pcwd_send_command: error in usb_control_msg for cmd 0x%x 0x%x 0x%x\n",
+			cmd, *msb, *lsb);
 	}
 	/* wait till the usb card processed the command,
 	 * with a max. timeout of USB_COMMAND_TIMEOUT */
@@ -270,6 +256,8 @@ static int usb_pcwd_send_command(struct usb_pcwd_private *usb_pcwd,
 		*lsb = usb_pcwd->cmd_data_lsb;
 	}
 
+	kfree(buf);
+
 	return got_response;
 }
 
@@ -284,8 +272,7 @@ static int usb_pcwd_start(struct usb_pcwd_private *usb_pcwd)
 								&msb, &lsb);
 
 	if ((retval == 0) || (lsb == 0)) {
-		printk(KERN_ERR PFX
-				"Card did not acknowledge enable attempt\n");
+		pr_err("Card did not acknowledge enable attempt\n");
 		return -1;
 	}
 
@@ -303,8 +290,7 @@ static int usb_pcwd_stop(struct usb_pcwd_private *usb_pcwd)
 								&msb, &lsb);
 
 	if ((retval == 0) || (lsb != 0)) {
-		printk(KERN_ERR PFX
-			"Card did not acknowledge disable attempt\n");
+		pr_err("Card did not acknowledge disable attempt\n");
 		return -1;
 	}
 
@@ -465,8 +451,8 @@ static long usb_pcwd_ioctl(struct file *file, unsigned int cmd,
 			return -EINVAL;
 
 		usb_pcwd_keepalive(usb_pcwd_device);
-		/* Fall */
 	}
+		fallthrough;
 
 	case WDIOC_GETTIMEOUT:
 		return put_user(heartbeat, p);
@@ -495,7 +481,7 @@ static int usb_pcwd_open(struct inode *inode, struct file *file)
 	/* Activate */
 	usb_pcwd_start(usb_pcwd_device);
 	usb_pcwd_keepalive(usb_pcwd_device);
-	return nonseekable_open(inode, file);
+	return stream_open(inode, file);
 }
 
 static int usb_pcwd_release(struct inode *inode, struct file *file)
@@ -506,8 +492,7 @@ static int usb_pcwd_release(struct inode *inode, struct file *file)
 	if (expect_release == 42) {
 		usb_pcwd_stop(usb_pcwd_device);
 	} else {
-		printk(KERN_CRIT PFX
-			"Unexpected close, not stopping watchdog!\n");
+		pr_crit("Unexpected close, not stopping watchdog!\n");
 		usb_pcwd_keepalive(usb_pcwd_device);
 	}
 	expect_release = 0;
@@ -535,7 +520,7 @@ static ssize_t usb_pcwd_temperature_read(struct file *file, char __user *data,
 
 static int usb_pcwd_temperature_open(struct inode *inode, struct file *file)
 {
-	return nonseekable_open(inode, file);
+	return stream_open(inode, file);
 }
 
 static int usb_pcwd_temperature_release(struct inode *inode, struct file *file)
@@ -565,6 +550,7 @@ static const struct file_operations usb_pcwd_fops = {
 	.llseek =	no_llseek,
 	.write =	usb_pcwd_write,
 	.unlocked_ioctl = usb_pcwd_ioctl,
+	.compat_ioctl = compat_ptr_ioctl,
 	.open =		usb_pcwd_open,
 	.release =	usb_pcwd_release,
 };
@@ -599,9 +585,8 @@ static struct notifier_block usb_pcwd_notifier = {
 static inline void usb_pcwd_delete(struct usb_pcwd_private *usb_pcwd)
 {
 	usb_free_urb(usb_pcwd->intr_urb);
-	if (usb_pcwd->intr_buffer != NULL)
-		usb_free_coherent(usb_pcwd->udev, usb_pcwd->intr_size,
-				  usb_pcwd->intr_buffer, usb_pcwd->intr_dma);
+	usb_free_coherent(usb_pcwd->udev, usb_pcwd->intr_size,
+			  usb_pcwd->intr_buffer, usb_pcwd->intr_dma);
 	kfree(usb_pcwd);
 }
 
@@ -618,7 +603,7 @@ static int usb_pcwd_probe(struct usb_interface *interface,
 	struct usb_host_interface *iface_desc;
 	struct usb_endpoint_descriptor *endpoint;
 	struct usb_pcwd_private *usb_pcwd = NULL;
-	int pipe, maxp;
+	int pipe;
 	int retval = -ENOMEM;
 	int got_fw_rev;
 	unsigned char fw_rev_major, fw_rev_minor;
@@ -627,7 +612,7 @@ static int usb_pcwd_probe(struct usb_interface *interface,
 
 	cards_found++;
 	if (cards_found > 1) {
-		printk(KERN_ERR PFX "This driver only supports 1 device\n");
+		pr_err("This driver only supports 1 device\n");
 		return -ENODEV;
 	}
 
@@ -636,30 +621,29 @@ static int usb_pcwd_probe(struct usb_interface *interface,
 
 	/* check out that we have a HID device */
 	if (!(iface_desc->desc.bInterfaceClass == USB_CLASS_HID)) {
-		printk(KERN_ERR PFX
-			"The device isn't a Human Interface Device\n");
+		pr_err("The device isn't a Human Interface Device\n");
 		return -ENODEV;
 	}
+
+	if (iface_desc->desc.bNumEndpoints < 1)
+		return -ENODEV;
 
 	/* check out the endpoint: it has to be Interrupt & IN */
 	endpoint = &iface_desc->endpoint[0].desc;
 
 	if (!usb_endpoint_is_int_in(endpoint)) {
 		/* we didn't find a Interrupt endpoint with direction IN */
-		printk(KERN_ERR PFX "Couldn't find an INTR & IN endpoint\n");
+		pr_err("Couldn't find an INTR & IN endpoint\n");
 		return -ENODEV;
 	}
 
 	/* get a handle to the interrupt data pipe */
 	pipe = usb_rcvintpipe(udev, endpoint->bEndpointAddress);
-	maxp = usb_maxpacket(udev, pipe, usb_pipeout(pipe));
 
 	/* allocate memory for our device and initialize it */
 	usb_pcwd = kzalloc(sizeof(struct usb_pcwd_private), GFP_KERNEL);
-	if (usb_pcwd == NULL) {
-		printk(KERN_ERR PFX "Out of memory\n");
+	if (usb_pcwd == NULL)
 		goto error;
-	}
 
 	usb_pcwd_device = usb_pcwd;
 
@@ -672,18 +656,16 @@ static int usb_pcwd_probe(struct usb_interface *interface,
 
 	/* set up the memory buffer's */
 	usb_pcwd->intr_buffer = usb_alloc_coherent(udev, usb_pcwd->intr_size,
-					GFP_ATOMIC, &usb_pcwd->intr_dma);
+					GFP_KERNEL, &usb_pcwd->intr_dma);
 	if (!usb_pcwd->intr_buffer) {
-		printk(KERN_ERR PFX "Out of memory\n");
+		pr_err("Out of memory\n");
 		goto error;
 	}
 
 	/* allocate the urb's */
 	usb_pcwd->intr_urb = usb_alloc_urb(0, GFP_KERNEL);
-	if (!usb_pcwd->intr_urb) {
-		printk(KERN_ERR PFX "Out of memory\n");
+	if (!usb_pcwd->intr_urb)
 		goto error;
-	}
 
 	/* initialise the intr urb's */
 	usb_fill_int_urb(usb_pcwd->intr_urb, udev, pipe,
@@ -694,7 +676,7 @@ static int usb_pcwd_probe(struct usb_interface *interface,
 
 	/* register our interrupt URB with the USB system */
 	if (usb_submit_urb(usb_pcwd->intr_urb, GFP_KERNEL)) {
-		printk(KERN_ERR PFX "Problem registering interrupt URB\n");
+		pr_err("Problem registering interrupt URB\n");
 		retval = -EIO; /* failure */
 		goto error;
 	}
@@ -713,15 +695,13 @@ static int usb_pcwd_probe(struct usb_interface *interface,
 	else
 		sprintf(fw_ver_str, "<card no answer>");
 
-	printk(KERN_INFO PFX "Found card (Firmware: %s) with temp option\n",
-		fw_ver_str);
+	pr_info("Found card (Firmware: %s) with temp option\n", fw_ver_str);
 
 	/* Get switch settings */
 	usb_pcwd_send_command(usb_pcwd, CMD_GET_DIP_SWITCH_SETTINGS, &dummy,
 							&option_switches);
 
-	printk(KERN_INFO PFX "Option switches (0x%02x): "
-		"Temperature Reset Enable=%s, Power On Delay=%s\n",
+	pr_info("Option switches (0x%02x): Temperature Reset Enable=%s, Power On Delay=%s\n",
 		option_switches,
 		((option_switches & 0x10) ? "ON" : "OFF"),
 		((option_switches & 0x08) ? "ON" : "OFF"));
@@ -734,39 +714,34 @@ static int usb_pcwd_probe(struct usb_interface *interface,
 	 * if not reset to the default */
 	if (usb_pcwd_set_heartbeat(usb_pcwd, heartbeat)) {
 		usb_pcwd_set_heartbeat(usb_pcwd, WATCHDOG_HEARTBEAT);
-		printk(KERN_INFO PFX
-			"heartbeat value must be 0<heartbeat<65536, using %d\n",
+		pr_info("heartbeat value must be 0<heartbeat<65536, using %d\n",
 			WATCHDOG_HEARTBEAT);
 	}
 
 	retval = register_reboot_notifier(&usb_pcwd_notifier);
 	if (retval != 0) {
-		printk(KERN_ERR PFX
-			"cannot register reboot notifier (err=%d)\n",
-			retval);
+		pr_err("cannot register reboot notifier (err=%d)\n", retval);
 		goto error;
 	}
 
 	retval = misc_register(&usb_pcwd_temperature_miscdev);
 	if (retval != 0) {
-		printk(KERN_ERR PFX
-			"cannot register miscdev on minor=%d (err=%d)\n",
-			TEMP_MINOR, retval);
+		pr_err("cannot register miscdev on minor=%d (err=%d)\n",
+		       TEMP_MINOR, retval);
 		goto err_out_unregister_reboot;
 	}
 
 	retval = misc_register(&usb_pcwd_miscdev);
 	if (retval != 0) {
-		printk(KERN_ERR PFX
-			"cannot register miscdev on minor=%d (err=%d)\n",
-			WATCHDOG_MINOR, retval);
+		pr_err("cannot register miscdev on minor=%d (err=%d)\n",
+		       WATCHDOG_MINOR, retval);
 		goto err_out_misc_deregister;
 	}
 
 	/* we can register the device now, as it is ready */
 	usb_set_intfdata(interface, usb_pcwd);
 
-	printk(KERN_INFO PFX "initialized. heartbeat=%d sec (nowayout=%d)\n",
+	pr_info("initialized. heartbeat=%d sec (nowayout=%d)\n",
 		heartbeat, nowayout);
 
 	return 0;
@@ -824,7 +799,7 @@ static void usb_pcwd_disconnect(struct usb_interface *interface)
 
 	mutex_unlock(&disconnect_mutex);
 
-	printk(KERN_INFO PFX "USB PC Watchdog disconnected\n");
+	pr_info("USB PC Watchdog disconnected\n");
 }
 
 module_usb_driver(usb_pcwd_driver);

@@ -1,12 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * EP93xx ethernet network device driver
  * Copyright (C) 2006 Lennert Buytenhek <buytenh@wantstofly.org>
  * Dedicated to Marija Kulikova.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ":%s: " fmt, __func__
@@ -18,7 +14,6 @@
 #include <linux/mii.h>
 #include <linux/etherdevice.h>
 #include <linux/ethtool.h>
-#include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/moduleparam.h>
 #include <linux/platform_device.h>
@@ -26,10 +21,9 @@
 #include <linux/io.h>
 #include <linux/slab.h>
 
-#include <mach/hardware.h>
+#include <linux/platform_data/eth-ep93xx.h>
 
 #define DRV_MODULE_NAME		"ep93xx-eth"
-#define DRV_MODULE_VERSION	"0.1"
 
 #define RX_QUEUE_ENTRIES	64
 #define TX_QUEUE_ENTRIES	8
@@ -229,9 +223,10 @@ static void ep93xx_mdio_write(struct net_device *dev, int phy_id, int reg, int d
 		pr_info("mdio write timed out\n");
 }
 
-static int ep93xx_rx(struct net_device *dev, int processed, int budget)
+static int ep93xx_rx(struct net_device *dev, int budget)
 {
 	struct ep93xx_priv *ep = netdev_priv(dev);
+	int processed = 0;
 
 	while (processed < budget) {
 		int entry;
@@ -282,7 +277,7 @@ static int ep93xx_rx(struct net_device *dev, int processed, int budget)
 		if (rstat0 & RSTAT0_CRCI)
 			length -= 4;
 
-		skb = dev_alloc_skb(length + 2);
+		skb = netdev_alloc_skb(dev, length + 2);
 		if (likely(skb != NULL)) {
 			struct ep93xx_rdesc *rxd = &ep->descs->rdesc[entry];
 			skb_reserve(skb, 2);
@@ -295,7 +290,7 @@ static int ep93xx_rx(struct net_device *dev, int processed, int budget)
 			skb_put(skb, length);
 			skb->protocol = eth_type_trans(skb, dev);
 
-			netif_receive_skb(skb);
+			napi_gro_receive(&ep->napi, skb);
 
 			dev->stats.rx_packets++;
 			dev->stats.rx_bytes += length;
@@ -311,35 +306,17 @@ err:
 	return processed;
 }
 
-static int ep93xx_have_more_rx(struct ep93xx_priv *ep)
-{
-	struct ep93xx_rstat *rstat = ep->descs->rstat + ep->rx_pointer;
-	return !!((rstat->rstat0 & RSTAT0_RFP) && (rstat->rstat1 & RSTAT1_RFP));
-}
-
 static int ep93xx_poll(struct napi_struct *napi, int budget)
 {
 	struct ep93xx_priv *ep = container_of(napi, struct ep93xx_priv, napi);
 	struct net_device *dev = ep->dev;
-	int rx = 0;
+	int rx;
 
-poll_some_more:
-	rx = ep93xx_rx(dev, rx, budget);
-	if (rx < budget) {
-		int more = 0;
-
+	rx = ep93xx_rx(dev, budget);
+	if (rx < budget && napi_complete_done(napi, rx)) {
 		spin_lock_irq(&ep->rx_lock);
-		__napi_complete(napi);
 		wrl(ep, REG_INTEN, REG_INTEN_TX | REG_INTEN_RX);
-		if (ep93xx_have_more_rx(ep)) {
-			wrl(ep, REG_INTEN, REG_INTEN_TX);
-			wrl(ep, REG_INTSTSP, REG_INTSTS_RX);
-			more = 1;
-		}
 		spin_unlock_irq(&ep->rx_lock);
-
-		if (more && napi_reschedule(napi))
-			goto poll_some_more;
 	}
 
 	if (rx) {
@@ -350,7 +327,7 @@ poll_some_more:
 	return rx;
 }
 
-static int ep93xx_xmit(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t ep93xx_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct ep93xx_priv *ep = netdev_priv(dev);
 	struct ep93xx_tdesc *txd;
@@ -469,6 +446,9 @@ static void ep93xx_free_buffers(struct ep93xx_priv *ep)
 	struct device *dev = ep->dev->dev.parent;
 	int i;
 
+	if (!ep->descs)
+		return;
+
 	for (i = 0; i < RX_QUEUE_ENTRIES; i++) {
 		dma_addr_t d;
 
@@ -476,8 +456,7 @@ static void ep93xx_free_buffers(struct ep93xx_priv *ep)
 		if (d)
 			dma_unmap_single(dev, d, PKT_BUF_SIZE, DMA_FROM_DEVICE);
 
-		if (ep->rx_buf[i] != NULL)
-			kfree(ep->rx_buf[i]);
+		kfree(ep->rx_buf[i]);
 	}
 
 	for (i = 0; i < TX_QUEUE_ENTRIES; i++) {
@@ -487,12 +466,12 @@ static void ep93xx_free_buffers(struct ep93xx_priv *ep)
 		if (d)
 			dma_unmap_single(dev, d, PKT_BUF_SIZE, DMA_TO_DEVICE);
 
-		if (ep->tx_buf[i] != NULL)
-			kfree(ep->tx_buf[i]);
+		kfree(ep->tx_buf[i]);
 	}
 
 	dma_free_coherent(dev, sizeof(struct ep93xx_descs), ep->descs,
 							ep->descs_dma_addr);
+	ep->descs = NULL;
 }
 
 static int ep93xx_alloc_buffers(struct ep93xx_priv *ep)
@@ -710,20 +689,24 @@ static int ep93xx_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 
 static void ep93xx_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *info)
 {
-	strcpy(info->driver, DRV_MODULE_NAME);
-	strcpy(info->version, DRV_MODULE_VERSION);
+	strlcpy(info->driver, DRV_MODULE_NAME, sizeof(info->driver));
 }
 
-static int ep93xx_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
+static int ep93xx_get_link_ksettings(struct net_device *dev,
+				     struct ethtool_link_ksettings *cmd)
 {
 	struct ep93xx_priv *ep = netdev_priv(dev);
-	return mii_ethtool_gset(&ep->mii, cmd);
+
+	mii_ethtool_get_link_ksettings(&ep->mii, cmd);
+
+	return 0;
 }
 
-static int ep93xx_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
+static int ep93xx_set_link_ksettings(struct net_device *dev,
+				     const struct ethtool_link_ksettings *cmd)
 {
 	struct ep93xx_priv *ep = netdev_priv(dev);
-	return mii_ethtool_sset(&ep->mii, cmd);
+	return mii_ethtool_set_link_ksettings(&ep->mii, cmd);
 }
 
 static int ep93xx_nway_reset(struct net_device *dev)
@@ -740,19 +723,18 @@ static u32 ep93xx_get_link(struct net_device *dev)
 
 static const struct ethtool_ops ep93xx_ethtool_ops = {
 	.get_drvinfo		= ep93xx_get_drvinfo,
-	.get_settings		= ep93xx_get_settings,
-	.set_settings		= ep93xx_set_settings,
 	.nway_reset		= ep93xx_nway_reset,
 	.get_link		= ep93xx_get_link,
+	.get_link_ksettings	= ep93xx_get_link_ksettings,
+	.set_link_ksettings	= ep93xx_set_link_ksettings,
 };
 
 static const struct net_device_ops ep93xx_netdev_ops = {
 	.ndo_open		= ep93xx_open,
 	.ndo_stop		= ep93xx_close,
 	.ndo_start_xmit		= ep93xx_xmit,
-	.ndo_do_ioctl		= ep93xx_ioctl,
+	.ndo_eth_ioctl		= ep93xx_ioctl,
 	.ndo_validate_addr	= eth_validate_addr,
-	.ndo_change_mtu		= eth_change_mtu,
 	.ndo_set_mac_address	= eth_mac_addr,
 };
 
@@ -779,11 +761,11 @@ static int ep93xx_eth_remove(struct platform_device *pdev)
 {
 	struct net_device *dev;
 	struct ep93xx_priv *ep;
+	struct resource *mem;
 
 	dev = platform_get_drvdata(pdev);
 	if (dev == NULL)
 		return 0;
-	platform_set_drvdata(pdev, NULL);
 
 	ep = netdev_priv(dev);
 
@@ -795,8 +777,8 @@ static int ep93xx_eth_remove(struct platform_device *pdev)
 		iounmap(ep->base_addr);
 
 	if (ep->res != NULL) {
-		release_resource(ep->res);
-		kfree(ep->res);
+		mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+		release_mem_region(mem->start, resource_size(mem));
 	}
 
 	free_netdev(dev);
@@ -815,7 +797,7 @@ static int ep93xx_eth_probe(struct platform_device *pdev)
 
 	if (pdev == NULL)
 		return -ENODEV;
-	data = pdev->dev.platform_data;
+	data = dev_get_platdata(&pdev->dev);
 
 	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	irq = platform_get_irq(pdev, 0);
@@ -859,7 +841,7 @@ static int ep93xx_eth_probe(struct platform_device *pdev)
 	ep->mdc_divisor = 40;	/* Max HCLK 100 MHz, min MDIO clk 2.5 MHz.  */
 
 	if (is_zero_ether_addr(dev->dev_addr))
-		random_ether_addr(dev->dev_addr);
+		eth_hw_addr_random(dev);
 
 	err = register_netdev(dev);
 	if (err) {
@@ -883,22 +865,10 @@ static struct platform_driver ep93xx_eth_driver = {
 	.remove		= ep93xx_eth_remove,
 	.driver		= {
 		.name	= "ep93xx-eth",
-		.owner	= THIS_MODULE,
 	},
 };
 
-static int __init ep93xx_eth_init_module(void)
-{
-	printk(KERN_INFO DRV_MODULE_NAME " version " DRV_MODULE_VERSION " loading\n");
-	return platform_driver_register(&ep93xx_eth_driver);
-}
+module_platform_driver(ep93xx_eth_driver);
 
-static void __exit ep93xx_eth_cleanup_module(void)
-{
-	platform_driver_unregister(&ep93xx_eth_driver);
-}
-
-module_init(ep93xx_eth_init_module);
-module_exit(ep93xx_eth_cleanup_module);
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("platform:ep93xx-eth");

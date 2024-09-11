@@ -1,13 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
 ** I/O Sapic Driver - PCI interrupt line support
 **
 **      (c) Copyright 1999 Grant Grundler
 **      (c) Copyright 1999 Hewlett-Packard Company
 **
-**      This program is free software; you can redistribute it and/or modify
-**      it under the terms of the GNU General Public License as published by
-**      the Free Software Foundation; either version 2 of the License, or
-**      (at your option) any later version.
 **
 ** The I/O sapic driver manages the Interrupt Redirection Table which is
 ** the control logic to convert PCI line based interrupts into a Message
@@ -126,28 +123,16 @@
 **   o disable IRdT - call disable_irq(vector[line]->processor_irq)
 */
 
-
-/* FIXME: determine which include files are really needed */
-#include <linux/types.h>
-#include <linux/kernel.h>
-#include <linux/spinlock.h>
 #include <linux/pci.h>
-#include <linux/init.h>
-#include <linux/slab.h>
-#include <linux/interrupt.h>
 
-#include <asm/byteorder.h>	/* get in-line asm for swab */
 #include <asm/pdc.h>
 #include <asm/pdcpat.h>
-#include <asm/page.h>
-#include <asm/system.h>
-#include <asm/io.h>		/* read/write functions */
 #ifdef CONFIG_SUPERIO
 #include <asm/superio.h>
 #endif
 
 #include <asm/ropes.h>
-#include "./iosapic_private.h"
+#include "iosapic_private.h"
 
 #define MODULE_NAME "iosapic"
 
@@ -533,7 +518,7 @@ iosapic_xlate_pin(struct iosapic_info *isi, struct pci_dev *pcidev)
 		intr_slot = PCI_SLOT(pcidev->devfn);
 	}
 	DBG_IRT("iosapic_xlate_pin:  bus %d slot %d pin %d\n",
-				pcidev->bus->secondary, intr_slot, intr_pin);
+			pcidev->bus->busn_res.start, intr_slot, intr_pin);
 
 	return irt_find_irqline(isi, intr_slot, intr_pin);
 }
@@ -692,7 +677,7 @@ static int iosapic_set_affinity_irq(struct irq_data *d,
 	if (dest_cpu < 0)
 		return -1;
 
-	cpumask_copy(d->affinity, cpumask_of(dest_cpu));
+	cpumask_copy(irq_data_get_affinity_mask(d), cpumask_of(dest_cpu));
 	vi->txn_addr = txn_affinity_addr(d->irq, dest_cpu);
 
 	spin_lock_irqsave(&iosapic_lock, flags);
@@ -812,6 +797,86 @@ int iosapic_fixup_irq(void *isi_obj, struct pci_dev *pcidev)
 	return pcidev->irq;
 }
 
+static struct iosapic_info *iosapic_list;
+
+#ifdef CONFIG_64BIT
+int iosapic_serial_irq(struct parisc_device *dev)
+{
+	struct iosapic_info *isi;
+	struct irt_entry *irte;
+	struct vector_info *vi;
+	int cnt;
+	int intin;
+
+	intin = (dev->mod_info >> 24) & 15;
+
+	/* lookup IRT entry for isi/slot/pin set */
+	for (cnt = 0; cnt < irt_num_entry; cnt++) {
+		irte = &irt_cell[cnt];
+		if (COMPARE_IRTE_ADDR(irte, dev->mod0) &&
+		    irte->dest_iosapic_intin == intin)
+			break;
+	}
+	if (cnt >= irt_num_entry)
+		return 0; /* no irq found, force polling */
+
+	DBG_IRT("iosapic_serial_irq(): irte %p %x %x %x %x %x %x %x %x\n",
+		irte,
+		irte->entry_type,
+		irte->entry_length,
+		irte->polarity_trigger,
+		irte->src_bus_irq_devno,
+		irte->src_bus_id,
+		irte->src_seg_id,
+		irte->dest_iosapic_intin,
+		(u32) irte->dest_iosapic_addr);
+
+	/* search for iosapic */
+	for (isi = iosapic_list; isi; isi = isi->isi_next)
+		if (isi->isi_hpa == dev->mod0)
+			break;
+	if (!isi)
+		return 0; /* no iosapic found, force polling */
+
+	/* get vector info for this input line */
+	vi = isi->isi_vector + intin;
+	DBG_IRT("iosapic_serial_irq:  line %d vi 0x%p\n", iosapic_intin, vi);
+
+	/* If this IRQ line has already been setup, skip it */
+	if (vi->irte)
+		goto out;
+
+	vi->irte = irte;
+
+	/*
+	 * Allocate processor IRQ
+	 *
+	 * XXX/FIXME The txn_alloc_irq() code and related code should be
+	 * moved to enable_irq(). That way we only allocate processor IRQ
+	 * bits for devices that actually have drivers claiming them.
+	 * Right now we assign an IRQ to every PCI device present,
+	 * regardless of whether it's used or not.
+	 */
+	vi->txn_irq = txn_alloc_irq(8);
+
+	if (vi->txn_irq < 0)
+		panic("I/O sapic: couldn't get TXN IRQ\n");
+
+	/* enable_irq() will use txn_* to program IRdT */
+	vi->txn_addr = txn_alloc_addr(vi->txn_irq);
+	vi->txn_data = txn_alloc_data(vi->txn_irq);
+
+	vi->eoi_addr = isi->addr + IOSAPIC_REG_EOI;
+	vi->eoi_data = cpu_to_le32(vi->txn_data);
+
+	cpu_claim_irq(vi->txn_irq, &iosapic_interrupt_type, vi);
+
+ out:
+
+	return vi->txn_irq;
+}
+#endif
+
 
 /*
 ** squirrel away the I/O Sapic Version
@@ -862,7 +927,7 @@ void *iosapic_register(unsigned long hpa)
 		return NULL;
 	}
 
-	isi->addr = ioremap_nocache(hpa, 4096);
+	isi->addr = ioremap(hpa, 4096);
 	isi->isi_hpa = hpa;
 	isi->isi_version = iosapic_rd_version(isi);
 	isi->isi_num_vectors = IOSAPIC_IRDT_MAX_ENTRY(isi->isi_version) + 1;
@@ -878,6 +943,8 @@ void *iosapic_register(unsigned long hpa)
 		vip->irqline = (unsigned char) cnt;
 		vip->iosapic = isi;
 	}
+	isi->isi_next = iosapic_list;
+	iosapic_list = isi;
 	return isi;
 }
 

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef FWH_LOCK_H
 #define FWH_LOCK_H
 
@@ -101,7 +102,7 @@ static void fixup_use_fwh_lock(struct mtd_info *mtd)
 {
 	printk(KERN_NOTICE "using fwh lock/unlock method\n");
 	/* Setup for the chips with the fwh lock method */
-	mtd->lock   = fwh_lock_varsize;
-	mtd->unlock = fwh_unlock_varsize;
+	mtd->_lock   = fwh_lock_varsize;
+	mtd->_unlock = fwh_unlock_varsize;
 }
 #endif /* FWH_LOCK_H */

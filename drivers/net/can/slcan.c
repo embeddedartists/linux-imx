@@ -1,7 +1,7 @@
 /*
  * slcan.c - serial line CAN interface driver (using tty line discipline)
  *
- * This file is derived from linux/drivers/net/slip.c
+ * This file is derived from linux/drivers/net/slip/slip.c
  *
  * slip.c Authors  : Laurence Culhane <loz@holmes.demon.co.uk>
  *                   Fred N. van Kempen <waltje@uwalt.nl.mugnet.org>
@@ -18,9 +18,7 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 59 Temple Place, Suite 330, Boston, MA 02111-1307. You can also get it
- * at http://www.gnu.org/licenses/gpl.html
+ * with this program; if not, see http://www.gnu.org/licenses/gpl.html
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
@@ -40,7 +38,6 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 
-#include <asm/system.h>
 #include <linux/uaccess.h>
 #include <linux/bitops.h>
 #include <linux/string.h>
@@ -55,10 +52,10 @@
 #include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
+#include <linux/workqueue.h>
 #include <linux/can.h>
-
-static __initdata const char banner[] =
-	KERN_INFO "slcan: serial line CAN interface driver\n";
+#include <linux/can/skb.h>
+#include <linux/can/can-ml.h>
 
 MODULE_ALIAS_LDISC(N_SLCAN);
 MODULE_DESCRIPTION("serial line CAN interface");
@@ -76,6 +73,10 @@ MODULE_PARM_DESC(maxdev, "Maximum number of slcan interfaces");
 /* maximum rx buffer len: extended CAN frame with timestamp */
 #define SLC_MTU (sizeof("T1111222281122334455667788EA5F\r")+1)
 
+#define SLC_CMD_LEN 1
+#define SLC_SFF_ID_LEN 3
+#define SLC_EFF_ID_LEN 8
+
 struct slcan {
 	int			magic;
 
@@ -83,6 +84,7 @@ struct slcan {
 	struct tty_struct	*tty;		/* ptr to TTY structure	     */
 	struct net_device	*dev;		/* easy for intr handling    */
 	spinlock_t		lock;
+	struct work_struct	tx_work;	/* Flushes transmit buffer   */
 
 	/* These are pointers to the malloc()ed frame buffers. */
 	unsigned char		rbuff[SLC_MTU];	/* receiver buffer	     */
@@ -104,8 +106,8 @@ static struct net_device **slcan_devs;
 
 /*
  * A CAN frame has a can_id (11 bit standard frame format OR 29 bit extended
- * frame format) a data length code (can_dlc) which can be from 0 to 8
- * and up to <can_dlc> data bytes as payload.
+ * frame format) a data length code (len) which can be from 0 to 8
+ * and up to <len> data bytes as payload.
  * Additionally a CAN frame may become a remote transmission frame if the
  * RTR-bit is set. This causes another ECU to send a CAN frame with the
  * given can_id.
@@ -126,10 +128,10 @@ static struct net_device **slcan_devs;
  *
  * Examples:
  *
- * t1230 : can_id 0x123, can_dlc 0, no data
- * t4563112233 : can_id 0x456, can_dlc 3, data 0x11 0x22 0x33
- * T12ABCDEF2AA55 : extended can_id 0x12ABCDEF, can_dlc 2, data 0xAA 0x55
- * r1230 : can_id 0x123, can_dlc 0, no data, remote transmission request
+ * t1230 : can_id 0x123, len 0, no data
+ * t4563112233 : can_id 0x456, len 3, data 0x11 0x22 0x33
+ * T12ABCDEF2AA55 : extended can_id 0x12ABCDEF, len 2, data 0xAA 0x55
+ * r1230 : can_id 0x123, len 0, no data, remote transmission request
  *
  */
 
@@ -142,50 +144,65 @@ static void slc_bump(struct slcan *sl)
 {
 	struct sk_buff *skb;
 	struct can_frame cf;
-	int i, dlc_pos, tmp;
-	unsigned long ultmp;
-	char cmd = sl->rbuff[0];
+	int i, tmp;
+	u32 tmpid;
+	char *cmd = sl->rbuff;
 
-	if ((cmd != 't') && (cmd != 'T') && (cmd != 'r') && (cmd != 'R'))
-		return;
+	memset(&cf, 0, sizeof(cf));
 
-	if (cmd & 0x20) /* tiny chars 'r' 't' => standard frame format */
-		dlc_pos = 4; /* dlc position tiiid */
-	else
-		dlc_pos = 9; /* dlc position Tiiiiiiiid */
-
-	if (!((sl->rbuff[dlc_pos] >= '0') && (sl->rbuff[dlc_pos] < '9')))
-		return;
-
-	cf.can_dlc = sl->rbuff[dlc_pos] - '0'; /* get can_dlc from ASCII val */
-
-	sl->rbuff[dlc_pos] = 0; /* terminate can_id string */
-
-	if (strict_strtoul(sl->rbuff+1, 16, &ultmp))
-		return;
-
-	cf.can_id = ultmp;
-
-	if (!(cmd & 0x20)) /* NO tiny chars => extended frame format */
+	switch (*cmd) {
+	case 'r':
+		cf.can_id = CAN_RTR_FLAG;
+		fallthrough;
+	case 't':
+		/* store dlc ASCII value and terminate SFF CAN ID string */
+		cf.len = sl->rbuff[SLC_CMD_LEN + SLC_SFF_ID_LEN];
+		sl->rbuff[SLC_CMD_LEN + SLC_SFF_ID_LEN] = 0;
+		/* point to payload data behind the dlc */
+		cmd += SLC_CMD_LEN + SLC_SFF_ID_LEN + 1;
+		break;
+	case 'R':
+		cf.can_id = CAN_RTR_FLAG;
+		fallthrough;
+	case 'T':
 		cf.can_id |= CAN_EFF_FLAG;
-
-	if ((cmd | 0x20) == 'r') /* RTR frame */
-		cf.can_id |= CAN_RTR_FLAG;
-
-	*(u64 *) (&cf.data) = 0; /* clear payload */
-
-	for (i = 0, dlc_pos++; i < cf.can_dlc; i++) {
-		tmp = hex_to_bin(sl->rbuff[dlc_pos++]);
-		if (tmp < 0)
-			return;
-		cf.data[i] = (tmp << 4);
-		tmp = hex_to_bin(sl->rbuff[dlc_pos++]);
-		if (tmp < 0)
-			return;
-		cf.data[i] |= tmp;
+		/* store dlc ASCII value and terminate EFF CAN ID string */
+		cf.len = sl->rbuff[SLC_CMD_LEN + SLC_EFF_ID_LEN];
+		sl->rbuff[SLC_CMD_LEN + SLC_EFF_ID_LEN] = 0;
+		/* point to payload data behind the dlc */
+		cmd += SLC_CMD_LEN + SLC_EFF_ID_LEN + 1;
+		break;
+	default:
+		return;
 	}
 
-	skb = dev_alloc_skb(sizeof(struct can_frame));
+	if (kstrtou32(sl->rbuff + SLC_CMD_LEN, 16, &tmpid))
+		return;
+
+	cf.can_id |= tmpid;
+
+	/* get len from sanitized ASCII value */
+	if (cf.len >= '0' && cf.len < '9')
+		cf.len -= '0';
+	else
+		return;
+
+	/* RTR frames may have a dlc > 0 but they never have any data bytes */
+	if (!(cf.can_id & CAN_RTR_FLAG)) {
+		for (i = 0; i < cf.len; i++) {
+			tmp = hex_to_bin(*cmd++);
+			if (tmp < 0)
+				return;
+			cf.data[i] = (tmp << 4);
+			tmp = hex_to_bin(*cmd++);
+			if (tmp < 0)
+				return;
+			cf.data[i] |= tmp;
+		}
+	}
+
+	skb = dev_alloc_skb(sizeof(struct can_frame) +
+			    sizeof(struct can_skb_priv));
 	if (!skb)
 		return;
 
@@ -193,18 +210,21 @@ static void slc_bump(struct slcan *sl)
 	skb->protocol = htons(ETH_P_CAN);
 	skb->pkt_type = PACKET_BROADCAST;
 	skb->ip_summed = CHECKSUM_UNNECESSARY;
-	memcpy(skb_put(skb, sizeof(struct can_frame)),
-	       &cf, sizeof(struct can_frame));
-	netif_rx_ni(skb);
+
+	can_skb_reserve(skb);
+	can_skb_prv(skb)->ifindex = sl->dev->ifindex;
+	can_skb_prv(skb)->skbcnt = 0;
+
+	skb_put_data(skb, &cf, sizeof(struct can_frame));
 
 	sl->dev->stats.rx_packets++;
-	sl->dev->stats.rx_bytes += cf.can_dlc;
+	sl->dev->stats.rx_bytes += cf.len;
+	netif_rx_ni(skb);
 }
 
 /* parse tty input stream */
 static void slcan_unesc(struct slcan *sl, unsigned char s)
 {
-
 	if ((s == '\r') || (s == '\a')) { /* CR or BEL ends the pdu */
 		if (!test_and_clear_bit(SLF_ERROR, &sl->flags) &&
 		    (sl->rcount > 4))  {
@@ -231,27 +251,46 @@ static void slcan_unesc(struct slcan *sl, unsigned char s)
 /* Encapsulate one can_frame and stuff into a TTY queue. */
 static void slc_encaps(struct slcan *sl, struct can_frame *cf)
 {
-	int actual, idx, i;
-	char cmd;
+	int actual, i;
+	unsigned char *pos;
+	unsigned char *endpos;
+	canid_t id = cf->can_id;
+
+	pos = sl->xbuff;
 
 	if (cf->can_id & CAN_RTR_FLAG)
-		cmd = 'R'; /* becomes 'r' in standard frame format */
+		*pos = 'R'; /* becomes 'r' in standard frame format (SFF) */
 	else
-		cmd = 'T'; /* becomes 't' in standard frame format */
+		*pos = 'T'; /* becomes 't' in standard frame format (SSF) */
 
-	if (cf->can_id & CAN_EFF_FLAG)
-		sprintf(sl->xbuff, "%c%08X%d", cmd,
-			cf->can_id & CAN_EFF_MASK, cf->can_dlc);
-	else
-		sprintf(sl->xbuff, "%c%03X%d", cmd | 0x20,
-			cf->can_id & CAN_SFF_MASK, cf->can_dlc);
+	/* determine number of chars for the CAN-identifier */
+	if (cf->can_id & CAN_EFF_FLAG) {
+		id &= CAN_EFF_MASK;
+		endpos = pos + SLC_EFF_ID_LEN;
+	} else {
+		*pos |= 0x20; /* convert R/T to lower case for SFF */
+		id &= CAN_SFF_MASK;
+		endpos = pos + SLC_SFF_ID_LEN;
+	}
 
-	idx = strlen(sl->xbuff);
+	/* build 3 (SFF) or 8 (EFF) digit CAN identifier */
+	pos++;
+	while (endpos >= pos) {
+		*endpos-- = hex_asc_upper[id & 0xf];
+		id >>= 4;
+	}
 
-	for (i = 0; i < cf->can_dlc; i++)
-		sprintf(&sl->xbuff[idx + 2*i], "%02X", cf->data[i]);
+	pos += (cf->can_id & CAN_EFF_FLAG) ? SLC_EFF_ID_LEN : SLC_SFF_ID_LEN;
 
-	strcat(sl->xbuff, "\r"); /* add terminating character */
+	*pos++ = cf->len + '0';
+
+	/* RTR frames may have a dlc > 0 but they never have any data bytes */
+	if (!(cf->can_id & CAN_RTR_FLAG)) {
+		for (i = 0; i < cf->len; i++)
+			pos = hex_byte_pack_upper(pos, cf->data[i]);
+	}
+
+	*pos++ = '\r';
 
 	/* Order of next two lines is *very* important.
 	 * When we are sending a little amount of data,
@@ -262,37 +301,54 @@ static void slc_encaps(struct slcan *sl, struct can_frame *cf)
 	 *       14 Oct 1994  Dmitry Gorodchanin.
 	 */
 	set_bit(TTY_DO_WRITE_WAKEUP, &sl->tty->flags);
-	actual = sl->tty->ops->write(sl->tty, sl->xbuff, strlen(sl->xbuff));
-	sl->xleft = strlen(sl->xbuff) - actual;
+	actual = sl->tty->ops->write(sl->tty, sl->xbuff, pos - sl->xbuff);
+	sl->xleft = (pos - sl->xbuff) - actual;
 	sl->xhead = sl->xbuff + actual;
-	sl->dev->stats.tx_bytes += cf->can_dlc;
+	sl->dev->stats.tx_bytes += cf->len;
 }
 
-/*
- * Called by the driver when there's room for more data.  If we have
- * more packets to send, we send them here.
- */
-static void slcan_write_wakeup(struct tty_struct *tty)
+/* Write out any remaining transmit buffer. Scheduled when tty is writable */
+static void slcan_transmit(struct work_struct *work)
 {
+	struct slcan *sl = container_of(work, struct slcan, tx_work);
 	int actual;
-	struct slcan *sl = (struct slcan *) tty->disc_data;
 
+	spin_lock_bh(&sl->lock);
 	/* First make sure we're connected. */
-	if (!sl || sl->magic != SLCAN_MAGIC || !netif_running(sl->dev))
+	if (!sl->tty || sl->magic != SLCAN_MAGIC || !netif_running(sl->dev)) {
+		spin_unlock_bh(&sl->lock);
 		return;
+	}
 
 	if (sl->xleft <= 0)  {
 		/* Now serial buffer is almost free & we can start
 		 * transmission of another packet */
 		sl->dev->stats.tx_packets++;
-		clear_bit(TTY_DO_WRITE_WAKEUP, &tty->flags);
+		clear_bit(TTY_DO_WRITE_WAKEUP, &sl->tty->flags);
+		spin_unlock_bh(&sl->lock);
 		netif_wake_queue(sl->dev);
 		return;
 	}
 
-	actual = tty->ops->write(tty, sl->xhead, sl->xleft);
+	actual = sl->tty->ops->write(sl->tty, sl->xhead, sl->xleft);
 	sl->xleft -= actual;
 	sl->xhead += actual;
+	spin_unlock_bh(&sl->lock);
+}
+
+/*
+ * Called by the driver when there's room for more data.
+ * Schedule the transmit.
+ */
+static void slcan_write_wakeup(struct tty_struct *tty)
+{
+	struct slcan *sl;
+
+	rcu_read_lock();
+	sl = rcu_dereference(tty->disc_data);
+	if (sl)
+		schedule_work(&sl->tx_work);
+	rcu_read_unlock();
 }
 
 /* Send a can_frame to a TTY queue. */
@@ -300,7 +356,7 @@ static netdev_tx_t slc_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct slcan *sl = netdev_priv(dev);
 
-	if (skb->len != sizeof(struct can_frame))
+	if (skb->len != CAN_MTU)
 		goto out;
 
 	spin_lock(&sl->lock);
@@ -363,26 +419,33 @@ static int slc_open(struct net_device *dev)
 static void slc_free_netdev(struct net_device *dev)
 {
 	int i = dev->base_addr;
-	free_netdev(dev);
+
 	slcan_devs[i] = NULL;
+}
+
+static int slcan_change_mtu(struct net_device *dev, int new_mtu)
+{
+	return -EINVAL;
 }
 
 static const struct net_device_ops slc_netdev_ops = {
 	.ndo_open               = slc_open,
 	.ndo_stop               = slc_close,
 	.ndo_start_xmit         = slc_xmit,
+	.ndo_change_mtu         = slcan_change_mtu,
 };
 
 static void slc_setup(struct net_device *dev)
 {
 	dev->netdev_ops		= &slc_netdev_ops;
-	dev->destructor		= slc_free_netdev;
+	dev->needs_free_netdev	= true;
+	dev->priv_destructor	= slc_free_netdev;
 
 	dev->hard_header_len	= 0;
 	dev->addr_len		= 0;
 	dev->tx_queue_len	= 10;
 
-	dev->mtu		= sizeof(struct can_frame);
+	dev->mtu		= CAN_MTU;
 	dev->type		= ARPHRD_CAN;
 
 	/* New-style flags. */
@@ -404,7 +467,8 @@ static void slc_setup(struct net_device *dev)
  */
 
 static void slcan_receive_buf(struct tty_struct *tty,
-			      const unsigned char *cp, char *fp, int count)
+			      const unsigned char *cp, const char *fp,
+			      int count)
 {
 	struct slcan *sl = (struct slcan *) tty->disc_data;
 
@@ -448,12 +512,14 @@ static void slc_sync(void)
 }
 
 /* Find a free SLCAN channel, and link in this `tty' line. */
-static struct slcan *slc_alloc(dev_t line)
+static struct slcan *slc_alloc(void)
 {
 	int i;
 	char name[IFNAMSIZ];
 	struct net_device *dev = NULL;
+	struct can_ml_priv *can_ml;
 	struct slcan       *sl;
+	int size;
 
 	for (i = 0; i < maxdev; i++) {
 		dev = slcan_devs[i];
@@ -467,17 +533,21 @@ static struct slcan *slc_alloc(dev_t line)
 		return NULL;
 
 	sprintf(name, "slcan%d", i);
-	dev = alloc_netdev(sizeof(*sl), name, slc_setup);
+	size = ALIGN(sizeof(*sl), NETDEV_ALIGN) + sizeof(struct can_ml_priv);
+	dev = alloc_netdev(size, name, NET_NAME_UNKNOWN, slc_setup);
 	if (!dev)
 		return NULL;
 
 	dev->base_addr  = i;
 	sl = netdev_priv(dev);
+	can_ml = (void *)sl + ALIGN(sizeof(*sl), NETDEV_ALIGN);
+	can_set_ml_priv(dev, can_ml);
 
 	/* Initialize channel control data */
 	sl->magic = SLCAN_MAGIC;
 	sl->dev	= dev;
 	spin_lock_init(&sl->lock);
+	INIT_WORK(&sl->tx_work, slcan_transmit);
 	slcan_devs[i] = dev;
 
 	return sl;
@@ -522,7 +592,7 @@ static int slcan_open(struct tty_struct *tty)
 
 	/* OK.  Find a free SLCAN channel to use. */
 	err = -ENFILE;
-	sl = slc_alloc(tty_devnum(tty));
+	sl = slc_alloc();
 	if (sl == NULL)
 		goto err_exit;
 
@@ -552,6 +622,11 @@ err_free_chan:
 	sl->tty = NULL;
 	tty->disc_data = NULL;
 	clear_bit(SLF_INUSE, &sl->flags);
+	slc_free_netdev(sl->dev);
+	/* do not call free_netdev before rtnl_unlock */
+	rtnl_unlock();
+	free_netdev(sl->dev);
+	return err;
 
 err_exit:
 	rtnl_unlock();
@@ -576,8 +651,13 @@ static void slcan_close(struct tty_struct *tty)
 	if (!sl || sl->magic != SLCAN_MAGIC || sl->tty != tty)
 		return;
 
-	tty->disc_data = NULL;
+	spin_lock_bh(&sl->lock);
+	rcu_assign_pointer(tty->disc_data, NULL);
 	sl->tty = NULL;
+	spin_unlock_bh(&sl->lock);
+
+	synchronize_rcu();
+	flush_work(&sl->tx_work);
 
 	/* Flush network side */
 	unregister_netdev(sl->dev);
@@ -618,7 +698,7 @@ static int slcan_ioctl(struct tty_struct *tty, struct file *file,
 
 static struct tty_ldisc_ops slc_ldisc = {
 	.owner		= THIS_MODULE,
-	.magic		= TTY_LDISC_MAGIC,
+	.num		= N_SLCAN,
 	.name		= "slcan",
 	.open		= slcan_open,
 	.close		= slcan_close,
@@ -635,17 +715,15 @@ static int __init slcan_init(void)
 	if (maxdev < 4)
 		maxdev = 4; /* Sanity */
 
-	printk(banner);
-	printk(KERN_INFO "slcan: %d dynamic interface channels.\n", maxdev);
+	pr_info("slcan: serial line CAN interface driver\n");
+	pr_info("slcan: %d dynamic interface channels.\n", maxdev);
 
-	slcan_devs = kzalloc(sizeof(struct net_device *)*maxdev, GFP_KERNEL);
-	if (!slcan_devs) {
-		printk(KERN_ERR "slcan: can't allocate slcan device array!\n");
+	slcan_devs = kcalloc(maxdev, sizeof(struct net_device *), GFP_KERNEL);
+	if (!slcan_devs)
 		return -ENOMEM;
-	}
 
 	/* Fill in our line protocol discipline, and register it */
-	status = tty_register_ldisc(N_SLCAN, &slc_ldisc);
+	status = tty_register_ldisc(&slc_ldisc);
 	if (status)  {
 		printk(KERN_ERR "slcan: can't register line discipline\n");
 		kfree(slcan_devs);
@@ -698,8 +776,6 @@ static void __exit slcan_exit(void)
 		if (sl->tty) {
 			printk(KERN_ERR "%s: tty discipline still running\n",
 			       dev->name);
-			/* Intentionally leak the control block. */
-			dev->destructor = NULL;
 		}
 
 		unregister_netdev(dev);
@@ -708,9 +784,7 @@ static void __exit slcan_exit(void)
 	kfree(slcan_devs);
 	slcan_devs = NULL;
 
-	i = tty_unregister_ldisc(N_SLCAN);
-	if (i)
-		printk(KERN_ERR "slcan: can't unregister ldisc (err %d)\n", i);
+	tty_unregister_ldisc(&slc_ldisc);
 }
 
 module_init(slcan_init);

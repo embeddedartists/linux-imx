@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Driver for AUO in-cell touchscreens
  *
@@ -7,17 +8,6 @@
  *
  * Copyright (c) 2008 QUALCOMM Incorporated.
  * Copyright (c) 2008 QUALCOMM USA, INC.
- *
- *
- * This software is licensed under the terms of the GNU General Public
- * License version 2, as published by the Free Software Foundation, and
- * may be copied, distributed, and modified under those terms.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
  */
 
 #ifndef __AUO_PIXCIR_TS_H__
@@ -43,11 +33,9 @@
  */
 struct auo_pixcir_ts_platdata {
 	int gpio_int;
+	int gpio_rst;
 
 	int int_setting;
-
-	void (*init_hw)(struct i2c_client *);
-	void (*exit_hw)(struct i2c_client *);
 
 	unsigned int x_max;
 	unsigned int y_max;

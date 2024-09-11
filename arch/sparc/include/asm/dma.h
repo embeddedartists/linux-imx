@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _ASM_SPARC_DMA_H
 #define _ASM_SPARC_DMA_H
 
@@ -90,50 +91,10 @@ extern int isa_dma_bridge_buggy;
 #endif
 
 #ifdef CONFIG_SPARC32
-
-/* Routines for data transfer buffers. */
-BTFIXUPDEF_CALL(char *, mmu_lockarea, char *, unsigned long)
-BTFIXUPDEF_CALL(void,   mmu_unlockarea, char *, unsigned long)
-
-#define mmu_lockarea(vaddr,len) BTFIXUP_CALL(mmu_lockarea)(vaddr,len)
-#define mmu_unlockarea(vaddr,len) BTFIXUP_CALL(mmu_unlockarea)(vaddr,len)
-
-struct page;
 struct device;
-struct scatterlist;
 
-/* These are implementations for sbus_map_sg/sbus_unmap_sg... collapse later */
-BTFIXUPDEF_CALL(__u32, mmu_get_scsi_one, struct device *, char *, unsigned long)
-BTFIXUPDEF_CALL(void,  mmu_get_scsi_sgl, struct device *, struct scatterlist *, int)
-BTFIXUPDEF_CALL(void,  mmu_release_scsi_one, struct device *, __u32, unsigned long)
-BTFIXUPDEF_CALL(void,  mmu_release_scsi_sgl, struct device *, struct scatterlist *, int)
-
-#define mmu_get_scsi_one(dev,vaddr,len) BTFIXUP_CALL(mmu_get_scsi_one)(dev,vaddr,len)
-#define mmu_get_scsi_sgl(dev,sg,sz) BTFIXUP_CALL(mmu_get_scsi_sgl)(dev,sg,sz)
-#define mmu_release_scsi_one(dev,vaddr,len) BTFIXUP_CALL(mmu_release_scsi_one)(dev,vaddr,len)
-#define mmu_release_scsi_sgl(dev,sg,sz) BTFIXUP_CALL(mmu_release_scsi_sgl)(dev,sg,sz)
-
-/*
- * mmu_map/unmap are provided by iommu/iounit; Invalid to call on IIep.
- *
- * The mmu_map_dma_area establishes two mappings in one go.
- * These mappings point to pages normally mapped at 'va' (linear address).
- * First mapping is for CPU visible address at 'a', uncached.
- * This is an alias, but it works because it is an uncached mapping.
- * Second mapping is for device visible address, or "bus" address.
- * The bus address is returned at '*pba'.
- *
- * These functions seem distinct, but are hard to split. On sun4c,
- * at least for now, 'a' is equal to bus address, and retured in *pba.
- * On sun4m, page attributes depend on the CPU type, so we have to
- * know if we are mapping RAM or I/O, so it has to be an additional argument
- * to a separate mapping function for CPU visible mappings.
- */
-BTFIXUPDEF_CALL(int, mmu_map_dma_area, struct device *, dma_addr_t *, unsigned long, unsigned long, int len)
-BTFIXUPDEF_CALL(void, mmu_unmap_dma_area, struct device *, unsigned long busa, int len)
-
-#define mmu_map_dma_area(dev,pba,va,a,len) BTFIXUP_CALL(mmu_map_dma_area)(dev,pba,va,a,len)
-#define mmu_unmap_dma_area(dev,ba,len) BTFIXUP_CALL(mmu_unmap_dma_area)(dev,ba,len)
+unsigned long sparc_dma_alloc_resource(struct device *dev, size_t len);
+bool sparc_dma_free_resource(void *cpu_addr, size_t size);
 #endif
 
 #endif /* !(_ASM_SPARC_DMA_H) */

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * MPC8610 HPCD board specific routines
  *
@@ -9,11 +10,6 @@
  * All the integrated device in ULI use sideband interrupt.
  *
  * Copyright 2008 Freescale Semiconductor Inc.
- *
- * This program is free software; you can redistribute  it and/or modify it
- * under  the terms of  the GNU General  Public License as published by the
- * Free Software Foundation;  either version 2 of the  License, or (at your
- * option) any later version.
  */
 
 #include <linux/stddef.h>
@@ -24,8 +20,8 @@
 #include <linux/delay.h>
 #include <linux/seq_file.h>
 #include <linux/of.h>
+#include <linux/fsl/guts.h>
 
-#include <asm/system.h>
 #include <asm/time.h>
 #include <asm/machdep.h>
 #include <asm/pci-bridge.h>
@@ -38,8 +34,6 @@
 #include <linux/of_platform.h>
 #include <sysdev/fsl_pci.h>
 #include <sysdev/fsl_soc.h>
-#include <sysdev/simple_gpio.h>
-#include <asm/fsl_guts.h>
 
 #include "mpc86xx.h"
 
@@ -86,29 +80,29 @@ static void __init mpc8610_suspend_init(void)
 static inline void mpc8610_suspend_init(void) { }
 #endif /* CONFIG_SUSPEND */
 
-static struct of_device_id __initdata mpc8610_ids[] = {
+static const struct of_device_id mpc8610_ids[] __initconst = {
 	{ .compatible = "fsl,mpc8610-immr", },
 	{ .compatible = "fsl,mpc8610-guts", },
-	{ .compatible = "simple-bus", },
 	/* So that the DMA channel nodes can be probed individually: */
 	{ .compatible = "fsl,eloplus-dma", },
+	/* PCI controllers */
+	{ .compatible = "fsl,mpc8610-pci", },
 	{}
 };
 
 static int __init mpc8610_declare_of_platform_devices(void)
 {
-	/* Firstly, register PIXIS GPIOs. */
-	simple_gpiochip_init("fsl,fpga-pixis-gpio-bank");
-
 	/* Enable wakeup on PIXIS' event IRQ. */
 	mpc8610_suspend_init();
+
+	mpc86xx_common_publish_devices();
 
 	/* Without this call, the SSI device driver won't get probed. */
 	of_platform_bus_probe(NULL, mpc8610_ids, NULL);
 
 	return 0;
 }
-machine_device_initcall(mpc86xx_hpcd, mpc8610_declare_of_platform_devices);
+machine_arch_initcall(mpc86xx_hpcd, mpc8610_declare_of_platform_devices);
 
 #if defined(CONFIG_FB_FSL_DIU) || defined(CONFIG_FB_FSL_DIU_MODULE)
 
@@ -226,7 +220,7 @@ void mpc8610hpcd_set_monitor_port(enum fsl_diu_monitor_port port)
 void mpc8610hpcd_set_pixel_clock(unsigned int pixclock)
 {
 	struct device_node *guts_np = NULL;
-	struct ccsr_guts_86xx __iomem *guts;
+	struct ccsr_guts __iomem *guts;
 	unsigned long freq;
 	u64 temp;
 	u32 pxclk;
@@ -234,14 +228,14 @@ void mpc8610hpcd_set_pixel_clock(unsigned int pixclock)
 	/* Map the global utilities registers. */
 	guts_np = of_find_compatible_node(NULL, NULL, "fsl,mpc8610-guts");
 	if (!guts_np) {
-		pr_err("mpc8610hpcd: missing global utilties device node\n");
+		pr_err("mpc8610hpcd: missing global utilities device node\n");
 		return;
 	}
 
 	guts = of_iomap(guts_np, 0);
 	of_node_put(guts_np);
 	if (!guts) {
-		pr_err("mpc8610hpcd: could not map global utilties device\n");
+		pr_err("mpc8610hpcd: could not map global utilities device\n");
 		return;
 	}
 
@@ -279,25 +273,13 @@ mpc8610hpcd_valid_monitor_port(enum fsl_diu_monitor_port port)
 static void __init mpc86xx_hpcd_setup_arch(void)
 {
 	struct resource r;
-	struct device_node *np;
 	unsigned char *pixis;
 
 	if (ppc_md.progress)
 		ppc_md.progress("mpc86xx_hpcd_setup_arch()", 0);
 
-#ifdef CONFIG_PCI
-	for_each_node_by_type(np, "pci") {
-		if (of_device_is_compatible(np, "fsl,mpc8610-pci")
-		    || of_device_is_compatible(np, "fsl,mpc8641-pcie")) {
-			struct resource rsrc;
-			of_address_to_resource(np, 0, &rsrc);
-			if ((rsrc.start & 0xfffff) == 0xa000)
-				fsl_add_bridge(np, 1);
-			else
-				fsl_add_bridge(np, 0);
-		}
-        }
-#endif
+	fsl_pci_assign_primary();
+
 #if defined(CONFIG_FB_FSL_DIU) || defined(CONFIG_FB_FSL_DIU_MODULE)
 	diu_ops.get_pixel_format	= mpc8610hpcd_get_pixel_format;
 	diu_ops.set_gamma_table		= mpc8610hpcd_set_gamma_table;
@@ -329,26 +311,8 @@ static void __init mpc86xx_hpcd_setup_arch(void)
  */
 static int __init mpc86xx_hpcd_probe(void)
 {
-	unsigned long root = of_get_flat_dt_root();
-
-	if (of_flat_dt_is_compatible(root, "fsl,MPC8610HPCD"))
+	if (of_machine_is_compatible("fsl,MPC8610HPCD"))
 		return 1;	/* Looks good */
-
-	return 0;
-}
-
-static long __init mpc86xx_time_init(void)
-{
-	unsigned int temp;
-
-	/* Set the time base to zero */
-	mtspr(SPRN_TBWL, 0);
-	mtspr(SPRN_TBWU, 0);
-
-	temp = mfspr(SPRN_HID0);
-	temp |= HID0_TBEN;
-	mtspr(SPRN_HID0, temp);
-	asm volatile("isync");
 
 	return 0;
 }
@@ -359,9 +323,10 @@ define_machine(mpc86xx_hpcd) {
 	.setup_arch		= mpc86xx_hpcd_setup_arch,
 	.init_IRQ		= mpc86xx_init_irq,
 	.get_irq		= mpic_get_irq,
-	.restart		= fsl_rstcr_restart,
 	.time_init		= mpc86xx_time_init,
 	.calibrate_decr		= generic_calibrate_decr,
 	.progress		= udbg_progress,
+#ifdef CONFIG_PCI
 	.pcibios_fixup_bus	= fsl_pcibios_fixup_bus,
+#endif
 };

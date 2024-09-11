@@ -1,8 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  (C) 2003  Bruno Ducrot
  *  (C) 2004  Dominik Brodowski <linux@dominikbrodowski.de>
- *
- *  Licensed under the terms of the GNU GPL License version 2.
  *
  * Based on code found in
  * linux/include/asm-i386/ist.h and linux/arch/i386/kernel/setup.c
@@ -66,13 +65,13 @@ int main (void)
 		printf("ecx = 0x%.8x\n", r.ecx);
 		printf("edx = 0x%.8x\n", r.edx);
 		printf("Note also that some BIOS do not support the initial "
-		       "GSIC call, but the newer\nspeeedstep-smi driver may "
+		       "GSIC call, but the newer\nspeedstep-smi driver may "
 		       "work.\nFor this, you need to pass some arguments to "
 		       "the speedstep-smi driver:\n");
 		printf("\tsmi_cmd=0x?? smi_port=0x?? smi_sig=1\n");
 		printf("\nUnfortunately, you have to know what exactly are "
 		       "smi_cmd and smi_port, and this\nis system "
-		       "dependant.\n");
+		       "dependent.\n");
 	}
 	return 1;
 }

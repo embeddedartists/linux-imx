@@ -1,12 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Support for 'media5200-platform' compatible boards.
  *
  * Copyright (C) 2008 Secret Lab Technologies Ltd.
- *
- * This program is free software; you can redistribute  it and/or modify it
- * under  the terms of  the GNU General  Public License as published by the
- * Free Software Foundation;  either version 2 of the  License, or (at your
- * option) any later version.
  *
  * Description:
  * This code implements support for the Freescape Media5200 platform
@@ -17,7 +13,6 @@
  * a cascaded interrupt controller driver which attaches itself to the
  * Virtual IRQ subsystem after the primary mpc5200 interrupt controller
  * is initialized.
- *
  */
 
 #undef DEBUG
@@ -30,7 +25,7 @@
 #include <asm/machdep.h>
 #include <asm/mpc52xx.h>
 
-static struct of_device_id mpc5200_gpio_ids[] __initdata = {
+static const struct of_device_id mpc5200_gpio_ids[] __initconst = {
 	{ .compatible = "fsl,mpc5200-gpio", },
 	{ .compatible = "mpc5200-gpio", },
 	{}
@@ -45,7 +40,7 @@ static struct of_device_id mpc5200_gpio_ids[] __initdata = {
 struct media5200_irq {
 	void __iomem *regs;
 	spinlock_t lock;
-	struct irq_host *irqhost;
+	struct irq_domain *irqhost;
 };
 struct media5200_irq media5200_irq;
 
@@ -80,10 +75,10 @@ static struct irq_chip media5200_irq_chip = {
 	.irq_mask_ack = media5200_irq_mask,
 };
 
-void media5200_irq_cascade(unsigned int virq, struct irq_desc *desc)
+static void media5200_irq_cascade(struct irq_desc *desc)
 {
 	struct irq_chip *chip = irq_desc_get_chip(desc);
-	int sub_virq, val;
+	int val;
 	u32 status, enable;
 
 	/* Mask off the cascaded IRQ */
@@ -97,11 +92,10 @@ void media5200_irq_cascade(unsigned int virq, struct irq_desc *desc)
 	enable = in_be32(media5200_irq.regs + MEDIA5200_IRQ_STATUS);
 	val = ffs((status & enable) >> MEDIA5200_IRQ_SHIFT);
 	if (val) {
-		sub_virq = irq_linear_revmap(media5200_irq.irqhost, val - 1);
-		/* pr_debug("%s: virq=%i s=%.8x e=%.8x hwirq=%i subvirq=%i\n",
-		 *          __func__, virq, status, enable, val - 1, sub_virq);
+		generic_handle_domain_irq(media5200_irq.irqhost, val - 1);
+		/* pr_debug("%s: virq=%i s=%.8x e=%.8x hwirq=%i\n",
+		 *          __func__, virq, status, enable, val - 1);
 		 */
-		generic_handle_irq(sub_virq);
 	}
 
 	/* Processing done; can reenable the cascade now */
@@ -112,7 +106,7 @@ void media5200_irq_cascade(unsigned int virq, struct irq_desc *desc)
 	raw_spin_unlock(&desc->lock);
 }
 
-static int media5200_irq_map(struct irq_host *h, unsigned int virq,
+static int media5200_irq_map(struct irq_domain *h, unsigned int virq,
 			     irq_hw_number_t hw)
 {
 	pr_debug("%s: h=%p, virq=%i, hwirq=%i\n", __func__, h, virq, (int)hw);
@@ -122,7 +116,7 @@ static int media5200_irq_map(struct irq_host *h, unsigned int virq,
 	return 0;
 }
 
-static int media5200_irq_xlate(struct irq_host *h, struct device_node *ct,
+static int media5200_irq_xlate(struct irq_domain *h, struct device_node *ct,
 				 const u32 *intspec, unsigned int intsize,
 				 irq_hw_number_t *out_hwirq,
 				 unsigned int *out_flags)
@@ -136,7 +130,7 @@ static int media5200_irq_xlate(struct irq_host *h, struct device_node *ct,
 	return 0;
 }
 
-static struct irq_host_ops media5200_irq_ops = {
+static const struct irq_domain_ops media5200_irq_ops = {
 	.map = media5200_irq_map,
 	.xlate = media5200_irq_xlate,
 };
@@ -156,7 +150,7 @@ static void __init media5200_init_irq(void)
 	fpga_np = of_find_compatible_node(NULL, NULL, "fsl,media5200-fpga");
 	if (!fpga_np)
 		goto out;
-	pr_debug("%s: found fpga node: %s\n", __func__, fpga_np->full_name);
+	pr_debug("%s: found fpga node: %pOF\n", __func__, fpga_np);
 
 	media5200_irq.regs = of_iomap(fpga_np, 0);
 	if (!media5200_irq.regs)
@@ -173,14 +167,11 @@ static void __init media5200_init_irq(void)
 
 	spin_lock_init(&media5200_irq.lock);
 
-	media5200_irq.irqhost = irq_alloc_host(fpga_np, IRQ_HOST_MAP_LINEAR,
-					       MEDIA5200_NUM_IRQS,
-					       &media5200_irq_ops, -1);
+	media5200_irq.irqhost = irq_domain_add_linear(fpga_np,
+			MEDIA5200_NUM_IRQS, &media5200_irq_ops, &media5200_irq);
 	if (!media5200_irq.irqhost)
 		goto out;
 	pr_debug("%s: allocated irqhost\n", __func__);
-
-	media5200_irq.irqhost->host_data = &media5200_irq;
 
 	irq_set_handler_data(cascade_virq, &media5200_irq);
 	irq_set_chained_handler(cascade_virq, media5200_irq_cascade);
@@ -210,8 +201,6 @@ static void __init media5200_setup_arch(void)
 	/* Some mpc5200 & mpc5200b related configuration */
 	mpc5200_setup_xlb_arbiter();
 
-	mpc52xx_setup_pci();
-
 	np = of_find_matching_node(NULL, mpc5200_gpio_ids);
 	gpio = of_iomap(np, 0);
 	of_node_put(np);
@@ -235,7 +224,7 @@ static void __init media5200_setup_arch(void)
 }
 
 /* list of the supported boards */
-static const char *board[] __initdata = {
+static const char * const board[] __initconst = {
 	"fsl,media5200",
 	NULL
 };
@@ -245,13 +234,14 @@ static const char *board[] __initdata = {
  */
 static int __init media5200_probe(void)
 {
-	return of_flat_dt_match(of_get_flat_dt_root(), board);
+	return of_device_compatible_match(of_root, board);
 }
 
 define_machine(media5200_platform) {
 	.name		= "media5200-platform",
 	.probe		= media5200_probe,
 	.setup_arch	= media5200_setup_arch,
+	.discover_phbs	= mpc52xx_setup_pci,
 	.init		= mpc52xx_declare_of_platform_devices,
 	.init_IRQ	= media5200_init_irq,
 	.get_irq	= mpc52xx_get_irq,

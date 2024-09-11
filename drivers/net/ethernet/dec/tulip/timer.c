@@ -1,5 +1,5 @@
 /*
-	drivers/net/tulip/timer.c
+	drivers/net/ethernet/dec/tulip/timer.c
 
 	Copyright 2000,2001  The Linux Kernel Team
 	Written/copyright 1994-2001 by Donald Becker.
@@ -137,10 +137,10 @@ void tulip_media_task(struct work_struct *work)
 }
 
 
-void mxic_timer(unsigned long data)
+void mxic_timer(struct timer_list *t)
 {
-	struct net_device *dev = (struct net_device *)data;
-	struct tulip_private *tp = netdev_priv(dev);
+	struct tulip_private *tp = from_timer(tp, t, timer);
+	struct net_device *dev = tp->dev;
 	void __iomem *ioaddr = tp->base_addr;
 	int next_tick = 60*HZ;
 
@@ -154,11 +154,11 @@ void mxic_timer(unsigned long data)
 }
 
 
-void comet_timer(unsigned long data)
+void comet_timer(struct timer_list *t)
 {
-	struct net_device *dev = (struct net_device *)data;
-	struct tulip_private *tp = netdev_priv(dev);
-	int next_tick = 60*HZ;
+	struct tulip_private *tp = from_timer(tp, t, timer);
+	struct net_device *dev = tp->dev;
+	int next_tick = 2*HZ;
 
 	if (tulip_debug > 1)
 		netdev_dbg(dev, "Comet link status %04x partner capability %04x\n",

@@ -1,23 +1,20 @@
-/* nec-terratec-cinergy-xs.h - Keytable for nec_terratec_cinergy_xs Remote Controller
- *
- * keymap imported from ir-keymaps.c
- *
- * Copyright (c) 2010 by Mauro Carvalho Chehab <mchehab@redhat.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- */
+// SPDX-License-Identifier: GPL-2.0+
+// nec-terratec-cinergy-xs.h - Keytable for nec_terratec_cinergy_xs Remote Controller
+//
+// keymap imported from ir-keymaps.c
+//
+// Copyright (c) 2010 by Mauro Carvalho Chehab
 
 #include <media/rc-map.h>
 #include <linux/module.h>
 
 /* Terratec Cinergy Hybrid T USB XS FM
-   Mauro Carvalho Chehab <mchehab@redhat.com>
+   Mauro Carvalho Chehab
  */
 
 static struct rc_map_table nec_terratec_cinergy_xs[] = {
+
+	/* Terratec Grey IR, with most keys in orange */
 	{ 0x1441, KEY_HOME},
 	{ 0x1401, KEY_POWER2},
 
@@ -26,16 +23,16 @@ static struct rc_map_table nec_terratec_cinergy_xs[] = {
 	{ 0x1444, KEY_TEXT},		/* Teletext */
 	{ 0x1445, KEY_DELETE},
 
-	{ 0x1402, KEY_1},
-	{ 0x1403, KEY_2},
-	{ 0x1404, KEY_3},
-	{ 0x1405, KEY_4},
-	{ 0x1406, KEY_5},
-	{ 0x1407, KEY_6},
-	{ 0x1408, KEY_7},
-	{ 0x1409, KEY_8},
-	{ 0x140a, KEY_9},
-	{ 0x140c, KEY_0},
+	{ 0x1402, KEY_NUMERIC_1},
+	{ 0x1403, KEY_NUMERIC_2},
+	{ 0x1404, KEY_NUMERIC_3},
+	{ 0x1405, KEY_NUMERIC_4},
+	{ 0x1406, KEY_NUMERIC_5},
+	{ 0x1407, KEY_NUMERIC_6},
+	{ 0x1408, KEY_NUMERIC_7},
+	{ 0x1409, KEY_NUMERIC_8},
+	{ 0x140a, KEY_NUMERIC_9},
+	{ 0x140c, KEY_NUMERIC_0},
 
 	{ 0x140b, KEY_TUNER},		/* AV */
 	{ 0x140d, KEY_MODE},		/* A.B */
@@ -78,14 +75,64 @@ static struct rc_map_table nec_terratec_cinergy_xs[] = {
 	{ 0x144e, KEY_REWIND},
 	{ 0x144f, KEY_FASTFORWARD},
 	{ 0x145c, KEY_NEXT},
+
+	/* Terratec Black IR, with most keys in black */
+	{ 0x04eb01, KEY_POWER2},
+
+	{ 0x04eb02, KEY_NUMERIC_1},
+	{ 0x04eb03, KEY_NUMERIC_2},
+	{ 0x04eb04, KEY_NUMERIC_3},
+	{ 0x04eb05, KEY_NUMERIC_4},
+	{ 0x04eb06, KEY_NUMERIC_5},
+	{ 0x04eb07, KEY_NUMERIC_6},
+	{ 0x04eb08, KEY_NUMERIC_7},
+	{ 0x04eb09, KEY_NUMERIC_8},
+	{ 0x04eb0a, KEY_NUMERIC_9},
+	{ 0x04eb0c, KEY_NUMERIC_0},
+
+	{ 0x04eb0b, KEY_TEXT},		/* TXT */
+	{ 0x04eb0d, KEY_REFRESH},	/* Refresh */
+
+	{ 0x04eb0e, KEY_HOME},
+	{ 0x04eb0f, KEY_EPG},
+
+	{ 0x04eb10, KEY_UP},
+	{ 0x04eb11, KEY_LEFT},
+	{ 0x04eb12, KEY_OK},
+	{ 0x04eb13, KEY_RIGHT},
+	{ 0x04eb14, KEY_DOWN},
+
+	{ 0x04eb15, KEY_BACKSPACE},
+	{ 0x04eb16, KEY_INFO},
+
+	{ 0x04eb17, KEY_RED},
+	{ 0x04eb18, KEY_GREEN},
+	{ 0x04eb19, KEY_YELLOW},
+	{ 0x04eb1a, KEY_BLUE},
+
+	{ 0x04eb1c, KEY_VOLUMEUP},
+	{ 0x04eb1e, KEY_VOLUMEDOWN},
+
+	{ 0x04eb1d, KEY_MUTE},
+
+	{ 0x04eb1b, KEY_CHANNELUP},
+	{ 0x04eb1f, KEY_CHANNELDOWN},
+
+	{ 0x04eb40, KEY_RECORD},
+	{ 0x04eb4c, KEY_PLAY},
+	{ 0x04eb58, KEY_PAUSE},
+
+	{ 0x04eb54, KEY_REWIND},
+	{ 0x04eb48, KEY_STOP},
+	{ 0x04eb5c, KEY_NEXT},
 };
 
 static struct rc_map_list nec_terratec_cinergy_xs_map = {
 	.map = {
-		.scan    = nec_terratec_cinergy_xs,
-		.size    = ARRAY_SIZE(nec_terratec_cinergy_xs),
-		.rc_type = RC_TYPE_NEC,
-		.name    = RC_MAP_NEC_TERRATEC_CINERGY_XS,
+		.scan     = nec_terratec_cinergy_xs,
+		.size     = ARRAY_SIZE(nec_terratec_cinergy_xs),
+		.rc_proto = RC_PROTO_NEC,
+		.name     = RC_MAP_NEC_TERRATEC_CINERGY_XS,
 	}
 };
 
@@ -103,4 +150,4 @@ module_init(init_rc_map_nec_terratec_cinergy_xs)
 module_exit(exit_rc_map_nec_terratec_cinergy_xs)
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Mauro Carvalho Chehab <mchehab@redhat.com>");
+MODULE_AUTHOR("Mauro Carvalho Chehab");

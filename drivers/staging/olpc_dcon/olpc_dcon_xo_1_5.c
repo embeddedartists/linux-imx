@@ -1,15 +1,15 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (c) 2009,2010       One Laptop per Child
- *
- * This program is free software.  You can redistribute it and/or
- * modify it under the terms of version 2 of the GNU General Public
- * License as published by the Free Software Foundation.
  */
+
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/acpi.h>
 #include <linux/delay.h>
-#include <linux/pci.h>
-#include <linux/gpio.h>
+#include <linux/i2c.h>
+#include <linux/gpio/consumer.h>
+#include <linux/gpio/machine.h>
 #include <asm/olpc.h>
 
 /* TODO: this eventually belongs in linux/vx855.h */
@@ -40,6 +40,33 @@
 
 #define PREFIX "OLPC DCON:"
 
+enum dcon_gpios {
+	OLPC_DCON_STAT0,
+	OLPC_DCON_STAT1,
+	OLPC_DCON_LOAD,
+};
+
+struct gpiod_lookup_table gpios_table = {
+	.dev_id = NULL,
+	.table = {
+		GPIO_LOOKUP("VX855 South Bridge", VX855_GPIO(1), "dcon_load",
+			    GPIO_ACTIVE_LOW),
+		GPIO_LOOKUP("VX855 South Bridge", VX855_GPI(10), "dcon_stat0",
+			    GPIO_ACTIVE_LOW),
+		GPIO_LOOKUP("VX855 South Bridge", VX855_GPI(11), "dcon_stat1",
+			    GPIO_ACTIVE_LOW),
+		{ },
+	},
+};
+
+static const struct dcon_gpio gpios_asis[] = {
+	[OLPC_DCON_STAT0] = { .name = "dcon_stat0", .flags = GPIOD_ASIS },
+	[OLPC_DCON_STAT1] = { .name = "dcon_stat1", .flags = GPIOD_ASIS },
+	[OLPC_DCON_LOAD] = { .name = "dcon_load", .flags = GPIOD_ASIS },
+};
+
+static struct gpio_desc *gpios[3];
+
 static void dcon_clear_irq(void)
 {
 	/* irq status will appear in PMIO_Rx50[6] (RW1C) on gpio12 */
@@ -48,50 +75,41 @@ static void dcon_clear_irq(void)
 
 static int dcon_was_irq(void)
 {
-	u_int8_t tmp;
+	u8 tmp;
 
 	/* irq status will appear in PMIO_Rx50[6] on gpio12 */
 	tmp = inb(VX855_GPI_STATUS_CHG);
-	return !!(tmp & BIT_GPIO12);
 
-	return 0;
+	return !!(tmp & BIT_GPIO12);
 }
 
 static int dcon_init_xo_1_5(struct dcon_priv *dcon)
 {
 	unsigned int irq;
-	u_int8_t tmp;
-	struct pci_dev *pdev;
+	const struct dcon_gpio *pin = &gpios_asis[0];
+	int i;
+	int ret;
 
-	pdev = pci_get_device(PCI_VENDOR_ID_VIA,
-			      PCI_DEVICE_ID_VIA_VX855, NULL);
-	if (!pdev) {
-		printk(KERN_ERR "cannot find VX855 PCI ID\n");
-		return 1;
+	/* Add GPIO look up table */
+	gpios_table.dev_id = dev_name(&dcon->client->dev);
+	gpiod_add_lookup_table(&gpios_table);
+
+	/* Get GPIO descriptor */
+	for (i = 0; i < ARRAY_SIZE(gpios_asis); i++) {
+		gpios[i] = devm_gpiod_get(&dcon->client->dev, pin[i].name,
+					  pin[i].flags);
+		if (IS_ERR(gpios[i])) {
+			ret = PTR_ERR(gpios[i]);
+			pr_err("failed to request %s GPIO: %d\n", pin[i].name,
+			       ret);
+			return ret;
+		}
 	}
-
-	pci_read_config_byte(pdev, 0x95, &tmp);
-	pci_write_config_byte(pdev, 0x95, tmp|0x0c);
-
-	/* Set GPIO8 to GPIO mode, not SSPICLK */
-	pci_read_config_byte(pdev, 0xe3, &tmp);
-	pci_write_config_byte(pdev, 0xe3, tmp | 0x04);
-
-	/* Set GPI10/GPI11 to GPI mode, not SSPISDI/SSPISS */
-	pci_read_config_byte(pdev, 0xe4, &tmp);
-	pci_write_config_byte(pdev, 0xe4, tmp|0x08);
-
-	/* clear PMU_RxE1[6] to select SCI on GPIO12 */
-	/* clear PMU_RxE0[6] to choose falling edge */
-	pci_read_config_byte(pdev, 0xe1, &tmp);
-	pci_write_config_byte(pdev, 0xe1, tmp & ~BIT_GPIO12);
-	pci_read_config_byte(pdev, 0xe0, &tmp);
-	pci_write_config_byte(pdev, 0xe0, tmp & ~BIT_GPIO12);
 
 	dcon_clear_irq();
 
 	/* set   PMIO_Rx52[6] to enable SCI/SMI on gpio12 */
-	outb(inb(VX855_GPI_SCI_SMI)|BIT_GPIO12, VX855_GPI_SCI_SMI);
+	outb(inb(VX855_GPI_SCI_SMI) | BIT_GPIO12, VX855_GPI_SCI_SMI);
 
 	/* Determine the current state of DCONLOAD, likely set by firmware */
 	/* GPIO1 */
@@ -99,12 +117,10 @@ static int dcon_init_xo_1_5(struct dcon_priv *dcon)
 			DCON_SOURCE_CPU : DCON_SOURCE_DCON;
 	dcon->pending_src = dcon->curr_src;
 
-	pci_dev_put(pdev);
-
 	/* we're sharing the IRQ with ACPI */
 	irq = acpi_gbl_FADT.sci_interrupt;
 	if (request_irq(irq, &dcon_interrupt, IRQF_SHARED, "DCON", dcon)) {
-		printk(KERN_ERR PREFIX "DCON (IRQ%d) allocation failed\n", irq);
+		pr_err("DCON (IRQ%d) allocation failed\n", irq);
 		return 1;
 	}
 
@@ -136,7 +152,6 @@ static void set_i2c_line(int sda, int scl)
 	outb(tmp, 0x3c5);
 }
 
-
 static void dcon_wiggle_xo_1_5(void)
 {
 	int x;
@@ -159,12 +174,12 @@ static void dcon_wiggle_xo_1_5(void)
 	udelay(5);
 
 	/* set   PMIO_Rx52[6] to enable SCI/SMI on gpio12 */
-	outb(inb(VX855_GPI_SCI_SMI)|BIT_GPIO12, VX855_GPI_SCI_SMI);
+	outb(inb(VX855_GPI_SCI_SMI) | BIT_GPIO12, VX855_GPI_SCI_SMI);
 }
 
 static void dcon_set_dconload_xo_1_5(int val)
 {
-	gpio_set_value(VX855_GPIO(1), val);
+	gpiod_set_value(gpios[OLPC_DCON_LOAD], val);
 }
 
 static int dcon_read_status_xo_1_5(u8 *status)
@@ -173,8 +188,8 @@ static int dcon_read_status_xo_1_5(u8 *status)
 		return -1;
 
 	/* i believe this is the same as "inb(0x44b) & 3" */
-	*status = gpio_get_value(VX855_GPI(10));
-	*status |= gpio_get_value(VX855_GPI(11)) << 1;
+	*status = gpiod_get_value(gpios[OLPC_DCON_STAT0]);
+	*status |= gpiod_get_value(gpios[OLPC_DCON_STAT1]) << 1;
 
 	dcon_clear_irq();
 

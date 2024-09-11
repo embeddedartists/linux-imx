@@ -1,30 +1,17 @@
-/*
+/* SPDX-License-Identifier: GPL-2.0
+ *
  * include/asm-sh/dma.h
  *
  * Copyright (C) 2003, 2004  Paul Mundt
- *
- * This file is subject to the terms and conditions of the GNU General Public
- * License.  See the file "COPYING" in the main directory of this archive
- * for more details.
  */
 #ifndef __ASM_SH_DMA_H
 #define __ASM_SH_DMA_H
-#ifdef __KERNEL__
 
 #include <linux/spinlock.h>
 #include <linux/wait.h>
 #include <linux/sched.h>
 #include <linux/device.h>
-#include <cpu/dma.h>
 #include <asm-generic/dma.h>
-
-#ifdef CONFIG_NR_DMA_CHANNELS
-#  define MAX_DMA_CHANNELS	(CONFIG_NR_DMA_CHANNELS)
-#elif defined(CONFIG_NR_ONCHIP_DMA_CHANNELS)
-#  define MAX_DMA_CHANNELS	(CONFIG_NR_ONCHIP_DMA_CHANNELS)
-#else
-#  define MAX_DMA_CHANNELS	0
-#endif
 
 /*
  * Read and write modes can mean drastically different things depending on the
@@ -156,5 +143,4 @@ extern int isa_dma_bridge_buggy;
 #define isa_dma_bridge_buggy	(0)
 #endif
 
-#endif /* __KERNEL__ */
 #endif /* __ASM_SH_DMA_H */

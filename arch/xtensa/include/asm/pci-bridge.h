@@ -11,8 +11,6 @@
 #ifndef _XTENSA_PCI_BRIDGE_H
 #define _XTENSA_PCI_BRIDGE_H
 
-#ifdef __KERNEL__
-
 struct device_node;
 struct pci_controller;
 
@@ -35,7 +33,7 @@ struct pci_space {
 struct pci_controller {
 	int index;			/* used for pci_controller_num */
 	struct pci_controller *next;
-        struct pci_bus *bus;
+	struct pci_bus *bus;
 	void *arch_data;
 
 	int first_busno;
@@ -84,5 +82,4 @@ int early_write_config_byte(struct pci_controller*, int, int, int, u8);
 int early_write_config_word(struct pci_controller*, int, int, int, u16);
 int early_write_config_dword(struct pci_controller*, int, int, int, u32);
 
-#endif	/* __KERNEL__ */
 #endif	/* _XTENSA_PCI_BRIDGE_H */

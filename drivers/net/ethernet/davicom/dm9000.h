@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * dm9000 Ethernet
  */
@@ -69,7 +70,9 @@
 #define NCR_WAKEEN          (1<<6)
 #define NCR_FCOL            (1<<4)
 #define NCR_FDX             (1<<3)
-#define NCR_LBK             (3<<1)
+
+#define NCR_RESERVED        (3<<1)
+#define NCR_MAC_LBK         (1<<1)
 #define NCR_RST	            (1<<0)
 
 #define NSR_SPEED           (1<<7)
@@ -166,6 +169,13 @@
 
 #define ISR_LNKCHNG		(1<<5)
 #define ISR_UNDERRUN		(1<<4)
+
+/* Davicom MII registers.
+ */
+
+#define MII_DM_DSPCR		0x1b    /* DSP Control Register */
+
+#define DSPCR_INIT_PARAM	0xE100	/* DSP init parameter */
 
 #endif /* _DM9000X_H_ */
 

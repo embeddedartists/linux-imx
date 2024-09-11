@@ -1,16 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2008 Sebastian Haas (initial chardev implementation)
  * Copyright (C) 2010 Markus Plessing <plessing@ems-wuensche.com>
  * Rework for mainline by Oliver Hartkopp <socketcan@hartkopp.net>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the version 2 of the GNU General Public License
- * as published by the Free Software Foundation
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
  */
 
 #include <linux/kernel.h>
@@ -29,7 +21,6 @@
 
 MODULE_AUTHOR("Markus Plessing <plessing@ems-wuensche.com>");
 MODULE_DESCRIPTION("Socket-CAN driver for EMS CPC-CARD cards");
-MODULE_SUPPORTED_DEVICE("EMS CPC-CARD CAN card");
 MODULE_LICENSE("GPL v2");
 
 #define EMS_PCMCIA_MAX_CHAN 2
@@ -126,11 +117,11 @@ static irqreturn_t ems_pcmcia_interrupt(int irq, void *dev_id)
 static inline int ems_pcmcia_check_chan(struct sja1000_priv *priv)
 {
 	/* Make sure SJA1000 is in reset mode */
-	ems_pcmcia_write_reg(priv, REG_MOD, 1);
-	ems_pcmcia_write_reg(priv, REG_CDR, CDR_PELICAN);
+	ems_pcmcia_write_reg(priv, SJA1000_MOD, 1);
+	ems_pcmcia_write_reg(priv, SJA1000_CDR, CDR_PELICAN);
 
 	/* read reset-values */
-	if (ems_pcmcia_read_reg(priv, REG_CDR) == CDR_PELICAN)
+	if (ems_pcmcia_read_reg(priv, SJA1000_CDR) == CDR_PELICAN)
 		return 1;
 
 	return 0;
@@ -166,8 +157,7 @@ static void ems_pcmcia_del_card(struct pcmcia_device *pdev)
  * Probe PCI device for EMS CAN signature and register each available
  * CAN channel to SJA1000 Socket-CAN subsystem.
  */
-static int __devinit ems_pcmcia_add_card(struct pcmcia_device *pdev,
-					 unsigned long base)
+static int ems_pcmcia_add_card(struct pcmcia_device *pdev, unsigned long base)
 {
 	struct sja1000_priv *priv;
 	struct net_device *dev;
@@ -212,6 +202,7 @@ static int __devinit ems_pcmcia_add_card(struct pcmcia_device *pdev,
 		priv = netdev_priv(dev);
 		priv->priv = card;
 		SET_NETDEV_DEV(dev, &pdev->dev);
+		dev->dev_id = i;
 
 		priv->irq_flags = IRQF_SHARED;
 		dev->irq = pdev->irq;
@@ -243,7 +234,12 @@ static int __devinit ems_pcmcia_add_card(struct pcmcia_device *pdev,
 			free_sja1000dev(dev);
 	}
 
-	err = request_irq(dev->irq, &ems_pcmcia_interrupt, IRQF_SHARED,
+	if (!card->channels) {
+		err = -ENODEV;
+		goto failure_cleanup;
+	}
+
+	err = request_irq(pdev->irq, &ems_pcmcia_interrupt, IRQF_SHARED,
 			  DRV_NAME, card);
 	if (!err)
 		return 0;
@@ -256,7 +252,7 @@ failure_cleanup:
 /*
  * Setup PCMCIA socket and probe for EMS CPC-CARD
  */
-static int __devinit ems_pcmcia_probe(struct pcmcia_device *dev)
+static int ems_pcmcia_probe(struct pcmcia_device *dev)
 {
 	int csval;
 
@@ -317,15 +313,4 @@ static struct pcmcia_driver ems_pcmcia_driver = {
 	.remove = ems_pcmcia_remove,
 	.id_table = ems_pcmcia_tbl,
 };
-
-static int __init ems_pcmcia_init(void)
-{
-	return pcmcia_register_driver(&ems_pcmcia_driver);
-}
-module_init(ems_pcmcia_init);
-
-static void __exit ems_pcmcia_exit(void)
-{
-	pcmcia_unregister_driver(&ems_pcmcia_driver);
-}
-module_exit(ems_pcmcia_exit);
+module_pcmcia_driver(ems_pcmcia_driver);

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __ASM_SH_SE7724_H
 #define __ASM_SH_SE7724_H
 
@@ -12,12 +13,8 @@
  *
  * Based on se7722.h
  * Copyright (C) 2007  Nobuhiro Iwamatsu
- *
- * This file is subject to the terms and conditions of the GNU General Public
- * License.  See the file "COPYING" in the main directory of this archive
- * for more details.
- *
  */
+#include <linux/sh_intc.h>
 #include <asm/addrspace.h>
 
 /* SH Eth */
@@ -35,9 +32,9 @@
 #define IRQ2_MR		(0xba200028)
 
 /* IRQ */
-#define IRQ0_IRQ        32
-#define IRQ1_IRQ        33
-#define IRQ2_IRQ        34
+#define IRQ0_IRQ        evt2irq(0x600)
+#define IRQ1_IRQ        evt2irq(0x620)
+#define IRQ2_IRQ        evt2irq(0x640)
 
 /* Bits in IRQ012 registers */
 #define SE7724_FPGA_IRQ_BASE	220

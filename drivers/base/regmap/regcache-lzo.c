@@ -1,17 +1,14 @@
-/*
- * Register cache access API - LZO caching support
- *
- * Copyright 2011 Wolfson Microelectronics plc
- *
- * Author: Dimitris Papastamos <dp@opensource.wolfsonmicro.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- */
+// SPDX-License-Identifier: GPL-2.0
+//
+// Register cache access API - LZO caching support
+//
+// Copyright 2011 Wolfson Microelectronics plc
+//
+// Author: Dimitris Papastamos <dp@opensource.wolfsonmicro.com>
 
-#include <linux/slab.h>
+#include <linux/device.h>
 #include <linux/lzo.h>
+#include <linux/slab.h>
 
 #include "internal.h"
 
@@ -107,7 +104,7 @@ static int regcache_lzo_decompress_cache_block(struct regmap *map,
 static inline int regcache_lzo_get_blkindex(struct regmap *map,
 					    unsigned int reg)
 {
-	return (reg * map->cache_word_size) /
+	return ((reg / map->reg_stride) * map->cache_word_size) /
 		DIV_ROUND_UP(map->cache_size_raw,
 			     regcache_lzo_block_count(map));
 }
@@ -115,9 +112,10 @@ static inline int regcache_lzo_get_blkindex(struct regmap *map,
 static inline int regcache_lzo_get_blkpos(struct regmap *map,
 					  unsigned int reg)
 {
-	return reg % (DIV_ROUND_UP(map->cache_size_raw,
-				   regcache_lzo_block_count(map)) /
-		      map->cache_word_size);
+	return (reg / map->reg_stride) %
+		    (DIV_ROUND_UP(map->cache_size_raw,
+				  regcache_lzo_block_count(map)) /
+		     map->cache_word_size);
 }
 
 static inline int regcache_lzo_get_blksize(struct regmap *map)
@@ -137,7 +135,7 @@ static int regcache_lzo_init(struct regmap *map)
 	ret = 0;
 
 	blkcount = regcache_lzo_block_count(map);
-	map->cache = kzalloc(blkcount * sizeof *lzo_blocks,
+	map->cache = kcalloc(blkcount, sizeof(*lzo_blocks),
 			     GFP_KERNEL);
 	if (!map->cache)
 		return -ENOMEM;
@@ -150,20 +148,18 @@ static int regcache_lzo_init(struct regmap *map)
 	 * that register.
 	 */
 	bmp_size = map->num_reg_defaults_raw;
-	sync_bmp = kmalloc(BITS_TO_LONGS(bmp_size) * sizeof(long),
-			   GFP_KERNEL);
+	sync_bmp = bitmap_zalloc(bmp_size, GFP_KERNEL);
 	if (!sync_bmp) {
 		ret = -ENOMEM;
 		goto err;
 	}
-	bitmap_zero(sync_bmp, bmp_size);
 
 	/* allocate the lzo blocks and initialize them */
 	for (i = 0; i < blkcount; i++) {
 		lzo_blocks[i] = kzalloc(sizeof **lzo_blocks,
 					GFP_KERNEL);
 		if (!lzo_blocks[i]) {
-			kfree(sync_bmp);
+			bitmap_free(sync_bmp);
 			ret = -ENOMEM;
 			goto err;
 		}
@@ -215,7 +211,7 @@ static int regcache_lzo_exit(struct regmap *map)
 	 * only once.
 	 */
 	if (lzo_blocks[0])
-		kfree(lzo_blocks[0]->sync_bmp);
+		bitmap_free(lzo_blocks[0]->sync_bmp);
 	for (i = 0; i < blkcount; i++) {
 		if (lzo_blocks[i]) {
 			kfree(lzo_blocks[i]->wmem);
@@ -234,15 +230,13 @@ static int regcache_lzo_read(struct regmap *map,
 {
 	struct regcache_lzo_ctx *lzo_block, **lzo_blocks;
 	int ret, blkindex, blkpos;
-	size_t blksize, tmp_dst_len;
+	size_t tmp_dst_len;
 	void *tmp_dst;
 
 	/* index of the compressed lzo block */
 	blkindex = regcache_lzo_get_blkindex(map, reg);
 	/* register index within the decompressed block */
 	blkpos = regcache_lzo_get_blkpos(map, reg);
-	/* size of the compressed block */
-	blksize = regcache_lzo_get_blksize(map);
 	lzo_blocks = map->cache;
 	lzo_block = lzo_blocks[blkindex];
 
@@ -258,8 +252,7 @@ static int regcache_lzo_read(struct regmap *map,
 	ret = regcache_lzo_decompress_cache_block(map, lzo_block);
 	if (ret >= 0)
 		/* fetch the value from the cache */
-		*value = regcache_get_val(lzo_block->dst, blkpos,
-					  map->cache_word_size);
+		*value = regcache_get_val(map, lzo_block->dst, blkpos);
 
 	kfree(lzo_block->dst);
 	/* restore the pointer and length of the compressed block */
@@ -274,15 +267,13 @@ static int regcache_lzo_write(struct regmap *map,
 {
 	struct regcache_lzo_ctx *lzo_block, **lzo_blocks;
 	int ret, blkindex, blkpos;
-	size_t blksize, tmp_dst_len;
+	size_t tmp_dst_len;
 	void *tmp_dst;
 
 	/* index of the compressed lzo block */
 	blkindex = regcache_lzo_get_blkindex(map, reg);
 	/* register index within the decompressed block */
 	blkpos = regcache_lzo_get_blkpos(map, reg);
-	/* size of the compressed block */
-	blksize = regcache_lzo_get_blksize(map);
 	lzo_blocks = map->cache;
 	lzo_block = lzo_blocks[blkindex];
 
@@ -302,8 +293,7 @@ static int regcache_lzo_write(struct regmap *map,
 	}
 
 	/* write the new value to the cache */
-	if (regcache_set_val(lzo_block->dst, blkpos, value,
-			     map->cache_word_size)) {
+	if (regcache_set_val(map, lzo_block->dst, blkpos, value)) {
 		kfree(lzo_block->dst);
 		goto out;
 	}
@@ -321,7 +311,7 @@ static int regcache_lzo_write(struct regmap *map,
 	}
 
 	/* set the bit so we know we have to sync this register */
-	set_bit(reg, lzo_block->sync_bmp);
+	set_bit(reg / map->reg_stride, lzo_block->sync_bmp);
 	kfree(tmp_dst);
 	kfree(lzo_block->src);
 	return 0;
@@ -331,7 +321,8 @@ out:
 	return ret;
 }
 
-static int regcache_lzo_sync(struct regmap *map)
+static int regcache_lzo_sync(struct regmap *map, unsigned int min,
+			     unsigned int max)
 {
 	struct regcache_lzo_ctx **lzo_blocks;
 	unsigned int val;
@@ -339,13 +330,24 @@ static int regcache_lzo_sync(struct regmap *map)
 	int ret;
 
 	lzo_blocks = map->cache;
-	for_each_set_bit(i, lzo_blocks[0]->sync_bmp, lzo_blocks[0]->sync_bmp_nbits) {
+	i = min;
+	for_each_set_bit_from(i, lzo_blocks[0]->sync_bmp,
+			      lzo_blocks[0]->sync_bmp_nbits) {
+		if (i > max)
+			continue;
+
 		ret = regcache_read(map, i, &val);
 		if (ret)
 			return ret;
-		map->cache_bypass = 1;
+
+		/* Is this the hardware default?  If so skip. */
+		ret = regcache_lookup_reg(map, i);
+		if (ret > 0 && val == map->reg_defaults[ret].def)
+			continue;
+
+		map->cache_bypass = true;
 		ret = _regmap_write(map, i, val);
-		map->cache_bypass = 0;
+		map->cache_bypass = false;
 		if (ret)
 			return ret;
 		dev_dbg(map->dev, "Synced register %#x, value %#x\n",

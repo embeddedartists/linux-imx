@@ -28,7 +28,7 @@ xpc_process_connect(struct xpc_channel *ch, unsigned long *irq_flags)
 {
 	enum xp_retval ret;
 
-	DBUG_ON(!spin_is_locked(&ch->lock));
+	lockdep_assert_held(&ch->lock);
 
 	if (!(ch->flags & XPC_C_OPENREQUEST) ||
 	    !(ch->flags & XPC_C_ROPENREQUEST)) {
@@ -82,7 +82,7 @@ xpc_process_disconnect(struct xpc_channel *ch, unsigned long *irq_flags)
 	struct xpc_partition *part = &xpc_partitions[ch->partid];
 	u32 channel_was_connected = (ch->flags & XPC_C_WASCONNECTED);
 
-	DBUG_ON(!spin_is_locked(&ch->lock));
+	lockdep_assert_held(&ch->lock);
 
 	if (!(ch->flags & XPC_C_DISCONNECTING))
 		return;
@@ -656,7 +656,6 @@ xpc_initiate_connect(int ch_number)
 {
 	short partid;
 	struct xpc_partition *part;
-	struct xpc_channel *ch;
 
 	DBUG_ON(ch_number < 0 || ch_number >= XPC_MAX_NCHANNELS);
 
@@ -664,8 +663,6 @@ xpc_initiate_connect(int ch_number)
 		part = &xpc_partitions[partid];
 
 		if (xpc_part_ref(part)) {
-			ch = &part->channels[ch_number];
-
 			/*
 			 * Initiate the establishment of a connection on the
 			 * newly registered channel to the remote partition.
@@ -758,7 +755,7 @@ xpc_disconnect_channel(const int line, struct xpc_channel *ch,
 {
 	u32 channel_was_connected = (ch->flags & XPC_C_CONNECTED);
 
-	DBUG_ON(!spin_is_locked(&ch->lock));
+	lockdep_assert_held(&ch->lock);
 
 	if (ch->flags & (XPC_C_DISCONNECTING | XPC_C_DISCONNECTED))
 		return;
@@ -828,6 +825,7 @@ enum xp_retval
 xpc_allocate_msg_wait(struct xpc_channel *ch)
 {
 	enum xp_retval ret;
+	DEFINE_WAIT(wait);
 
 	if (ch->flags & XPC_C_DISCONNECTING) {
 		DBUG_ON(ch->reason == xpInterrupted);
@@ -835,7 +833,9 @@ xpc_allocate_msg_wait(struct xpc_channel *ch)
 	}
 
 	atomic_inc(&ch->n_on_msg_allocate_wq);
-	ret = interruptible_sleep_on_timeout(&ch->msg_allocate_wq, 1);
+	prepare_to_wait(&ch->msg_allocate_wq, &wait, TASK_INTERRUPTIBLE);
+	ret = schedule_timeout(1);
+	finish_wait(&ch->msg_allocate_wq, &wait);
 	atomic_dec(&ch->n_on_msg_allocate_wq);
 
 	if (ch->flags & XPC_C_DISCONNECTING) {

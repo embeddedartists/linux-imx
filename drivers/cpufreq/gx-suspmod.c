@@ -1,12 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *	Cyrix MediaGX and NatSemi Geode Suspend Modulation
  *	(C) 2002 Zwane Mwaikambo <zwane@commfireservices.com>
  *	(C) 2002 Hiroshi Miura   <miura@da-cha.org>
  *	All Rights Reserved
- *
- *	This program is free software; you can redistribute it and/or
- *      modify it under the terms of the GNU General Public License
- *      version 2 as published by the Free Software Foundation
  *
  *      The author(s) of this software shall not be held liable for damages
  *      of any nature resulting due to the use of this software. This
@@ -48,7 +45,6 @@
  *      off_duration  =  (freq * DURATION) / stock_freq
  *      on_duration = DURATION - off_duration
  *
- *
  *---------------------------------------------------------------------------
  *
  * ChangeLog:
@@ -82,6 +78,7 @@
 #include <linux/errno.h>
 #include <linux/slab.h>
 
+#include <asm/cpu_device_id.h>
 #include <asm/processor-cyrix.h>
 
 /* PCI config registers, all at F0 */
@@ -143,7 +140,7 @@ module_param(max_duration, int, 0444);
 
 
 /**
- * we can detect a core multipiler from dir0_lsb
+ * we can detect a core multiplier from dir0_lsb
  * from GX1 datasheet p.56,
  *	MULT[3:0]:
  *	0000 = SYSCLK multiplied by 4 (test only)
@@ -171,6 +168,7 @@ static struct pci_device_id gx_chipset_tbl[] __initdata = {
 	{ PCI_VDEVICE(CYRIX, PCI_DEVICE_ID_CYRIX_5510), },
 	{ 0, },
 };
+MODULE_DEVICE_TABLE(pci, gx_chipset_tbl);
 
 static void gx_write_byte(int reg, int value)
 {
@@ -181,16 +179,9 @@ static void gx_write_byte(int reg, int value)
  * gx_detect_chipset:
  *
  **/
-static __init struct pci_dev *gx_detect_chipset(void)
+static struct pci_dev * __init gx_detect_chipset(void)
 {
 	struct pci_dev *gx_pci = NULL;
-
-	/* check if CPU is a MediaGX or a Geode. */
-	if ((boot_cpu_data.x86_vendor != X86_VENDOR_NSC) &&
-	    (boot_cpu_data.x86_vendor != X86_VENDOR_CYRIX)) {
-		pr_debug("error: no MediaGX/Geode processor found!\n");
-		return NULL;
-	}
 
 	/* detect which companion chip is used */
 	for_each_pci_dev(gx_pci) {
@@ -256,14 +247,13 @@ static unsigned int gx_validate_speed(unsigned int khz, u8 *on_duration,
  * set cpu speed in khz.
  **/
 
-static void gx_set_cpuspeed(unsigned int khz)
+static void gx_set_cpuspeed(struct cpufreq_policy *policy, unsigned int khz)
 {
 	u8 suscfg, pmer1;
 	unsigned int new_khz;
 	unsigned long flags;
 	struct cpufreq_freqs freqs;
 
-	freqs.cpu = 0;
 	freqs.old = gx_get_cpuspeed(0);
 
 	new_khz = gx_validate_speed(khz, &gx_params->on_duration,
@@ -271,10 +261,8 @@ static void gx_set_cpuspeed(unsigned int khz)
 
 	freqs.new = new_khz;
 
-	cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
+	cpufreq_freq_transition_begin(policy, &freqs);
 	local_irq_save(flags);
-
-
 
 	if (new_khz != stock_freq) {
 		/* if new khz == 100% of CPU speed, it is special case */
@@ -322,7 +310,7 @@ static void gx_set_cpuspeed(unsigned int khz)
 
 	gx_params->pci_suscfg = suscfg;
 
-	cpufreq_notify_transition(&freqs, CPUFREQ_POSTCHANGE);
+	cpufreq_freq_transition_end(policy, &freqs, 0);
 
 	pr_debug("suspend modulation w/ duration of ON:%d us, OFF:%d us\n",
 		gx_params->on_duration * 32, gx_params->off_duration * 32);
@@ -340,7 +328,7 @@ static void gx_set_cpuspeed(unsigned int khz)
  *      for the hardware supported by the driver.
  */
 
-static int cpufreq_gx_verify(struct cpufreq_policy *policy)
+static int cpufreq_gx_verify(struct cpufreq_policy_data *policy)
 {
 	unsigned int tmp_freq = 0;
 	u8 tmp1, tmp2;
@@ -354,7 +342,7 @@ static int cpufreq_gx_verify(struct cpufreq_policy *policy)
 
 	/* it needs to be assured that at least one supported frequency is
 	 * within policy->min and policy->max. If it is not, policy->max
-	 * needs to be increased until one freuqency is supported.
+	 * needs to be increased until one frequency is supported.
 	 * policy->min may not be decreased, though. This way we guarantee a
 	 * specific processing capacity.
 	 */
@@ -402,14 +390,14 @@ static int cpufreq_gx_target(struct cpufreq_policy *policy,
 		tmp_freq = gx_validate_speed(tmp_freq, &tmp1, &tmp2);
 	}
 
-	gx_set_cpuspeed(tmp_freq);
+	gx_set_cpuspeed(policy, tmp_freq);
 
 	return 0;
 }
 
 static int cpufreq_gx_cpu_init(struct cpufreq_policy *policy)
 {
-	unsigned int maxfreq, curfreq;
+	unsigned int maxfreq;
 
 	if (!policy || policy->cpu != 0)
 		return -ENODEV;
@@ -423,10 +411,8 @@ static int cpufreq_gx_cpu_init(struct cpufreq_policy *policy)
 		maxfreq = 30000 * gx_freq_mult[getCx86(CX86_DIR1) & 0x0f];
 
 	stock_freq = maxfreq;
-	curfreq = gx_get_cpuspeed(0);
 
 	pr_debug("cpu max frequency is %d.\n", maxfreq);
-	pr_debug("cpu current frequency is %dkHz.\n", curfreq);
 
 	/* setup basic struct for cpufreq API */
 	policy->cpu = 0;
@@ -436,10 +422,8 @@ static int cpufreq_gx_cpu_init(struct cpufreq_policy *policy)
 	else
 		policy->min = maxfreq / POLICY_MIN_DIV;
 	policy->max = maxfreq;
-	policy->cur = curfreq;
 	policy->cpuinfo.min_freq = maxfreq / max_duration;
 	policy->cpuinfo.max_freq = maxfreq;
-	policy->cpuinfo.transition_latency = CPUFREQ_ETERNAL;
 
 	return 0;
 }
@@ -449,12 +433,12 @@ static int cpufreq_gx_cpu_init(struct cpufreq_policy *policy)
  *   MediaGX/Geode GX initialize cpufreq driver
  */
 static struct cpufreq_driver gx_suspmod_driver = {
+	.flags		= CPUFREQ_NO_AUTO_DYNAMIC_SWITCHING,
 	.get		= gx_get_cpuspeed,
 	.verify		= cpufreq_gx_verify,
 	.target		= cpufreq_gx_target,
 	.init		= cpufreq_gx_cpu_init,
 	.name		= "gx-suspmod",
-	.owner		= THIS_MODULE,
 };
 
 static int __init cpufreq_gx_init(void)
@@ -474,7 +458,7 @@ static int __init cpufreq_gx_init(void)
 
 	pr_debug("geode suspend modulation available.\n");
 
-	params = kzalloc(sizeof(struct gxfreq_params), GFP_KERNEL);
+	params = kzalloc(sizeof(*params), GFP_KERNEL);
 	if (params == NULL)
 		return -ENOMEM;
 

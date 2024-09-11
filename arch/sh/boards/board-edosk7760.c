@@ -1,28 +1,16 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Renesas Europe EDOSK7760 Board Support
  *
  * Copyright (C) 2008 SPES Societa' Progettazione Elettronica e Software Ltd.
  * Author: Luca Santini <luca.santini@spesonline.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 #include <linux/init.h>
 #include <linux/types.h>
 #include <linux/platform_device.h>
 #include <linux/smc91x.h>
 #include <linux/interrupt.h>
+#include <linux/sh_intc.h>
 #include <linux/i2c.h>
 #include <linux/mtd/physmap.h>
 #include <asm/machvec.h>
@@ -30,7 +18,7 @@
 #include <asm/addrspace.h>
 #include <asm/delay.h>
 #include <asm/i2c-sh7760.h>
-#include <asm/sizes.h>
+#include <linux/sizes.h>
 
 /* Bus state controller registers for CS4 area */
 #define BSC_CS4BCR	0xA4FD0010
@@ -39,8 +27,6 @@
 #define SMC_IOBASE	0xA2000000
 #define SMC_IO_OFFSET	0x300
 #define SMC_IOADDR	(SMC_IOBASE + SMC_IO_OFFSET)
-
-#define ETHERNET_IRQ	5
 
 /* NOR flash */
 static struct mtd_partition edosk7760_nor_flash_partitions[] = {
@@ -99,8 +85,8 @@ static struct resource sh7760_i2c1_res[] = {
 		.end	= SH7760_I2C1_MMIOEND,
 		.flags	= IORESOURCE_MEM,
 	},{
-		.start	= SH7760_I2C1_IRQ,
-		.end	= SH7760_I2C1_IRQ,
+		.start	= evt2irq(0x9e0),
+		.end	= evt2irq(0x9e0),
 		.flags	= IORESOURCE_IRQ,
 	},
 };
@@ -122,8 +108,8 @@ static struct resource sh7760_i2c0_res[] = {
 		.end	= SH7760_I2C0_MMIOEND,
 		.flags	= IORESOURCE_MEM,
 	}, {
-		.start	= SH7760_I2C0_IRQ,
-		.end	= SH7760_I2C0_IRQ,
+		.start	= evt2irq(0x9c0),
+		.end	= evt2irq(0x9c0),
 		.flags	= IORESOURCE_IRQ,
 	},
 };
@@ -150,8 +136,8 @@ static struct resource smc91x_res[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start	= ETHERNET_IRQ,
-		.end	= ETHERNET_IRQ,
+		.start	= evt2irq(0x2a0),
+		.end	= evt2irq(0x2a0),
 		.flags	= IORESOURCE_IRQ ,
 	}
 };
@@ -189,5 +175,4 @@ device_initcall(init_edosk7760_devices);
  */
 struct sh_machine_vector mv_edosk7760 __initmv = {
 	.mv_name	= "EDOSK7760",
-	.mv_nr_irqs	= 128,
 };

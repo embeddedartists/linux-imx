@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * pata_cypress.c 	- Cypress PATA for new ATA layer
  *			  (C) 2006 Red Hat Inc
@@ -11,7 +12,6 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/pci.h>
-#include <linux/init.h>
 #include <linux/blkdev.h>
 #include <linux/delay.h>
 #include <scsi/scsi_host.h>
@@ -40,6 +40,10 @@ enum {
 	CY82_INDEX_CHANNEL1	= 0x31,
 	CY82_INDEX_TIMEOUT	= 0x32
 };
+
+static bool enable_dma = true;
+module_param(enable_dma, bool, 0);
+MODULE_PARM_DESC(enable_dma, "Enable bus master DMA operations");
 
 /**
  *	cy82c693_set_piomode	-	set initial PIO mode data
@@ -124,13 +128,15 @@ static struct ata_port_operations cy82c693_port_ops = {
 
 static int cy82c693_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 {
-	static const struct ata_port_info info = {
+	static struct ata_port_info info = {
 		.flags = ATA_FLAG_SLAVE_POSS,
 		.pio_mask = ATA_PIO4,
-		.mwdma_mask = ATA_MWDMA2,
 		.port_ops = &cy82c693_port_ops
 	};
 	const struct ata_port_info *ppi[] = { &info, &ata_dummy_port_info };
+
+	if (enable_dma)
+		info.mwdma_mask = ATA_MWDMA2;
 
 	/* Devfn 1 is the ATA primary. The secondary is magic and on devfn2.
 	   For the moment we don't handle the secondary. FIXME */
@@ -152,29 +158,16 @@ static struct pci_driver cy82c693_pci_driver = {
 	.id_table	= cy82c693,
 	.probe 		= cy82c693_init_one,
 	.remove		= ata_pci_remove_one,
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 	.suspend	= ata_pci_device_suspend,
 	.resume		= ata_pci_device_resume,
 #endif
 };
 
-static int __init cy82c693_init(void)
-{
-	return pci_register_driver(&cy82c693_pci_driver);
-}
-
-
-static void __exit cy82c693_exit(void)
-{
-	pci_unregister_driver(&cy82c693_pci_driver);
-}
-
+module_pci_driver(cy82c693_pci_driver);
 
 MODULE_AUTHOR("Alan Cox");
 MODULE_DESCRIPTION("low-level driver for the CY82C693 PATA controller");
 MODULE_LICENSE("GPL");
 MODULE_DEVICE_TABLE(pci, cy82c693);
 MODULE_VERSION(DRV_VERSION);
-
-module_init(cy82c693_init);
-module_exit(cy82c693_exit);

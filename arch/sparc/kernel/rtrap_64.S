@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * rtrap.S: Preparing for return from trap on Sparc V9.
  *
@@ -14,26 +15,42 @@
 #include <asm/visasm.h>
 #include <asm/processor.h>
 
-#define		RTRAP_PSTATE		(PSTATE_TSO|PSTATE_PEF|PSTATE_PRIV|PSTATE_IE)
-#define		RTRAP_PSTATE_IRQOFF	(PSTATE_TSO|PSTATE_PEF|PSTATE_PRIV)
-#define		RTRAP_PSTATE_AG_IRQOFF	(PSTATE_TSO|PSTATE_PEF|PSTATE_PRIV|PSTATE_AG)
+#ifdef CONFIG_CONTEXT_TRACKING
+# define SCHEDULE_USER schedule_user
+#else
+# define SCHEDULE_USER schedule
+#endif
 
 		.text
 		.align			32
-__handle_softirq:
-		call			do_softirq
-		 nop
-		ba,a,pt			%xcc, __handle_softirq_continue
-		 nop
 __handle_preemption:
-		call			schedule
-		 wrpr			%g0, RTRAP_PSTATE, %pstate
+		call			SCHEDULE_USER
+661:		 wrpr			%g0, RTRAP_PSTATE, %pstate
+		/* If userspace is using ADI, it could potentially pass
+		 * a pointer with version tag embedded in it. To maintain
+		 * the ADI security, we must re-enable PSTATE.mcde before
+		 * we continue execution in the kernel for another thread.
+		 */
+		.section .sun_m7_1insn_patch, "ax"
+		.word	661b
+		 wrpr			%g0, RTRAP_PSTATE|PSTATE_MCDE, %pstate
+		.previous
 		ba,pt			%xcc, __handle_preemption_continue
 		 wrpr			%g0, RTRAP_PSTATE_IRQOFF, %pstate
 
 __handle_user_windows:
+		add			%sp, PTREGS_OFF, %o0
 		call			fault_in_user_windows
-		 wrpr			%g0, RTRAP_PSTATE, %pstate
+661:		 wrpr			%g0, RTRAP_PSTATE, %pstate
+		/* If userspace is using ADI, it could potentially pass
+		 * a pointer with version tag embedded in it. To maintain
+		 * the ADI security, we must re-enable PSTATE.mcde before
+		 * we continue execution in the kernel for another thread.
+		 */
+		.section .sun_m7_1insn_patch, "ax"
+		.word	661b
+		 wrpr			%g0, RTRAP_PSTATE|PSTATE_MCDE, %pstate
+		.previous
 		ba,pt			%xcc, __handle_preemption_continue
 		 wrpr			%g0, RTRAP_PSTATE_IRQOFF, %pstate
 
@@ -50,7 +67,16 @@ __handle_signal:
 		add			%sp, PTREGS_OFF, %o0
 		mov			%l0, %o2
 		call			do_notify_resume
-		 wrpr			%g0, RTRAP_PSTATE, %pstate
+661:		 wrpr			%g0, RTRAP_PSTATE, %pstate
+		/* If userspace is using ADI, it could potentially pass
+		 * a pointer with version tag embedded in it. To maintain
+		 * the ADI security, we must re-enable PSTATE.mcde before
+		 * we continue execution in the kernel for another thread.
+		 */
+		.section .sun_m7_1insn_patch, "ax"
+		.word	661b
+		 wrpr			%g0, RTRAP_PSTATE|PSTATE_MCDE, %pstate
+		.previous
 		wrpr			%g0, RTRAP_PSTATE_IRQOFF, %pstate
 
 		/* Signal delivery can modify pt_regs tstate, so we must
@@ -59,8 +85,9 @@ __handle_signal:
 		ldx			[%sp + PTREGS_OFF + PT_V9_TSTATE], %l1
 		sethi			%hi(0xf << 20), %l4
 		and			%l1, %l4, %l4
+		andn			%l1, %l4, %l1
 		ba,pt			%xcc, __handle_preemption_continue
-		 andn			%l1, %l4, %l1
+		 srl			%l4, 20, %l4
 
 		/* When returning from a NMI (%pil==15) interrupt we want to
 		 * avoid running softirqs, doing IRQ tracing, preempting, etc.
@@ -72,26 +99,20 @@ rtrap_nmi:	ldx			[%sp + PTREGS_OFF + PT_V9_TSTATE], %l1
 		andn			%l1, %l4, %l1
 		srl			%l4, 20, %l4
 		ba,pt			%xcc, rtrap_no_irq_enable
-		 wrpr			%l4, %pil
+		nop
+		/* Do not actually set the %pil here.  We will do that
+		 * below after we clear PSTATE_IE in the %pstate register.
+		 * If we re-enable interrupts here, we can recurse down
+		 * the hardirq stack potentially endlessly, causing a
+		 * stack overflow.
+		 */
 
 		.align			64
 		.globl			rtrap_irq, rtrap, irqsz_patchme, rtrap_xcall
 rtrap_irq:
 rtrap:
-#ifndef CONFIG_SMP
-		sethi			%hi(__cpu_data), %l0
-		lduw			[%l0 + %lo(__cpu_data)], %l1
-#else
-		sethi			%hi(__cpu_data), %l0
-		or			%l0, %lo(__cpu_data), %l0
-		lduw			[%l0 + %g5], %l1
-#endif
-		cmp			%l1, 0
-
 		/* mm/ultra.S:xcall_report_regs KNOWS about this load. */
-		bne,pn			%icc, __handle_softirq
-		 ldx			[%sp + PTREGS_OFF + PT_V9_TSTATE], %l1
-__handle_softirq_continue:
+		ldx			[%sp + PTREGS_OFF + PT_V9_TSTATE], %l1
 rtrap_xcall:
 		sethi			%hi(0xf << 20), %l4
 		and			%l1, %l4, %l4
@@ -233,10 +254,19 @@ rt_continue:	ldx			[%sp + PTREGS_OFF + PT_V9_G1], %g1
 		rdpr			%otherwin, %l2
 		srl			%l1, 3, %l1
 
-		wrpr			%l2, %g0, %canrestore
+661:		wrpr			%l2, %g0, %canrestore
+		.section		.fast_win_ctrl_1insn_patch, "ax"
+		.word			661b
+		.word			0x89880000	! normalw
+		.previous
+
 		wrpr			%l1, %g0, %wstate
 		brnz,pt			%l2, user_rtt_restore
-		 wrpr			%g0, %g0, %otherwin
+661:		 wrpr			%g0, %g0, %otherwin
+		.section		.fast_win_ctrl_1insn_patch, "ax"
+		.word			661b
+		 nop
+		.previous
 
 		ldx			[%g6 + TI_FLAGS], %g3
 		wr			%g0, ASI_AIUP, %asi
@@ -246,53 +276,19 @@ rt_continue:	ldx			[%sp + PTREGS_OFF + PT_V9_G1], %g1
 		bne,pt			%xcc, user_rtt_fill_32bit
 		 wrpr			%g1, %cwp
 		ba,a,pt			%xcc, user_rtt_fill_64bit
+		 nop
+
+user_rtt_fill_fixup_dax:
+		ba,pt	%xcc, user_rtt_fill_fixup_common
+		 mov	1, %g3
+
+user_rtt_fill_fixup_mna:
+		ba,pt	%xcc, user_rtt_fill_fixup_common
+		 mov	2, %g3
 
 user_rtt_fill_fixup:
-		rdpr	%cwp, %g1
-		add	%g1, 1, %g1
-		wrpr	%g1, 0x0, %cwp
-
-		rdpr	%wstate, %g2
-		sll	%g2, 3, %g2
-		wrpr	%g2, 0x0, %wstate
-
-		/* We know %canrestore and %otherwin are both zero.  */
-
-		sethi	%hi(sparc64_kern_pri_context), %g2
-		ldx	[%g2 + %lo(sparc64_kern_pri_context)], %g2
-		mov	PRIMARY_CONTEXT, %g1
-
-661:		stxa	%g2, [%g1] ASI_DMMU
-		.section .sun4v_1insn_patch, "ax"
-		.word	661b
-		stxa	%g2, [%g1] ASI_MMU
-		.previous
-
-		sethi	%hi(KERNBASE), %g1
-		flush	%g1
-
-		or	%g4, FAULT_CODE_WINFIXUP, %g4
-		stb	%g4, [%g6 + TI_FAULT_CODE]
-		stx	%g5, [%g6 + TI_FAULT_ADDR]
-
-		mov	%g6, %l1
-		wrpr	%g0, 0x0, %tl
-
-661:		nop
-		.section		.sun4v_1insn_patch, "ax"
-		.word			661b
-		SET_GL(0)
-		.previous
-
-		wrpr	%g0, RTRAP_PSTATE, %pstate
-
-		mov	%l1, %g6
-		ldx	[%g6 + TI_TASK], %g4
-		LOAD_PER_CPU_BASE(%g5, %g6, %g1, %g2, %g3)
-		call	do_sparc64_fault
-		 add	%sp, PTREGS_OFF, %o0
-		ba,pt	%xcc, rtrap
-		 nop
+		ba,pt	%xcc, user_rtt_fill_fixup_common
+		 clr	%g3
 
 user_rtt_pre_restore:
 		add			%g1, 1, %g1
@@ -314,7 +310,7 @@ kern_rtt_restore:
 		retry
 
 to_kernel:
-#ifdef CONFIG_PREEMPT
+#ifdef CONFIG_PREEMPTION
 		ldsw			[%g6 + TI_PRE_COUNT], %l5
 		brnz			%l5, kern_fpucheck
 		 ldx			[%g6 + TI_FLAGS], %l5
@@ -323,12 +319,10 @@ to_kernel:
 		 nop
 		cmp			%l4, 0
 		bne,pn			%xcc, kern_fpucheck
-		 sethi			%hi(PREEMPT_ACTIVE), %l6
-		stw			%l6, [%g6 + TI_PRE_COUNT]
-		call			schedule
+		 nop
+		call			preempt_schedule_irq
 		 nop
 		ba,pt			%xcc, rtrap
-		 stw			%g0, [%g6 + TI_PRE_COUNT]
 #endif
 kern_fpucheck:	ldub			[%g6 + TI_FPDEPTH], %l5
 		brz,pt			%l5, rt_continue

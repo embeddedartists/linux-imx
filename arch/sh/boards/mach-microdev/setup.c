@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * arch/sh/boards/superh/microdev/setup.c
  *
@@ -6,9 +7,6 @@
  * Copyright (C) 2004, 2005 Paul Mundt
  *
  * SuperH SH4-202 MicroDev board support.
- *
- * May be copied or modified under the terms of the GNU General Public
- * License.  See linux/COPYING for more information.
  */
 #include <linux/init.h>
 #include <linux/platform_device.h>
@@ -17,7 +15,7 @@
 #include <mach/microdev.h>
 #include <asm/io.h>
 #include <asm/machvec.h>
-#include <asm/sizes.h>
+#include <linux/sizes.h>
 
 static struct resource smc91x_resources[] = {
 	[0] = {
@@ -194,7 +192,6 @@ device_initcall(microdev_devices_setup);
  */
 static struct sh_machine_vector mv_sh4202_microdev __initmv = {
 	.mv_name		= "SH4-202 MicroDev",
-	.mv_nr_irqs		= 72,
 	.mv_ioport_map		= microdev_ioport_map,
 	.mv_init_irq		= init_microdev_irq,
 };

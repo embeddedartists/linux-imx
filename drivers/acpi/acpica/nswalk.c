@@ -1,45 +1,11 @@
+// SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0
 /******************************************************************************
  *
  * Module Name: nswalk - Functions for walking the ACPI namespace
  *
+ * Copyright (C) 2000 - 2021, Intel Corp.
+ *
  *****************************************************************************/
-
-/*
- * Copyright (C) 2000 - 2011, Intel Corp.
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions, and the following disclaimer,
- *    without modification.
- * 2. Redistributions in binary form must reproduce at minimum a disclaimer
- *    substantially similar to the "NO WARRANTY" disclaimer below
- *    ("Disclaimer") and any redistribution must be conditioned upon
- *    including a substantially similar Disclaimer requirement for further
- *    binary redistribution.
- * 3. Neither the names of the above-listed copyright holders nor the names
- *    of any contributors may be used to endorse or promote products derived
- *    from this software without specific prior written permission.
- *
- * Alternatively, this software may be distributed under the terms of the
- * GNU General Public License ("GPL") version 2 as published by the Free
- * Software Foundation.
- *
- * NO WARRANTY
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * HOLDERS OR CONTRIBUTORS BE LIABLE FOR SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
- * IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGES.
- */
 
 #include <acpi/acpi.h>
 #include "accommon.h"
@@ -60,8 +26,8 @@ ACPI_MODULE_NAME("nswalk")
  * RETURN:      struct acpi_namespace_node - Pointer to the NEXT child or NULL if
  *                                    none is found.
  *
- * DESCRIPTION: Return the next peer node within the namespace.  If Handle
- *              is valid, Scope is ignored.  Otherwise, the first node
+ * DESCRIPTION: Return the next peer node within the namespace. If Handle
+ *              is valid, Scope is ignored. Otherwise, the first node
  *              within Scope is returned.
  *
  ******************************************************************************/
@@ -76,19 +42,19 @@ struct acpi_namespace_node *acpi_ns_get_next_node(struct acpi_namespace_node
 
 		/* It's really the parent's _scope_ that we want */
 
-		return parent_node->child;
+		return (parent_node->child);
 	}
 
 	/* Otherwise just return the next peer */
 
-	return child_node->peer;
+	return (child_node->peer);
 }
 
 /*******************************************************************************
  *
  * FUNCTION:    acpi_ns_get_next_node_typed
  *
- * PARAMETERS:  Type                - Type of node to be searched for
+ * PARAMETERS:  type                - Type of node to be searched for
  *              parent_node         - Parent node whose children we are
  *                                    getting
  *              child_node          - Previous child that was found.
@@ -97,8 +63,8 @@ struct acpi_namespace_node *acpi_ns_get_next_node(struct acpi_namespace_node
  * RETURN:      struct acpi_namespace_node - Pointer to the NEXT child or NULL if
  *                                    none is found.
  *
- * DESCRIPTION: Return the next peer node within the namespace.  If Handle
- *              is valid, Scope is ignored.  Otherwise, the first node
+ * DESCRIPTION: Return the next peer node within the namespace. If Handle
+ *              is valid, Scope is ignored. Otherwise, the first node
  *              within Scope is returned.
  *
  ******************************************************************************/
@@ -151,16 +117,16 @@ struct acpi_namespace_node *acpi_ns_get_next_node_typed(acpi_object_type type,
  *
  * FUNCTION:    acpi_ns_walk_namespace
  *
- * PARAMETERS:  Type                - acpi_object_type to search for
+ * PARAMETERS:  type                - acpi_object_type to search for
  *              start_node          - Handle in namespace where search begins
  *              max_depth           - Depth to which search is to reach
- *              Flags               - Whether to unlock the NS before invoking
+ *              flags               - Whether to unlock the NS before invoking
  *                                    the callback routine
- *              pre_order_visit     - Called during tree pre-order visit
+ *              descending_callback - Called during tree descent
  *                                    when an object of "Type" is found
- *              post_order_visit    - Called during tree post-order visit
+ *              ascending_callback  - Called during tree ascent
  *                                    when an object of "Type" is found
- *              Context             - Passed to user function(s) above
+ *              context             - Passed to user function(s) above
  *              return_value        - from the user_function if terminated
  *                                    early. Otherwise, returns NULL.
  * RETURNS:     Status
@@ -185,8 +151,8 @@ acpi_ns_walk_namespace(acpi_object_type type,
 		       acpi_handle start_node,
 		       u32 max_depth,
 		       u32 flags,
-		       acpi_walk_callback pre_order_visit,
-		       acpi_walk_callback post_order_visit,
+		       acpi_walk_callback descending_callback,
+		       acpi_walk_callback ascending_callback,
 		       void *context, void **return_value)
 {
 	acpi_status status;
@@ -255,22 +221,22 @@ acpi_ns_walk_namespace(acpi_object_type type,
 			}
 
 			/*
-			 * Invoke the user function, either pre-order or post-order
+			 * Invoke the user function, either descending, ascending,
 			 * or both.
 			 */
 			if (!node_previously_visited) {
-				if (pre_order_visit) {
+				if (descending_callback) {
 					status =
-					    pre_order_visit(child_node, level,
-							    context,
-							    return_value);
+					    descending_callback(child_node,
+								level, context,
+								return_value);
 				}
 			} else {
-				if (post_order_visit) {
+				if (ascending_callback) {
 					status =
-					    post_order_visit(child_node, level,
-							     context,
-							     return_value);
+					    ascending_callback(child_node,
+							       level, context,
+							       return_value);
 				}
 			}
 
@@ -305,7 +271,7 @@ acpi_ns_walk_namespace(acpi_object_type type,
 
 		/*
 		 * Depth first search: Attempt to go down another level in the
-		 * namespace if we are allowed to.  Don't go any further if we have
+		 * namespace if we are allowed to. Don't go any further if we have
 		 * reached the caller specified maximum depth or if the user
 		 * function has specified that the maximum depth has been reached.
 		 */

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  HID driver for TopSeed Cyberlink remote
  *
@@ -12,10 +13,6 @@
  */
 
 /*
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the Free
- * Software Foundation; either version 2 of the License, or (at your option)
- * any later version.
  */
 
 #include <linux/device.h>
@@ -34,7 +31,9 @@ static int ts_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 		return 0;
 
 	switch (usage->hid & HID_USAGE) {
+	case 0x00c: ts_map_key_clear(KEY_WLAN);		break;
 	case 0x00d: ts_map_key_clear(KEY_MEDIA);	break;
+	case 0x010: ts_map_key_clear(KEY_ZOOM);		break;
 	case 0x024: ts_map_key_clear(KEY_MENU);		break;
 	case 0x025: ts_map_key_clear(KEY_TV);		break;
 	case 0x027: ts_map_key_clear(KEY_MODE);		break;
@@ -67,6 +66,7 @@ static const struct hid_device_id ts_devices[] = {
 	{ HID_USB_DEVICE(USB_VENDOR_ID_BTC, USB_DEVICE_ID_BTC_EMPREX_REMOTE_2) },
 	{ HID_USB_DEVICE(USB_VENDOR_ID_TOPSEED2, USB_DEVICE_ID_TOPSEED2_RF_COMBO) },
 	{ HID_USB_DEVICE(USB_VENDOR_ID_CHICONY, USB_DEVICE_ID_CHICONY_WIRELESS) },
+	{ HID_BLUETOOTH_DEVICE(USB_VENDOR_ID_CHICONY, USB_DEVICE_ID_CHICONY_TOSHIBA_WT10A) },
 	{ }
 };
 MODULE_DEVICE_TABLE(hid, ts_devices);
@@ -76,17 +76,6 @@ static struct hid_driver ts_driver = {
 	.id_table = ts_devices,
 	.input_mapping = ts_input_mapping,
 };
+module_hid_driver(ts_driver);
 
-static int __init ts_init(void)
-{
-	return hid_register_driver(&ts_driver);
-}
-
-static void __exit ts_exit(void)
-{
-	hid_unregister_driver(&ts_driver);
-}
-
-module_init(ts_init);
-module_exit(ts_exit);
 MODULE_LICENSE("GPL");

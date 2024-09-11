@@ -1,19 +1,15 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * rtc-dm355evm.c - access battery-backed counter in MSP430 firmware
  *
  * Copyright (c) 2008 by David Brownell
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version
- * 2 of the License, or (at your option) any later version.
  */
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/rtc.h>
 #include <linux/platform_device.h>
 
-#include <linux/i2c/dm355evm_msp.h>
+#include <linux/mfd/dm355evm_msp.h>
 #include <linux/module.h>
 
 
@@ -78,7 +74,7 @@ static int dm355evm_rtc_read_time(struct device *dev, struct rtc_time *tm)
 
 	dev_dbg(dev, "read timestamp %08x\n", time.value);
 
-	rtc_time_to_tm(le32_to_cpu(time.value), tm);
+	rtc_time64_to_tm(le32_to_cpu(time.value), tm);
 	return 0;
 }
 
@@ -88,7 +84,7 @@ static int dm355evm_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	unsigned long	value;
 	int		status;
 
-	rtc_tm_to_time(tm, &value);
+	value = rtc_tm_to_time64(tm);
 	time.value = cpu_to_le32(value);
 
 	dev_dbg(dev, "write timestamp %08x\n", time.value);
@@ -116,36 +112,27 @@ static int dm355evm_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	return 0;
 }
 
-static struct rtc_class_ops dm355evm_rtc_ops = {
+static const struct rtc_class_ops dm355evm_rtc_ops = {
 	.read_time	= dm355evm_rtc_read_time,
 	.set_time	= dm355evm_rtc_set_time,
 };
 
 /*----------------------------------------------------------------------*/
 
-static int __devinit dm355evm_rtc_probe(struct platform_device *pdev)
+static int dm355evm_rtc_probe(struct platform_device *pdev)
 {
 	struct rtc_device *rtc;
 
-	rtc = rtc_device_register(pdev->name,
-				  &pdev->dev, &dm355evm_rtc_ops, THIS_MODULE);
-	if (IS_ERR(rtc)) {
-		dev_err(&pdev->dev, "can't register RTC device, err %ld\n",
-			PTR_ERR(rtc));
+	rtc = devm_rtc_allocate_device(&pdev->dev);
+	if (IS_ERR(rtc))
 		return PTR_ERR(rtc);
-	}
+
 	platform_set_drvdata(pdev, rtc);
 
-	return 0;
-}
+	rtc->ops = &dm355evm_rtc_ops;
+	rtc->range_max = U32_MAX;
 
-static int __devexit dm355evm_rtc_remove(struct platform_device *pdev)
-{
-	struct rtc_device *rtc = platform_get_drvdata(pdev);
-
-	rtc_device_unregister(rtc);
-	platform_set_drvdata(pdev, NULL);
-	return 0;
+	return devm_rtc_register_device(rtc);
 }
 
 /*
@@ -154,9 +141,7 @@ static int __devexit dm355evm_rtc_remove(struct platform_device *pdev)
  */
 static struct platform_driver rtc_dm355evm_driver = {
 	.probe		= dm355evm_rtc_probe,
-	.remove		= __devexit_p(dm355evm_rtc_remove),
 	.driver		= {
-		.owner	= THIS_MODULE,
 		.name	= "rtc-dm355evm",
 	},
 };

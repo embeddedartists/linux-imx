@@ -1,12 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Read address ranges from a Broadcom CNB20LE Host Bridge
  *
  * Copyright (c) 2010 Ira W. Snyder <iws@ovro.caltech.edu>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
  */
 
 #include <linux/acpi.h>
@@ -22,19 +18,15 @@
 static void __init cnb20le_res(u8 bus, u8 slot, u8 func)
 {
 	struct pci_root_info *info;
+	struct pci_root_res *root_res;
 	struct resource res;
 	u16 word1, word2;
 	u8 fbus, lbus;
-	int i;
-
-	info = &pci_root_info[pci_root_num];
-	pci_root_num++;
 
 	/* read the PCI bus numbers */
 	fbus = read_pci_config_byte(bus, slot, func, 0x44);
 	lbus = read_pci_config_byte(bus, slot, func, 0x45);
-	info->bus_min = fbus;
-	info->bus_max = lbus;
+	info = alloc_pci_root_info(fbus, lbus, 0, 0);
 
 	/*
 	 * Add the legacy IDE ports on bus 0
@@ -54,8 +46,8 @@ static void __init cnb20le_res(u8 bus, u8 slot, u8 func)
 	word1 = read_pci_config_16(bus, slot, func, 0xc0);
 	word2 = read_pci_config_16(bus, slot, func, 0xc2);
 	if (word1 != word2) {
-		res.start = (word1 << 16) | 0x0000;
-		res.end   = (word2 << 16) | 0xffff;
+		res.start = ((resource_size_t) word1 << 16) | 0x0000;
+		res.end   = ((resource_size_t) word2 << 16) | 0xffff;
 		res.flags = IORESOURCE_MEM;
 		update_res(info, res.start, res.end, res.flags, 0);
 	}
@@ -64,8 +56,8 @@ static void __init cnb20le_res(u8 bus, u8 slot, u8 func)
 	word1 = read_pci_config_16(bus, slot, func, 0xc4);
 	word2 = read_pci_config_16(bus, slot, func, 0xc6);
 	if (word1 != word2) {
-		res.start = (word1 << 16) | 0x0000;
-		res.end   = (word2 << 16) | 0xffff;
+		res.start = ((resource_size_t) word1 << 16) | 0x0000;
+		res.end   = ((resource_size_t) word2 << 16) | 0xffff;
 		res.flags = IORESOURCE_MEM | IORESOURCE_PREFETCH;
 		update_res(info, res.start, res.end, res.flags, 0);
 	}
@@ -86,8 +78,8 @@ static void __init cnb20le_res(u8 bus, u8 slot, u8 func)
 	res.flags = IORESOURCE_BUS;
 	printk(KERN_INFO "CNB20LE PCI Host Bridge (domain 0000 %pR)\n", &res);
 
-	for (i = 0; i < info->res_num; i++)
-		printk(KERN_INFO "host bridge window %pR\n", &info->res[i]);
+	list_for_each_entry(root_res, &info->resources, list)
+		printk(KERN_INFO "host bridge window %pR\n", &root_res->res);
 }
 
 static int __init broadcom_postcore_init(void)
@@ -101,7 +93,7 @@ static int __init broadcom_postcore_init(void)
 	 * We should get host bridge information from ACPI unless the BIOS
 	 * doesn't support it.
 	 */
-	if (acpi_os_get_root_pointer())
+	if (!acpi_disabled && acpi_os_get_root_pointer())
 		return 0;
 #endif
 

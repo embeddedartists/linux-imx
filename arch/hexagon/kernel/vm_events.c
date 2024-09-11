@@ -1,28 +1,15 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Mostly IRQ support for Hexagon
  *
- * Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
+ * Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/kernel.h>
+#include <linux/sched/debug.h>
 #include <asm/registers.h>
 #include <linux/irq.h>
 #include <linux/hardirq.h>
-#include <asm/system.h>
 
 /*
  * show_regs - print pt_regs structure
@@ -34,6 +21,8 @@
  */
 void show_regs(struct pt_regs *regs)
 {
+	show_regs_print_info(KERN_EMERG);
+
 	printk(KERN_EMERG "restart_r0: \t0x%08lx   syscall_nr: %ld\n",
 	       regs->restart_r0, regs->syscall_nr);
 	printk(KERN_EMERG "preds: \t\t0x%08lx\n", regs->preds);
@@ -43,6 +32,8 @@ void show_regs(struct pt_regs *regs)
 	       regs->lc1, regs->sa1, regs->m1);
 	printk(KERN_EMERG "gp: \t0x%08lx   ugp: 0x%08lx   usr: 0x%08lx\n",
 	       regs->gp, regs->ugp, regs->usr);
+	printk(KERN_EMERG "cs0: \t0x%08lx   cs1: 0x%08lx\n",
+	       regs->cs0, regs->cs1);
 	printk(KERN_EMERG "r0: \t0x%08lx %08lx %08lx %08lx\n", regs->r00,
 		regs->r01,
 		regs->r02,

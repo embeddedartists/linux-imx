@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*  Silan SC92031 PCI Fast Ethernet Adapter driver
  *
  *  Based on vendor drivers:
@@ -39,9 +40,7 @@
 #define SC92031_NAME "sc92031"
 
 /* BAR 0 is MMIO, BAR 1 is PIO */
-#ifndef SC92031_USE_BAR
-#define SC92031_USE_BAR 0
-#endif
+#define SC92031_USE_PIO	0
 
 /* Maximum number of multicast addresses to filter (vs. Rx-all-multicast). */
 static int multicast_filter_limit = 64;
@@ -253,7 +252,6 @@ enum PMConfigBits {
  * use of mdelay() at _sc92031_reset.
  * Functions prefixed with _sc92031_ must be called with the lock held;
  * functions prefixed with sc92031_ must be called without the lock held.
- * Use mmiowb() before unlocking if the hardware was written to.
  */
 
 /* Locking rules for the interrupt:
@@ -303,6 +301,7 @@ struct sc92031_priv {
 
 	/* for dev->get_stats */
 	long			rx_value;
+	struct net_device	*ndev;
 };
 
 /* I don't know which registers can be safely read; however, I can guess
@@ -363,10 +362,9 @@ static void sc92031_disable_interrupts(struct net_device *dev)
 	/* stop interrupts */
 	iowrite32(0, port_base + IntrMask);
 	_sc92031_dummy_read(port_base);
-	mmiowb();
 
 	/* wait for any concurrent interrupt/tasklet to finish */
-	synchronize_irq(dev->irq);
+	synchronize_irq(priv->pdev->irq);
 	tasklet_disable(&priv->tasklet);
 }
 
@@ -381,7 +379,6 @@ static void sc92031_enable_interrupts(struct net_device *dev)
 	wmb();
 
 	iowrite32(IntrBits, port_base + IntrMask);
-	mmiowb();
 }
 
 static void _sc92031_disable_tx_rx(struct net_device *dev)
@@ -797,12 +794,12 @@ static void _sc92031_rx_tasklet(struct net_device *dev)
 		}
 
 		if ((rx_ring_offset + pkt_size) > RX_BUF_LEN) {
-			memcpy(skb_put(skb, RX_BUF_LEN - rx_ring_offset),
-				rx_ring + rx_ring_offset, RX_BUF_LEN - rx_ring_offset);
-			memcpy(skb_put(skb, pkt_size - (RX_BUF_LEN - rx_ring_offset)),
-				rx_ring, pkt_size - (RX_BUF_LEN - rx_ring_offset));
+			skb_put_data(skb, rx_ring + rx_ring_offset,
+				     RX_BUF_LEN - rx_ring_offset);
+			skb_put_data(skb, rx_ring,
+				     pkt_size - (RX_BUF_LEN - rx_ring_offset));
 		} else {
-			memcpy(skb_put(skb, pkt_size), rx_ring + rx_ring_offset, pkt_size);
+			skb_put_data(skb, rx_ring + rx_ring_offset, pkt_size);
 		}
 
 		skb->protocol = eth_type_trans(skb, dev);
@@ -833,10 +830,10 @@ static void _sc92031_link_tasklet(struct net_device *dev)
 	}
 }
 
-static void sc92031_tasklet(unsigned long data)
+static void sc92031_tasklet(struct tasklet_struct *t)
 {
-	struct net_device *dev = (struct net_device *)data;
-	struct sc92031_priv *priv = netdev_priv(dev);
+	struct  sc92031_priv *priv = from_tasklet(priv, t, tasklet);
+	struct net_device *dev = priv->ndev;
 	void __iomem *port_base = priv->port_base;
 	u32 intr_status, intr_mask;
 
@@ -869,7 +866,6 @@ out:
 	rmb();
 
 	iowrite32(intr_mask, port_base + IntrMask);
-	mmiowb();
 
 	spin_unlock(&priv->lock);
 }
@@ -903,7 +899,6 @@ out_none:
 	rmb();
 
 	iowrite32(intr_mask, port_base + IntrMask);
-	mmiowb();
 
 	return IRQ_NONE;
 }
@@ -980,7 +975,6 @@ static netdev_tx_t sc92031_start_xmit(struct sk_buff *skb,
 	iowrite32(priv->tx_bufs_dma_addr + entry * TX_BUF_SIZE,
 			port_base + TxAddr0 + entry * 4);
 	iowrite32(tx_status, port_base + TxStatus0 + entry * 4);
-	mmiowb();
 
 	if (priv->tx_head - priv->tx_tail >= NUM_TX_DESC)
 		netif_stop_queue(dev);
@@ -989,7 +983,7 @@ out_unlock:
 	spin_unlock(&priv->lock);
 
 out:
-	dev_kfree_skb(skb);
+	dev_consume_skb_any(skb);
 
 	return NETDEV_TX_OK;
 }
@@ -1000,15 +994,15 @@ static int sc92031_open(struct net_device *dev)
 	struct sc92031_priv *priv = netdev_priv(dev);
 	struct pci_dev *pdev = priv->pdev;
 
-	priv->rx_ring = pci_alloc_consistent(pdev, RX_BUF_LEN,
-			&priv->rx_ring_dma_addr);
+	priv->rx_ring = dma_alloc_coherent(&pdev->dev, RX_BUF_LEN,
+					   &priv->rx_ring_dma_addr, GFP_KERNEL);
 	if (unlikely(!priv->rx_ring)) {
 		err = -ENOMEM;
 		goto out_alloc_rx_ring;
 	}
 
-	priv->tx_bufs = pci_alloc_consistent(pdev, TX_BUF_TOT_LEN,
-			&priv->tx_bufs_dma_addr);
+	priv->tx_bufs = dma_alloc_coherent(&pdev->dev, TX_BUF_TOT_LEN,
+					   &priv->tx_bufs_dma_addr, GFP_KERNEL);
 	if (unlikely(!priv->tx_bufs)) {
 		err = -ENOMEM;
 		goto out_alloc_tx_bufs;
@@ -1026,7 +1020,6 @@ static int sc92031_open(struct net_device *dev)
 	spin_lock_bh(&priv->lock);
 
 	_sc92031_reset(dev);
-	mmiowb();
 
 	spin_unlock_bh(&priv->lock);
 	sc92031_enable_interrupts(dev);
@@ -1039,11 +1032,11 @@ static int sc92031_open(struct net_device *dev)
 	return 0;
 
 out_request_irq:
-	pci_free_consistent(pdev, TX_BUF_TOT_LEN, priv->tx_bufs,
-			priv->tx_bufs_dma_addr);
+	dma_free_coherent(&pdev->dev, TX_BUF_TOT_LEN, priv->tx_bufs,
+			  priv->tx_bufs_dma_addr);
 out_alloc_tx_bufs:
-	pci_free_consistent(pdev, RX_BUF_LEN, priv->rx_ring,
-			priv->rx_ring_dma_addr);
+	dma_free_coherent(&pdev->dev, RX_BUF_LEN, priv->rx_ring,
+			  priv->rx_ring_dma_addr);
 out_alloc_rx_ring:
 	return err;
 }
@@ -1062,15 +1055,14 @@ static int sc92031_stop(struct net_device *dev)
 
 	_sc92031_disable_tx_rx(dev);
 	_sc92031_tx_clear(dev);
-	mmiowb();
 
 	spin_unlock_bh(&priv->lock);
 
 	free_irq(pdev->irq, dev);
-	pci_free_consistent(pdev, TX_BUF_TOT_LEN, priv->tx_bufs,
-			priv->tx_bufs_dma_addr);
-	pci_free_consistent(pdev, RX_BUF_LEN, priv->rx_ring,
-			priv->rx_ring_dma_addr);
+	dma_free_coherent(&pdev->dev, TX_BUF_TOT_LEN, priv->tx_bufs,
+			  priv->tx_bufs_dma_addr);
+	dma_free_coherent(&pdev->dev, RX_BUF_LEN, priv->rx_ring,
+			  priv->rx_ring_dma_addr);
 
 	return 0;
 }
@@ -1083,12 +1075,11 @@ static void sc92031_set_multicast_list(struct net_device *dev)
 
 	_sc92031_set_mar(dev);
 	_sc92031_set_rx_config(dev);
-	mmiowb();
 
 	spin_unlock_bh(&priv->lock);
 }
 
-static void sc92031_tx_timeout(struct net_device *dev)
+static void sc92031_tx_timeout(struct net_device *dev, unsigned int txqueue)
 {
 	struct sc92031_priv *priv = netdev_priv(dev);
 
@@ -1100,7 +1091,6 @@ static void sc92031_tx_timeout(struct net_device *dev)
 	priv->tx_timeouts++;
 
 	_sc92031_reset(dev);
-	mmiowb();
 
 	spin_unlock(&priv->lock);
 
@@ -1114,21 +1104,26 @@ static void sc92031_tx_timeout(struct net_device *dev)
 #ifdef CONFIG_NET_POLL_CONTROLLER
 static void sc92031_poll_controller(struct net_device *dev)
 {
-	disable_irq(dev->irq);
-	if (sc92031_interrupt(dev->irq, dev) != IRQ_NONE)
-		sc92031_tasklet((unsigned long)dev);
-	enable_irq(dev->irq);
+	struct sc92031_priv *priv = netdev_priv(dev);
+	const int irq = priv->pdev->irq;
+
+	disable_irq(irq);
+	if (sc92031_interrupt(irq, dev) != IRQ_NONE)
+		sc92031_tasklet(&priv->tasklet);
+	enable_irq(irq);
 }
 #endif
 
-static int sc92031_ethtool_get_settings(struct net_device *dev,
-		struct ethtool_cmd *cmd)
+static int
+sc92031_ethtool_get_link_ksettings(struct net_device *dev,
+				   struct ethtool_link_ksettings *cmd)
 {
 	struct sc92031_priv *priv = netdev_priv(dev);
 	void __iomem *port_base = priv->port_base;
 	u8 phy_address;
 	u32 phy_ctrl;
 	u16 output_status;
+	u32 supported, advertising;
 
 	spin_lock_bh(&priv->lock);
 
@@ -1137,72 +1132,80 @@ static int sc92031_ethtool_get_settings(struct net_device *dev,
 
 	output_status = _sc92031_mii_read(port_base, MII_OutputStatus);
 	_sc92031_mii_scan(port_base);
-	mmiowb();
 
 	spin_unlock_bh(&priv->lock);
 
-	cmd->supported = SUPPORTED_10baseT_Half | SUPPORTED_10baseT_Full
+	supported = SUPPORTED_10baseT_Half | SUPPORTED_10baseT_Full
 			| SUPPORTED_100baseT_Half | SUPPORTED_100baseT_Full
 			| SUPPORTED_Autoneg | SUPPORTED_TP | SUPPORTED_MII;
 
-	cmd->advertising = ADVERTISED_TP | ADVERTISED_MII;
+	advertising = ADVERTISED_TP | ADVERTISED_MII;
 
 	if ((phy_ctrl & (PhyCtrlDux | PhyCtrlSpd100 | PhyCtrlSpd10))
 			== (PhyCtrlDux | PhyCtrlSpd100 | PhyCtrlSpd10))
-		cmd->advertising |= ADVERTISED_Autoneg;
+		advertising |= ADVERTISED_Autoneg;
 
 	if ((phy_ctrl & PhyCtrlSpd10) == PhyCtrlSpd10)
-		cmd->advertising |= ADVERTISED_10baseT_Half;
+		advertising |= ADVERTISED_10baseT_Half;
 
 	if ((phy_ctrl & (PhyCtrlSpd10 | PhyCtrlDux))
 			== (PhyCtrlSpd10 | PhyCtrlDux))
-		cmd->advertising |= ADVERTISED_10baseT_Full;
+		advertising |= ADVERTISED_10baseT_Full;
 
 	if ((phy_ctrl & PhyCtrlSpd100) == PhyCtrlSpd100)
-		cmd->advertising |= ADVERTISED_100baseT_Half;
+		advertising |= ADVERTISED_100baseT_Half;
 
 	if ((phy_ctrl & (PhyCtrlSpd100 | PhyCtrlDux))
 			== (PhyCtrlSpd100 | PhyCtrlDux))
-		cmd->advertising |= ADVERTISED_100baseT_Full;
+		advertising |= ADVERTISED_100baseT_Full;
 
 	if (phy_ctrl & PhyCtrlAne)
-		cmd->advertising |= ADVERTISED_Autoneg;
+		advertising |= ADVERTISED_Autoneg;
 
-	ethtool_cmd_speed_set(cmd,
-			      (output_status & 0x2) ? SPEED_100 : SPEED_10);
-	cmd->duplex = (output_status & 0x4) ? DUPLEX_FULL : DUPLEX_HALF;
-	cmd->port = PORT_MII;
-	cmd->phy_address = phy_address;
-	cmd->transceiver = XCVR_INTERNAL;
-	cmd->autoneg = (phy_ctrl & PhyCtrlAne) ? AUTONEG_ENABLE : AUTONEG_DISABLE;
+	cmd->base.speed = (output_status & 0x2) ? SPEED_100 : SPEED_10;
+	cmd->base.duplex = (output_status & 0x4) ? DUPLEX_FULL : DUPLEX_HALF;
+	cmd->base.port = PORT_MII;
+	cmd->base.phy_address = phy_address;
+	cmd->base.autoneg = (phy_ctrl & PhyCtrlAne) ?
+		AUTONEG_ENABLE : AUTONEG_DISABLE;
+
+	ethtool_convert_legacy_u32_to_link_mode(cmd->link_modes.supported,
+						supported);
+	ethtool_convert_legacy_u32_to_link_mode(cmd->link_modes.advertising,
+						advertising);
 
 	return 0;
 }
 
-static int sc92031_ethtool_set_settings(struct net_device *dev,
-		struct ethtool_cmd *cmd)
+static int
+sc92031_ethtool_set_link_ksettings(struct net_device *dev,
+				   const struct ethtool_link_ksettings *cmd)
 {
 	struct sc92031_priv *priv = netdev_priv(dev);
 	void __iomem *port_base = priv->port_base;
-	u32 speed = ethtool_cmd_speed(cmd);
+	u32 speed = cmd->base.speed;
 	u32 phy_ctrl;
 	u32 old_phy_ctrl;
+	u32 advertising;
+
+	ethtool_convert_link_mode_to_legacy_u32(&advertising,
+						cmd->link_modes.advertising);
 
 	if (!(speed == SPEED_10 || speed == SPEED_100))
 		return -EINVAL;
-	if (!(cmd->duplex == DUPLEX_HALF || cmd->duplex == DUPLEX_FULL))
+	if (!(cmd->base.duplex == DUPLEX_HALF ||
+	      cmd->base.duplex == DUPLEX_FULL))
 		return -EINVAL;
-	if (!(cmd->port == PORT_MII))
+	if (!(cmd->base.port == PORT_MII))
 		return -EINVAL;
-	if (!(cmd->phy_address == 0x1f))
+	if (!(cmd->base.phy_address == 0x1f))
 		return -EINVAL;
-	if (!(cmd->transceiver == XCVR_INTERNAL))
-		return -EINVAL;
-	if (!(cmd->autoneg == AUTONEG_DISABLE || cmd->autoneg == AUTONEG_ENABLE))
+	if (!(cmd->base.autoneg == AUTONEG_DISABLE ||
+	      cmd->base.autoneg == AUTONEG_ENABLE))
 		return -EINVAL;
 
-	if (cmd->autoneg == AUTONEG_ENABLE) {
-		if (!(cmd->advertising & (ADVERTISED_Autoneg
+	if (cmd->base.autoneg == AUTONEG_ENABLE) {
+		if (!(advertising & (ADVERTISED_Autoneg
 				| ADVERTISED_100baseT_Full
 				| ADVERTISED_100baseT_Half
 				| ADVERTISED_10baseT_Full
@@ -1212,15 +1215,15 @@ static int sc92031_ethtool_set_settings(struct net_device *dev,
 		phy_ctrl = PhyCtrlAne;
 
 		// FIXME: I'm not sure what the original code was trying to do
-		if (cmd->advertising & ADVERTISED_Autoneg)
+		if (advertising & ADVERTISED_Autoneg)
 			phy_ctrl |= PhyCtrlDux | PhyCtrlSpd100 | PhyCtrlSpd10;
-		if (cmd->advertising & ADVERTISED_100baseT_Full)
+		if (advertising & ADVERTISED_100baseT_Full)
 			phy_ctrl |= PhyCtrlDux | PhyCtrlSpd100;
-		if (cmd->advertising & ADVERTISED_100baseT_Half)
+		if (advertising & ADVERTISED_100baseT_Half)
 			phy_ctrl |= PhyCtrlSpd100;
-		if (cmd->advertising & ADVERTISED_10baseT_Full)
+		if (advertising & ADVERTISED_10baseT_Full)
 			phy_ctrl |= PhyCtrlSpd10 | PhyCtrlDux;
-		if (cmd->advertising & ADVERTISED_10baseT_Half)
+		if (advertising & ADVERTISED_10baseT_Half)
 			phy_ctrl |= PhyCtrlSpd10;
 	} else {
 		// FIXME: Whole branch guessed
@@ -1231,7 +1234,7 @@ static int sc92031_ethtool_set_settings(struct net_device *dev,
 		else /* cmd->speed == SPEED_100 */
 			phy_ctrl |= PhyCtrlSpd100;
 
-		if (cmd->duplex == DUPLEX_FULL)
+		if (cmd->base.duplex == DUPLEX_FULL)
 			phy_ctrl |= PhyCtrlDux;
 	}
 
@@ -1299,7 +1302,6 @@ static int sc92031_ethtool_set_wol(struct net_device *dev,
 
 	priv->pm_config = pm_config;
 	iowrite32(pm_config, port_base + PMConfig);
-	mmiowb();
 
 	spin_unlock_bh(&priv->lock);
 
@@ -1325,7 +1327,6 @@ static int sc92031_ethtool_nway_reset(struct net_device *dev)
 
 out:
 	_sc92031_mii_scan(port_base);
-	mmiowb();
 
 	spin_unlock_bh(&priv->lock);
 
@@ -1367,8 +1368,6 @@ static void sc92031_ethtool_get_ethtool_stats(struct net_device *dev,
 }
 
 static const struct ethtool_ops sc92031_ethtool_ops = {
-	.get_settings		= sc92031_ethtool_get_settings,
-	.set_settings		= sc92031_ethtool_set_settings,
 	.get_wol		= sc92031_ethtool_get_wol,
 	.set_wol		= sc92031_ethtool_set_wol,
 	.nway_reset		= sc92031_ethtool_nway_reset,
@@ -1376,6 +1375,8 @@ static const struct ethtool_ops sc92031_ethtool_ops = {
 	.get_strings		= sc92031_ethtool_get_strings,
 	.get_sset_count		= sc92031_ethtool_get_sset_count,
 	.get_ethtool_stats	= sc92031_ethtool_get_ethtool_stats,
+	.get_link_ksettings	= sc92031_ethtool_get_link_ksettings,
+	.set_link_ksettings	= sc92031_ethtool_set_link_ksettings,
 };
 
 
@@ -1385,7 +1386,6 @@ static const struct net_device_ops sc92031_netdev_ops = {
 	.ndo_open		= sc92031_open,
 	.ndo_stop		= sc92031_stop,
 	.ndo_set_rx_mode	= sc92031_set_multicast_list,
-	.ndo_change_mtu		= eth_change_mtu,
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_set_mac_address 	= eth_mac_addr,
 	.ndo_tx_timeout		= sc92031_tx_timeout,
@@ -1394,15 +1394,13 @@ static const struct net_device_ops sc92031_netdev_ops = {
 #endif
 };
 
-static int __devinit sc92031_probe(struct pci_dev *pdev,
-		const struct pci_device_id *id)
+static int sc92031_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
 	int err;
 	void __iomem* port_base;
 	struct net_device *dev;
 	struct sc92031_priv *priv;
 	u32 mac0, mac1;
-	unsigned long base_addr;
 
 	err = pci_enable_device(pdev);
 	if (unlikely(err < 0))
@@ -1410,11 +1408,11 @@ static int __devinit sc92031_probe(struct pci_dev *pdev,
 
 	pci_set_master(pdev);
 
-	err = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
+	err = dma_set_mask(&pdev->dev, DMA_BIT_MASK(32));
 	if (unlikely(err < 0))
 		goto out_set_dma_mask;
 
-	err = pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(32));
+	err = dma_set_coherent_mask(&pdev->dev, DMA_BIT_MASK(32));
 	if (unlikely(err < 0))
 		goto out_set_dma_mask;
 
@@ -1422,7 +1420,7 @@ static int __devinit sc92031_probe(struct pci_dev *pdev,
 	if (unlikely(err < 0))
 		goto out_request_regions;
 
-	port_base = pci_iomap(pdev, SC92031_USE_BAR, 0);
+	port_base = pci_iomap(pdev, SC92031_USE_PIO, 0);
 	if (unlikely(!port_base)) {
 		err = -EIO;
 		goto out_iomap;
@@ -1437,14 +1435,6 @@ static int __devinit sc92031_probe(struct pci_dev *pdev,
 	pci_set_drvdata(pdev, dev);
 	SET_NETDEV_DEV(dev, &pdev->dev);
 
-#if SC92031_USE_BAR == 0
-	dev->mem_start = pci_resource_start(pdev, SC92031_USE_BAR);
-	dev->mem_end = pci_resource_end(pdev, SC92031_USE_BAR);
-#elif SC92031_USE_BAR == 1
-	dev->base_addr = pci_resource_start(pdev, SC92031_USE_BAR);
-#endif
-	dev->irq = pdev->irq;
-
 	/* faked with skb_copy_and_csum_dev */
 	dev->features = NETIF_F_SG | NETIF_F_HIGHDMA |
 		NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM;
@@ -1454,10 +1444,11 @@ static int __devinit sc92031_probe(struct pci_dev *pdev,
 	dev->ethtool_ops	= &sc92031_ethtool_ops;
 
 	priv = netdev_priv(dev);
+	priv->ndev = dev;
 	spin_lock_init(&priv->lock);
 	priv->port_base = port_base;
 	priv->pdev = pdev;
-	tasklet_init(&priv->tasklet, sc92031_tasklet, (unsigned long)dev);
+	tasklet_setup(&priv->tasklet, sc92031_tasklet);
 	/* Fudge tasklet count so the call to sc92031_enable_interrupts at
 	 * sc92031_open will work correctly */
 	tasklet_disable_nosync(&priv->tasklet);
@@ -1467,24 +1458,20 @@ static int __devinit sc92031_probe(struct pci_dev *pdev,
 
 	mac0 = ioread32(port_base + MAC0);
 	mac1 = ioread32(port_base + MAC0 + 4);
-	dev->dev_addr[0] = dev->perm_addr[0] = mac0 >> 24;
-	dev->dev_addr[1] = dev->perm_addr[1] = mac0 >> 16;
-	dev->dev_addr[2] = dev->perm_addr[2] = mac0 >> 8;
-	dev->dev_addr[3] = dev->perm_addr[3] = mac0;
-	dev->dev_addr[4] = dev->perm_addr[4] = mac1 >> 8;
-	dev->dev_addr[5] = dev->perm_addr[5] = mac1;
+	dev->dev_addr[0] = mac0 >> 24;
+	dev->dev_addr[1] = mac0 >> 16;
+	dev->dev_addr[2] = mac0 >> 8;
+	dev->dev_addr[3] = mac0;
+	dev->dev_addr[4] = mac1 >> 8;
+	dev->dev_addr[5] = mac1;
 
 	err = register_netdev(dev);
 	if (err < 0)
 		goto out_register_netdev;
 
-#if SC92031_USE_BAR == 0
-	base_addr = dev->mem_start;
-#elif SC92031_USE_BAR == 1
-	base_addr = dev->base_addr;
-#endif
 	printk(KERN_INFO "%s: SC92031 at 0x%lx, %pM, IRQ %d\n", dev->name,
-			base_addr, dev->dev_addr, dev->irq);
+	       (long)pci_resource_start(pdev, SC92031_USE_PIO), dev->dev_addr,
+	       pdev->irq);
 
 	return 0;
 
@@ -1501,7 +1488,7 @@ out_enable_device:
 	return err;
 }
 
-static void __devexit sc92031_remove(struct pci_dev *pdev)
+static void sc92031_remove(struct pci_dev *pdev)
 {
 	struct net_device *dev = pci_get_drvdata(pdev);
 	struct sc92031_priv *priv = netdev_priv(dev);
@@ -1514,15 +1501,13 @@ static void __devexit sc92031_remove(struct pci_dev *pdev)
 	pci_disable_device(pdev);
 }
 
-static int sc92031_suspend(struct pci_dev *pdev, pm_message_t state)
+static int __maybe_unused sc92031_suspend(struct device *dev_d)
 {
-	struct net_device *dev = pci_get_drvdata(pdev);
+	struct net_device *dev = dev_get_drvdata(dev_d);
 	struct sc92031_priv *priv = netdev_priv(dev);
 
-	pci_save_state(pdev);
-
 	if (!netif_running(dev))
-		goto out;
+		return 0;
 
 	netif_device_detach(dev);
 
@@ -1533,32 +1518,24 @@ static int sc92031_suspend(struct pci_dev *pdev, pm_message_t state)
 
 	_sc92031_disable_tx_rx(dev);
 	_sc92031_tx_clear(dev);
-	mmiowb();
 
 	spin_unlock_bh(&priv->lock);
-
-out:
-	pci_set_power_state(pdev, pci_choose_state(pdev, state));
 
 	return 0;
 }
 
-static int sc92031_resume(struct pci_dev *pdev)
+static int __maybe_unused sc92031_resume(struct device *dev_d)
 {
-	struct net_device *dev = pci_get_drvdata(pdev);
+	struct net_device *dev = dev_get_drvdata(dev_d);
 	struct sc92031_priv *priv = netdev_priv(dev);
 
-	pci_restore_state(pdev);
-	pci_set_power_state(pdev, PCI_D0);
-
 	if (!netif_running(dev))
-		goto out;
+		return 0;
 
 	/* Interrupts already disabled by sc92031_suspend */
 	spin_lock_bh(&priv->lock);
 
 	_sc92031_reset(dev);
-	mmiowb();
 
 	spin_unlock_bh(&priv->lock);
 	sc92031_enable_interrupts(dev);
@@ -1570,11 +1547,10 @@ static int sc92031_resume(struct pci_dev *pdev)
 	else
 		netif_tx_disable(dev);
 
-out:
 	return 0;
 }
 
-static DEFINE_PCI_DEVICE_TABLE(sc92031_pci_device_id_table) = {
+static const struct pci_device_id sc92031_pci_device_id_table[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_SILAN, 0x2031) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_SILAN, 0x8139) },
 	{ PCI_DEVICE(0x1088, 0x2031) },
@@ -1582,28 +1558,17 @@ static DEFINE_PCI_DEVICE_TABLE(sc92031_pci_device_id_table) = {
 };
 MODULE_DEVICE_TABLE(pci, sc92031_pci_device_id_table);
 
+static SIMPLE_DEV_PM_OPS(sc92031_pm_ops, sc92031_suspend, sc92031_resume);
+
 static struct pci_driver sc92031_pci_driver = {
 	.name		= SC92031_NAME,
 	.id_table	= sc92031_pci_device_id_table,
 	.probe		= sc92031_probe,
-	.remove		= __devexit_p(sc92031_remove),
-	.suspend	= sc92031_suspend,
-	.resume		= sc92031_resume,
+	.remove		= sc92031_remove,
+	.driver.pm	= &sc92031_pm_ops,
 };
 
-static int __init sc92031_init(void)
-{
-	return pci_register_driver(&sc92031_pci_driver);
-}
-
-static void __exit sc92031_exit(void)
-{
-	pci_unregister_driver(&sc92031_pci_driver);
-}
-
-module_init(sc92031_init);
-module_exit(sc92031_exit);
-
+module_pci_driver(sc92031_pci_driver);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Cesar Eduardo Barros <cesarb@cesarb.net>");
 MODULE_DESCRIPTION("Silan SC92031 PCI Fast Ethernet Adapter driver");

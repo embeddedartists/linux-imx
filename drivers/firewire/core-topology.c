@@ -1,21 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Incremental bus scan, based on bus topology
  *
  * Copyright (C) 2004-2006 Kristian Hoegsberg <krh@bitplanet.net>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
 #include <linux/bug.h>
@@ -31,7 +18,6 @@
 
 #include <linux/atomic.h>
 #include <asm/byteorder.h>
-#include <asm/system.h>
 
 #include "core.h"
 
@@ -68,9 +54,11 @@ static u32 *count_ports(u32 *sid, int *total_port_count, int *child_port_count)
 		switch (port_type) {
 		case SELFID_PORT_CHILD:
 			(*child_port_count)++;
+			fallthrough;
 		case SELFID_PORT_PARENT:
 		case SELFID_PORT_NCONN:
 			(*total_port_count)++;
+			fallthrough;
 		case SELFID_PORT_NONE:
 			break;
 		}
@@ -113,8 +101,7 @@ static struct fw_node *fw_node_create(u32 sid, int port_count, int color)
 {
 	struct fw_node *node;
 
-	node = kzalloc(sizeof(*node) + port_count * sizeof(node->ports[0]),
-		       GFP_ATOMIC);
+	node = kzalloc(struct_size(node, ports, port_count), GFP_ATOMIC);
 	if (node == NULL)
 		return NULL;
 
@@ -125,7 +112,7 @@ static struct fw_node *fw_node_create(u32 sid, int port_count, int color)
 	node->initiated_reset = SELF_ID_PHY_INITIATOR(sid);
 	node->port_count = port_count;
 
-	atomic_set(&node->ref_count, 1);
+	refcount_set(&node->ref_count, 1);
 	INIT_LIST_HEAD(&node->link);
 
 	return node;
@@ -205,19 +192,19 @@ static struct fw_node *build_tree(struct fw_card *card,
 		next_sid = count_ports(sid, &port_count, &child_port_count);
 
 		if (next_sid == NULL) {
-			fw_error("Inconsistent extended self IDs.\n");
+			fw_err(card, "inconsistent extended self IDs\n");
 			return NULL;
 		}
 
 		q = *sid;
 		if (phy_id != SELF_ID_PHY_ID(q)) {
-			fw_error("PHY ID mismatch in self ID: %d != %d.\n",
-				 phy_id, SELF_ID_PHY_ID(q));
+			fw_err(card, "PHY ID mismatch in self ID: %d != %d\n",
+			       phy_id, SELF_ID_PHY_ID(q));
 			return NULL;
 		}
 
 		if (child_port_count > stack_depth) {
-			fw_error("Topology stack underflow\n");
+			fw_err(card, "topology stack underflow\n");
 			return NULL;
 		}
 
@@ -235,7 +222,7 @@ static struct fw_node *build_tree(struct fw_card *card,
 
 		node = fw_node_create(q, port_count, card->color);
 		if (node == NULL) {
-			fw_error("Out of memory while building topology.\n");
+			fw_err(card, "out of memory while building topology\n");
 			return NULL;
 		}
 
@@ -284,8 +271,8 @@ static struct fw_node *build_tree(struct fw_card *card,
 		 */
 		if ((next_sid == end && parent_count != 0) ||
 		    (next_sid < end && parent_count != 1)) {
-			fw_error("Parent port inconsistency for node %d: "
-				 "parent_count=%d\n", phy_id, parent_count);
+			fw_err(card, "parent port inconsistency for node %d: "
+			       "parent_count=%d\n", phy_id, parent_count);
 			return NULL;
 		}
 
@@ -530,7 +517,6 @@ void fw_core_handle_bus_reset(struct fw_card *card, int node_id, int generation,
 	 */
 	if (!is_next_generation(generation, card->generation) &&
 	    card->local_node != NULL) {
-		fw_notify("skipped bus generations, destroying all nodes\n");
 		fw_destroy_nodes(card);
 		card->bm_retries = 0;
 	}
@@ -557,7 +543,7 @@ void fw_core_handle_bus_reset(struct fw_card *card, int node_id, int generation,
 	card->color++;
 
 	if (local_node == NULL) {
-		fw_error("topology build failed\n");
+		fw_err(card, "topology build failed\n");
 		/* FIXME: We need to issue a bus reset in this case. */
 	} else if (card->local_node == NULL) {
 		card->local_node = local_node;

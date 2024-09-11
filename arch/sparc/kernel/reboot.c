@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /* reboot.c: reboot/shutdown/halt/poweroff handling
  *
  * Copyright (C) 2008 David S. Miller <davem@davemloft.net>
@@ -6,10 +7,11 @@
 #include <linux/reboot.h>
 #include <linux/export.h>
 #include <linux/pm.h>
+#include <linux/of.h>
 
-#include <asm/system.h>
 #include <asm/oplib.h>
 #include <asm/prom.h>
+#include <asm/setup.h>
 
 /* sysctl - toggle power-off restriction for serial console
  * systems in machine_power_off()
@@ -24,7 +26,7 @@ EXPORT_SYMBOL(pm_power_off);
 
 void machine_power_off(void)
 {
-	if (strcmp(of_console_device->type, "serial") || scons_pwroff)
+	if (!of_node_is_type(of_console_device, "serial") || scons_pwroff)
 		prom_halt_power_off();
 
 	prom_halt();

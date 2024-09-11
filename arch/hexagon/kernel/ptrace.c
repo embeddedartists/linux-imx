@@ -1,49 +1,43 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Ptrace support for Hexagon
  *
- * Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
+ * Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
  */
-
-#include <generated/compile.h>
 
 #include <linux/kernel.h>
 #include <linux/sched.h>
+#include <linux/sched/task_stack.h>
 #include <linux/mm.h>
 #include <linux/smp.h>
 #include <linux/errno.h>
 #include <linux/ptrace.h>
 #include <linux/regset.h>
 #include <linux/user.h>
+#include <linux/elf.h>
 
-#include <asm/system.h>
 #include <asm/user.h>
+
+#if arch_has_single_step()
+/*  Both called from ptrace_resume  */
+void user_enable_single_step(struct task_struct *child)
+{
+	pt_set_singlestep(task_pt_regs(child));
+	set_tsk_thread_flag(child, TIF_SINGLESTEP);
+}
+
+void user_disable_single_step(struct task_struct *child)
+{
+	pt_clr_singlestep(task_pt_regs(child));
+	clear_tsk_thread_flag(child, TIF_SINGLESTEP);
+}
+#endif
 
 static int genregs_get(struct task_struct *target,
 		   const struct user_regset *regset,
-		   unsigned int pos, unsigned int count,
-		   void *kbuf, void __user *ubuf)
+		   struct membuf to)
 {
-	int ret;
-	unsigned int dummy;
 	struct pt_regs *regs = task_pt_regs(target);
-
-
-	if (!regs)
-		return -EIO;
 
 	/* The general idea here is that the copyout must happen in
 	 * exactly the same order in which the userspace expects these
@@ -51,37 +45,28 @@ static int genregs_get(struct task_struct *target,
 	 * sequence in the kernel, so everything past the 32 gprs
 	 * happens one at a time.
 	 */
-	ret = user_regset_copyout(&pos, &count, &kbuf, &ubuf,
-				  &regs->r00, 0, 32*sizeof(unsigned long));
-
-#define ONEXT(KPT_REG, USR_REG) \
-	if (!ret) \
-		ret = user_regset_copyout(&pos, &count, &kbuf, &ubuf, \
-			KPT_REG, offsetof(struct user_regs_struct, USR_REG), \
-			offsetof(struct user_regs_struct, USR_REG) + \
-				 sizeof(unsigned long));
-
+	membuf_write(&to, &regs->r00, 32*sizeof(unsigned long));
 	/* Must be exactly same sequence as struct user_regs_struct */
-	ONEXT(&regs->sa0, sa0);
-	ONEXT(&regs->lc0, lc0);
-	ONEXT(&regs->sa1, sa1);
-	ONEXT(&regs->lc1, lc1);
-	ONEXT(&regs->m0, m0);
-	ONEXT(&regs->m1, m1);
-	ONEXT(&regs->usr, usr);
-	ONEXT(&regs->preds, p3_0);
-	ONEXT(&regs->gp, gp);
-	ONEXT(&regs->ugp, ugp);
-	ONEXT(&pt_elr(regs), pc);
-	dummy = pt_cause(regs);
-	ONEXT(&dummy, cause);
-	ONEXT(&pt_badva(regs), badva);
-
-	/* Pad the rest with zeros, if needed */
-	if (!ret)
-		ret = user_regset_copyout_zero(&pos, &count, &kbuf, &ubuf,
-					offsetof(struct user_regs_struct, pad1), -1);
-	return ret;
+	membuf_store(&to, regs->sa0);
+	membuf_store(&to, regs->lc0);
+	membuf_store(&to, regs->sa1);
+	membuf_store(&to, regs->lc1);
+	membuf_store(&to, regs->m0);
+	membuf_store(&to, regs->m1);
+	membuf_store(&to, regs->usr);
+	membuf_store(&to, regs->preds);
+	membuf_store(&to, regs->gp);
+	membuf_store(&to, regs->ugp);
+	membuf_store(&to, pt_elr(regs)); // pc
+	membuf_store(&to, (unsigned long)pt_cause(regs)); // cause
+	membuf_store(&to, pt_badva(regs)); // badva
+#if CONFIG_HEXAGON_ARCH_VERSION >=4
+	membuf_store(&to, regs->cs0);
+	membuf_store(&to, regs->cs1);
+	return membuf_zero(&to, sizeof(unsigned long));
+#else
+	return membuf_zero(&to, 3 * sizeof(unsigned long));
+#endif
 }
 
 static int genregs_set(struct task_struct *target,
@@ -123,6 +108,11 @@ static int genregs_set(struct task_struct *target,
 	INEXT(&bucket, cause);
 	INEXT(&bucket, badva);
 
+#if CONFIG_HEXAGON_ARCH_VERSION >=4
+	INEXT(&regs->cs0, cs0);
+	INEXT(&regs->cs1, cs1);
+#endif
+
 	/* Ignore the rest, if needed */
 	if (!ret)
 		ret = user_regset_copyin_ignore(&pos, &count, &kbuf, &ubuf,
@@ -149,16 +139,17 @@ static const struct user_regset hexagon_regsets[] = {
 		.n = ELF_NGREG,
 		.size = sizeof(unsigned long),
 		.align = sizeof(unsigned long),
-		.get = genregs_get,
+		.regset_get = genregs_get,
 		.set = genregs_set,
 	},
 };
 
 static const struct user_regset_view hexagon_user_view = {
-	.name = UTS_MACHINE,
+	.name = "hexagon",
 	.e_machine = ELF_ARCH,
 	.ei_osabi = ELF_OSABI,
 	.regsets = hexagon_regsets,
+	.e_flags = ELF_CORE_EFLAGS,
 	.n = ARRAY_SIZE(hexagon_regsets)
 };
 

@@ -464,7 +464,6 @@ static int anubis_setkey(struct crypto_tfm *tfm, const u8 *in_key,
 {
 	struct anubis_ctx *ctx = crypto_tfm_ctx(tfm);
 	const __be32 *key = (const __be32 *)in_key;
-	u32 *flags = &tfm->crt_flags;
 	int N, R, i, r;
 	u32 kappa[ANUBIS_MAX_N];
 	u32 inter[ANUBIS_MAX_N];
@@ -474,7 +473,6 @@ static int anubis_setkey(struct crypto_tfm *tfm, const u8 *in_key,
 		case 32: case 36: case 40:
 			break;
 		default:
-			*flags |= CRYPTO_TFM_RES_BAD_KEY_LEN;
 			return -EINVAL;
 	}
 
@@ -673,12 +671,12 @@ static void anubis_decrypt(struct crypto_tfm *tfm, u8 *dst, const u8 *src)
 
 static struct crypto_alg anubis_alg = {
 	.cra_name		=	"anubis",
+	.cra_driver_name	=	"anubis-generic",
 	.cra_flags		=	CRYPTO_ALG_TYPE_CIPHER,
 	.cra_blocksize		=	ANUBIS_BLOCK_SIZE,
 	.cra_ctxsize		=	sizeof (struct anubis_ctx),
 	.cra_alignmask		=	3,
 	.cra_module		=	THIS_MODULE,
-	.cra_list		=	LIST_HEAD_INIT(anubis_alg.cra_list),
 	.cra_u			=	{ .cipher = {
 	.cia_min_keysize	=	ANUBIS_MIN_KEY_SIZE,
 	.cia_max_keysize	=	ANUBIS_MAX_KEY_SIZE,
@@ -700,8 +698,9 @@ static void __exit anubis_mod_fini(void)
 	crypto_unregister_alg(&anubis_alg);
 }
 
-module_init(anubis_mod_init);
+subsys_initcall(anubis_mod_init);
 module_exit(anubis_mod_fini);
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Anubis Cryptographic Algorithm");
+MODULE_ALIAS_CRYPTO("anubis");

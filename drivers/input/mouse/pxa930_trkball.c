@@ -1,16 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * PXA930 track ball mouse driver
  *
  * Copyright (C) 2007 Marvell International Ltd.
  * 2008-02-28: Yong Yao <yaoyong@marvell.com>
  *             initial version
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License version 2 as
- *  published by the Free Software Foundation.
  */
 
-#include <linux/init.h>
 #include <linux/input.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
@@ -20,7 +16,7 @@
 #include <linux/slab.h>
 
 #include <mach/hardware.h>
-#include <mach/pxa930_trkball.h>
+#include <linux/platform_data/mouse-pxa930_trkball.h>
 
 /* Trackball Controller Register Definitions */
 #define TBCR		(0x000C)
@@ -143,7 +139,7 @@ static void pxa930_trkball_close(struct input_dev *dev)
 	pxa930_trkball_disable(trkball);
 }
 
-static int __devinit pxa930_trkball_probe(struct platform_device *pdev)
+static int pxa930_trkball_probe(struct platform_device *pdev)
 {
 	struct pxa930_trkball *trkball;
 	struct input_dev *input;
@@ -151,10 +147,8 @@ static int __devinit pxa930_trkball_probe(struct platform_device *pdev)
 	int irq, error;
 
 	irq = platform_get_irq(pdev, 0);
-	if (irq < 0) {
-		dev_err(&pdev->dev, "failed to get trkball irq\n");
+	if (irq < 0)
 		return -ENXIO;
-	}
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
@@ -166,14 +160,14 @@ static int __devinit pxa930_trkball_probe(struct platform_device *pdev)
 	if (!trkball)
 		return -ENOMEM;
 
-	trkball->pdata = pdev->dev.platform_data;
+	trkball->pdata = dev_get_platdata(&pdev->dev);
 	if (!trkball->pdata) {
 		dev_err(&pdev->dev, "no platform data defined\n");
 		error = -EINVAL;
 		goto failed;
 	}
 
-	trkball->mmio_base = ioremap_nocache(res->start, resource_size(res));
+	trkball->mmio_base = ioremap(res->start, resource_size(res));
 	if (!trkball->mmio_base) {
 		dev_err(&pdev->dev, "failed to ioremap registers\n");
 		error = -ENXIO;
@@ -230,7 +224,7 @@ failed:
 	return error;
 }
 
-static int __devexit pxa930_trkball_remove(struct platform_device *pdev)
+static int pxa930_trkball_remove(struct platform_device *pdev)
 {
 	struct pxa930_trkball *trkball = platform_get_drvdata(pdev);
 	int irq = platform_get_irq(pdev, 0);
@@ -248,7 +242,7 @@ static struct platform_driver pxa930_trkball_driver = {
 		.name	= "pxa930-trkball",
 	},
 	.probe		= pxa930_trkball_probe,
-	.remove		= __devexit_p(pxa930_trkball_remove),
+	.remove		= pxa930_trkball_remove,
 };
 module_platform_driver(pxa930_trkball_driver);
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * SCSI low-level driver for the MESH (Macintosh Enhanced SCSI Hardware)
  * bus adaptor found on Power Macintosh computers.
@@ -29,17 +30,16 @@
 #include <linux/interrupt.h>
 #include <linux/reboot.h>
 #include <linux/spinlock.h>
+#include <linux/pci.h>
+#include <linux/pgtable.h>
 #include <asm/dbdma.h>
 #include <asm/io.h>
-#include <asm/pgtable.h>
 #include <asm/prom.h>
-#include <asm/system.h>
 #include <asm/irq.h>
 #include <asm/hydra.h>
 #include <asm/processor.h>
 #include <asm/machdep.h>
 #include <asm/pmac_feature.h>
-#include <asm/pci-bridge.h>
 #include <asm/macio.h>
 
 #include <scsi/scsi.h>
@@ -595,9 +595,10 @@ static void mesh_done(struct mesh_state *ms, int start_next)
 	ms->current_req = NULL;
 	tp->current_req = NULL;
 	if (cmd) {
-		cmd->result = (ms->stat << 16) + cmd->SCp.Status;
+		set_host_byte(cmd, ms->stat);
+		set_status_byte(cmd, cmd->SCp.Status);
 		if (ms->stat == DID_OK)
-			cmd->result += (cmd->SCp.Message << 8);
+			scsi_msg_to_host_byte(cmd, cmd->SCp.Message);
 		if (DEBUG_TARGET(cmd)) {
 			printk(KERN_DEBUG "mesh_done: result = %x, data_ptr=%d, buflen=%d\n",
 			       cmd->result, ms->data_ptr, scsi_bufflen(cmd));
@@ -993,7 +994,7 @@ static void handle_reset(struct mesh_state *ms)
 	for (tgt = 0; tgt < 8; ++tgt) {
 		tp = &ms->tgts[tgt];
 		if ((cmd = tp->current_req) != NULL) {
-			cmd->result = DID_RESET << 16;
+			set_host_byte(cmd, DID_RESET);
 			tp->current_req = NULL;
 			mesh_completed(ms, cmd);
 		}
@@ -1003,7 +1004,7 @@ static void handle_reset(struct mesh_state *ms)
 	ms->current_req = NULL;
 	while ((cmd = ms->request_q) != NULL) {
 		ms->request_q = (struct scsi_cmnd *) cmd->host_scribble;
-		cmd->result = DID_RESET << 16;
+		set_host_byte(cmd, DID_RESET);
 		mesh_completed(ms, cmd);
 	}
 	ms->phase = idle;
@@ -1045,6 +1046,8 @@ static void handle_error(struct mesh_state *ms)
 		while ((in_8(&mr->bus_status1) & BS1_RST) != 0)
 			udelay(1);
 		printk("done\n");
+		if (ms->dma_started)
+			halt_dma(ms);
 		handle_reset(ms);
 		/* request_q is empty, no point in mesh_start() */
 		return;
@@ -1231,7 +1234,7 @@ static void handle_msgin(struct mesh_state *ms)
 				ms->msgphase = msg_out;
 			} else if (code != cmd->device->lun + IDENTIFY_BASE) {
 				printk(KERN_WARNING "mesh: lun mismatch "
-				       "(%d != %d) on reselection from "
+				       "(%d != %llu) on reselection from "
 				       "target %d\n", code - IDENTIFY_BASE,
 				       cmd->device->lun, ms->conn_tgt);
 			}
@@ -1288,9 +1291,9 @@ static void set_dma_cmds(struct mesh_state *ms, struct scsi_cmnd *cmd)
 				}
 				if (dma_len > 0xffff)
 					panic("mesh: scatterlist element >= 64k");
-				st_le16(&dcmds->req_count, dma_len - off);
-				st_le16(&dcmds->command, dma_cmd);
-				st_le32(&dcmds->phy_addr, dma_addr + off);
+				dcmds->req_count = cpu_to_le16(dma_len - off);
+				dcmds->command = cpu_to_le16(dma_cmd);
+				dcmds->phy_addr = cpu_to_le32(dma_addr + off);
 				dcmds->xfer_status = 0;
 				++dcmds;
 				dtot += dma_len - off;
@@ -1304,15 +1307,15 @@ static void set_dma_cmds(struct mesh_state *ms, struct scsi_cmnd *cmd)
 		static char mesh_extra_buf[64];
 
 		dtot = sizeof(mesh_extra_buf);
-		st_le16(&dcmds->req_count, dtot);
-		st_le32(&dcmds->phy_addr, virt_to_phys(mesh_extra_buf));
+		dcmds->req_count = cpu_to_le16(dtot);
+		dcmds->phy_addr = cpu_to_le32(virt_to_phys(mesh_extra_buf));
 		dcmds->xfer_status = 0;
 		++dcmds;
 	}
 	dma_cmd += OUTPUT_LAST - OUTPUT_MORE;
-	st_le16(&dcmds[-1].command, dma_cmd);
+	dcmds[-1].command = cpu_to_le16(dma_cmd);
 	memset(dcmds, 0, sizeof(*dcmds));
-	st_le16(&dcmds->command, DBDMA_STOP);
+	dcmds->command = cpu_to_le16(DBDMA_STOP);
 	ms->dma_count = dtot;
 }
 
@@ -1357,7 +1360,8 @@ static void halt_dma(struct mesh_state *ms)
 		       ms->conn_tgt, ms->data_ptr, scsi_bufflen(cmd),
 		       ms->tgts[ms->conn_tgt].data_goes_out);
 	}
-	scsi_dma_unmap(cmd);
+	if (cmd)
+		scsi_dma_unmap(cmd);
 	ms->dma_started = 0;
 }
 
@@ -1454,7 +1458,7 @@ static void cmd_complete(struct mesh_state *ms)
 		/* huh?  we expected a phase mismatch */
 		ms->n_msgin = 0;
 		ms->msgphase = msg_in;
-		/* fall through */
+		fallthrough;
 
 	case msg_in:
 		/* should have some message bytes in fifo */
@@ -1712,6 +1716,9 @@ static int mesh_host_reset(struct scsi_cmnd *cmd)
 
 	spin_lock_irqsave(ms->host->host_lock, flags);
 
+	if (ms->dma_started)
+		halt_dma(ms);
+
 	/* Reset the controller & dbdma channel */
 	out_le32(&md->control, (RUN|PAUSE|FLUSH|WAKE) << 16);	/* stop dma */
 	out_8(&mr->exception, 0xff);	/* clear all exception bits */
@@ -1839,7 +1846,7 @@ static struct scsi_host_template mesh_template = {
 	.this_id			= 7,
 	.sg_tablesize			= SG_ALL,
 	.cmd_per_lun			= 2,
-	.use_clustering			= DISABLE_CLUSTERING,
+	.max_segment_size		= 65535,
 };
 
 static int mesh_probe(struct macio_dev *mdev, const struct of_device_id *match)
@@ -1916,14 +1923,13 @@ static int mesh_probe(struct macio_dev *mdev, const struct of_device_id *match)
 	/* We use the PCI APIs for now until the generic one gets fixed
 	 * enough or until we get some macio-specific versions
 	 */
-	dma_cmd_space = pci_alloc_consistent(macio_get_pci_dev(mdev),
-					     ms->dma_cmd_size,
-					     &dma_cmd_bus);
+	dma_cmd_space = dma_alloc_coherent(&macio_get_pci_dev(mdev)->dev,
+					   ms->dma_cmd_size, &dma_cmd_bus,
+					   GFP_KERNEL);
 	if (dma_cmd_space == NULL) {
 		printk(KERN_ERR "mesh: can't allocate DMA table\n");
 		goto out_unmap;
 	}
-	memset(dma_cmd_space, 0, ms->dma_cmd_size);
 
 	ms->dma_cmds = (struct dbdma_cmd *) DBDMA_ALIGN(dma_cmd_space);
        	ms->dma_cmd_space = dma_cmd_space;
@@ -1977,7 +1983,7 @@ static int mesh_probe(struct macio_dev *mdev, const struct of_device_id *match)
 	 */
 	mesh_shutdown(mdev);
 	set_mesh_power(ms, 0);
-	pci_free_consistent(macio_get_pci_dev(mdev), ms->dma_cmd_size,
+	dma_free_coherent(&macio_get_pci_dev(mdev)->dev, ms->dma_cmd_size,
 			    ms->dma_cmd_space, ms->dma_cmd_bus);
  out_unmap:
 	iounmap(ms->dma);
@@ -2010,7 +2016,7 @@ static int mesh_remove(struct macio_dev *mdev)
        	iounmap(ms->dma);
 
 	/* Free DMA commands memory */
-	pci_free_consistent(macio_get_pci_dev(mdev), ms->dma_cmd_size,
+	dma_free_coherent(&macio_get_pci_dev(mdev)->dev, ms->dma_cmd_size,
 			    ms->dma_cmd_space, ms->dma_cmd_bus);
 
 	/* Release memory resources */

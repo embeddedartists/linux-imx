@@ -1,17 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  *
  * Copyright (C) 2001, 2002, 2003 Broadcom Corporation
  * Copyright (C) 2007 Ralf Baechle <ralf@linux-mips.org>
@@ -27,6 +15,7 @@
 #include <linux/types.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
+#include <linux/sched.h>
 #include <linux/vmalloc.h>
 #include <linux/fs.h>
 #include <linux/errno.h>
@@ -53,8 +42,7 @@
 #define K_INT_PERF_CNT K_BCM1480_INT_PERF_CNT
 #endif
 
-#include <asm/system.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #define SBPROF_TB_MAJOR 240
 
@@ -153,7 +141,7 @@ static u64 tb_period;
 
 static void arm_tb(void)
 {
-        u64 scdperfcnt;
+	u64 scdperfcnt;
 	u64 next = (1ULL << 40) - tb_period;
 	u64 tb_options = M_SCD_TRACE_CFG_FREEZE_FULL;
 
@@ -258,8 +246,8 @@ static irqreturn_t sbprof_pc_intr(int irq, void *dev_id)
 
 /*
  * Requires: Already called zclk_timer_init with a value that won't
- *           saturate 40 bits.  No subsequent use of SCD performance counters
- *           or trace buffer.
+ *	     saturate 40 bits.	No subsequent use of SCD performance counters
+ *	     or trace buffer.
  */
 
 static int sbprof_zbprof_start(struct file *filp)
@@ -289,8 +277,8 @@ static int sbprof_zbprof_start(struct file *filp)
 
 	/*
 	 * We grab this interrupt to prevent others from trying to use
-         * it, even though we don't want to service the interrupts
-         * (they only feed into the trace-on-interrupt mechanism)
+	 * it, even though we don't want to service the interrupts
+	 * (they only feed into the trace-on-interrupt mechanism)
 	 */
 	if (request_irq(K_INT_PERF_CNT, sbprof_pc_intr, 0, DEVNAME " scd perfcnt", &sbp)) {
 		free_irq(K_INT_TRACE_FREEZE, &sbp);
@@ -299,7 +287,7 @@ static int sbprof_zbprof_start(struct file *filp)
 
 	/*
 	 * I need the core to mask these, but the interrupt mapper to
-	 *  pass them through.  I am exploiting my knowledge that
+	 *  pass them through.	I am exploiting my knowledge that
 	 *  cp0_status masks out IP[5]. krw
 	 */
 #if defined(CONFIG_SIBYTE_BCM1x55) || defined(CONFIG_SIBYTE_BCM1x80)
@@ -329,7 +317,7 @@ static int sbprof_zbprof_start(struct file *filp)
 	__raw_writeq(0, IOADDR(A_ADDR_TRAP_CFG_3));
 
 	/* Initialize Trace Event 0-7 */
-	/*				when interrupt  */
+	/*				when interrupt	*/
 	__raw_writeq(M_SCD_TREVT_INTERRUPT, IOADDR(A_SCD_TRACE_EVENT_0));
 	__raw_writeq(0, IOADDR(A_SCD_TRACE_EVENT_1));
 	__raw_writeq(0, IOADDR(A_SCD_TRACE_EVENT_2));
@@ -458,7 +446,7 @@ static ssize_t sbprof_tb_read(struct file *filp, char *buf,
 	char *dest    =	 buf;
 	long  cur_off = *offp;
 
-	if (!access_ok(VERIFY_WRITE, buf, size))
+	if (!access_ok(buf, size))
 		return -EFAULT;
 
 	mutex_lock(&sbp.lock);
@@ -480,7 +468,7 @@ static ssize_t sbprof_tb_read(struct file *filp, char *buf,
 			return err;
 		}
 		pr_debug(DEVNAME ": read from sample %d, %d bytes\n",
-		         cur_sample, cur_count);
+			 cur_sample, cur_count);
 		size -= cur_count;
 		sample_left -= cur_count;
 		if (!sample_left) {
@@ -541,7 +529,7 @@ static const struct file_operations sbprof_tb_fops = {
 	.open		= sbprof_tb_open,
 	.release	= sbprof_tb_release,
 	.read		= sbprof_tb_read,
-	.unlocked_ioctl	= sbprof_tb_ioctl,
+	.unlocked_ioctl = sbprof_tb_ioctl,
 	.compat_ioctl	= sbprof_tb_ioctl,
 	.mmap		= NULL,
 	.llseek		= default_llseek,

@@ -1,46 +1,29 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _ASM_X86_PTRACE_H
 #define _ASM_X86_PTRACE_H
 
-#include <linux/compiler.h>	/* For __user */
-#include <asm/ptrace-abi.h>
-#include <asm/processor-flags.h>
-
-#ifdef __KERNEL__
 #include <asm/segment.h>
 #include <asm/page_types.h>
-#endif
+#include <uapi/asm/ptrace.h>
 
 #ifndef __ASSEMBLY__
-
 #ifdef __i386__
-/* this struct defines the way the registers are stored on the
-   stack during a system call. */
-
-#ifndef __KERNEL__
 
 struct pt_regs {
-	long ebx;
-	long ecx;
-	long edx;
-	long esi;
-	long edi;
-	long ebp;
-	long eax;
-	int  xds;
-	int  xes;
-	int  xfs;
-	int  xgs;
-	long orig_eax;
-	long eip;
-	int  xcs;
-	long eflags;
-	long esp;
-	int  xss;
-};
-
-#else /* __KERNEL__ */
-
-struct pt_regs {
+	/*
+	 * NB: 32-bit x86 CPUs are inconsistent as what happens in the
+	 * following cases (where %seg represents a segment register):
+	 *
+	 * - pushl %seg: some do a 16-bit write and leave the high
+	 *   bits alone
+	 * - movl %seg, [mem]: some do a 16-bit write despite the movl
+	 * - IDT entry: some (e.g. 486) will leave the high bits of CS
+	 *   and (if applicable) SS undefined.
+	 *
+	 * Fortunately, x86-32 doesn't read the high bits on POP or IRET,
+	 * so we can just treat all of the segment registers as 16-bit
+	 * values.
+	 */
 	unsigned long bx;
 	unsigned long cx;
 	unsigned long dx;
@@ -48,62 +31,43 @@ struct pt_regs {
 	unsigned long di;
 	unsigned long bp;
 	unsigned long ax;
-	unsigned long ds;
-	unsigned long es;
-	unsigned long fs;
-	unsigned long gs;
+	unsigned short ds;
+	unsigned short __dsh;
+	unsigned short es;
+	unsigned short __esh;
+	unsigned short fs;
+	unsigned short __fsh;
+	/*
+	 * On interrupt, gs and __gsh store the vector number.  They never
+	 * store gs any more.
+	 */
+	unsigned short gs;
+	unsigned short __gsh;
+	/* On interrupt, this is the error code. */
 	unsigned long orig_ax;
 	unsigned long ip;
-	unsigned long cs;
+	unsigned short cs;
+	unsigned short __csh;
 	unsigned long flags;
 	unsigned long sp;
-	unsigned long ss;
+	unsigned short ss;
+	unsigned short __ssh;
 };
-
-#endif /* __KERNEL__ */
 
 #else /* __i386__ */
 
-#ifndef __KERNEL__
-
 struct pt_regs {
-	unsigned long r15;
-	unsigned long r14;
-	unsigned long r13;
-	unsigned long r12;
-	unsigned long rbp;
-	unsigned long rbx;
-/* arguments: non interrupts/non tracing syscalls only save up to here*/
-	unsigned long r11;
-	unsigned long r10;
-	unsigned long r9;
-	unsigned long r8;
-	unsigned long rax;
-	unsigned long rcx;
-	unsigned long rdx;
-	unsigned long rsi;
-	unsigned long rdi;
-	unsigned long orig_rax;
-/* end of arguments */
-/* cpu exception frame or undefined */
-	unsigned long rip;
-	unsigned long cs;
-	unsigned long eflags;
-	unsigned long rsp;
-	unsigned long ss;
-/* top of stack page */
-};
-
-#else /* __KERNEL__ */
-
-struct pt_regs {
+/*
+ * C ABI says these regs are callee-preserved. They aren't saved on kernel entry
+ * unless syscall needs a complete, fully filled "struct pt_regs".
+ */
 	unsigned long r15;
 	unsigned long r14;
 	unsigned long r13;
 	unsigned long r12;
 	unsigned long bp;
 	unsigned long bx;
-/* arguments: non interrupts/non tracing syscalls only save up to here*/
+/* These regs are callee-clobbered. Always saved on kernel entry. */
 	unsigned long r11;
 	unsigned long r10;
 	unsigned long r9;
@@ -113,9 +77,12 @@ struct pt_regs {
 	unsigned long dx;
 	unsigned long si;
 	unsigned long di;
+/*
+ * On syscall entry, this is syscall#. On CPU exception, this is error code.
+ * On hw interrupt, it's IRQ number:
+ */
 	unsigned long orig_ax;
-/* end of arguments */
-/* cpu exception frame or undefined */
+/* Return frame for iretq */
 	unsigned long ip;
 	unsigned long cs;
 	unsigned long flags;
@@ -124,60 +91,49 @@ struct pt_regs {
 /* top of stack page */
 };
 
-#endif /* __KERNEL__ */
 #endif /* !__i386__ */
 
-
-#ifdef __KERNEL__
-
-#include <linux/init.h>
 #ifdef CONFIG_PARAVIRT
 #include <asm/paravirt_types.h>
 #endif
+
+#include <asm/proto.h>
 
 struct cpuinfo_x86;
 struct task_struct;
 
 extern unsigned long profile_pc(struct pt_regs *regs);
-#define profile_pc profile_pc
 
 extern unsigned long
 convert_ip_to_linear(struct task_struct *child, struct pt_regs *regs);
-extern void send_sigtrap(struct task_struct *tsk, struct pt_regs *regs,
-			 int error_code, int si_code);
-void signal_fault(struct pt_regs *regs, void __user *frame, char *where);
+extern void send_sigtrap(struct pt_regs *regs, int error_code, int si_code);
 
-extern long syscall_trace_enter(struct pt_regs *);
-extern void syscall_trace_leave(struct pt_regs *);
 
 static inline unsigned long regs_return_value(struct pt_regs *regs)
 {
 	return regs->ax;
 }
 
-/*
- * user_mode_vm(regs) determines whether a register set came from user mode.
- * This is true if V8086 mode was enabled OR if the register set was from
- * protected mode with RPL-3 CS value.  This tricky test checks that with
- * one comparison.  Many places in the kernel can bypass this full check
- * if they have already ruled out V8086 mode, so user_mode(regs) can be used.
- */
-static inline int user_mode(struct pt_regs *regs)
+static inline void regs_set_return_value(struct pt_regs *regs, unsigned long rc)
 {
-#ifdef CONFIG_X86_32
-	return (regs->cs & SEGMENT_RPL_MASK) == USER_RPL;
-#else
-	return !!(regs->cs & 3);
-#endif
+	regs->ax = rc;
 }
 
-static inline int user_mode_vm(struct pt_regs *regs)
+/*
+ * user_mode(regs) determines whether a register set came from user
+ * mode.  On x86_32, this is true if V8086 mode was enabled OR if the
+ * register set was from protected mode with RPL-3 CS value.  This
+ * tricky test checks that with one comparison.
+ *
+ * On x86_64, vm86 mode is mercifully nonexistent, and we don't need
+ * the extra check.
+ */
+static __always_inline int user_mode(struct pt_regs *regs)
 {
 #ifdef CONFIG_X86_32
-	return ((regs->cs & SEGMENT_RPL_MASK) | (regs->flags & X86_VM_MASK)) >=
-		USER_RPL;
+	return ((regs->cs & SEGMENT_RPL_MASK) | (regs->flags & X86_VM_MASK)) >= USER_RPL;
 #else
-	return user_mode(regs);
+	return !!(regs->cs & 3);
 #endif
 }
 
@@ -190,10 +146,10 @@ static inline int v8086_mode(struct pt_regs *regs)
 #endif
 }
 
-#ifdef CONFIG_X86_64
 static inline bool user_64bit_mode(struct pt_regs *regs)
 {
-#ifndef CONFIG_PARAVIRT
+#ifdef CONFIG_X86_64
+#ifndef CONFIG_PARAVIRT_XXL
 	/*
 	 * On non-paravirt systems, this is the only long mode CPL 3
 	 * selector.  We do not allow long mode selectors in the LDT.
@@ -203,30 +159,78 @@ static inline bool user_64bit_mode(struct pt_regs *regs)
 	/* Headers are too twisted for this to go in paravirt.h. */
 	return regs->cs == __USER_CS || regs->cs == pv_info.extra_user_64bit_cs;
 #endif
-}
+#else /* !CONFIG_X86_64 */
+	return false;
 #endif
+}
 
 /*
- * X86_32 CPUs don't save ss and esp if the CPU is already in kernel mode
- * when it traps.  The previous stack will be directly underneath the saved
- * registers, and 'sp/ss' won't even have been saved. Thus the '&regs->sp'.
- *
- * This is valid only for kernel mode traps.
+ * Determine whether the register set came from any context that is running in
+ * 64-bit mode.
  */
-static inline unsigned long kernel_stack_pointer(struct pt_regs *regs)
+static inline bool any_64bit_mode(struct pt_regs *regs)
 {
-#ifdef CONFIG_X86_32
-	return (unsigned long)(&regs->sp);
+#ifdef CONFIG_X86_64
+	return !user_mode(regs) || user_64bit_mode(regs);
 #else
-	return regs->sp;
+	return false;
 #endif
 }
 
-#define GET_IP(regs) ((regs)->ip)
-#define GET_FP(regs) ((regs)->bp)
-#define GET_USP(regs) ((regs)->sp)
+#ifdef CONFIG_X86_64
+#define current_user_stack_pointer()	current_pt_regs()->sp
+#define compat_user_stack_pointer()	current_pt_regs()->sp
 
-#include <asm-generic/ptrace.h>
+static inline bool ip_within_syscall_gap(struct pt_regs *regs)
+{
+	bool ret = (regs->ip >= (unsigned long)entry_SYSCALL_64 &&
+		    regs->ip <  (unsigned long)entry_SYSCALL_64_safe_stack);
+
+#ifdef CONFIG_IA32_EMULATION
+	ret = ret || (regs->ip >= (unsigned long)entry_SYSCALL_compat &&
+		      regs->ip <  (unsigned long)entry_SYSCALL_compat_safe_stack);
+#endif
+
+	return ret;
+}
+#endif
+
+static inline unsigned long kernel_stack_pointer(struct pt_regs *regs)
+{
+	return regs->sp;
+}
+
+static inline unsigned long instruction_pointer(struct pt_regs *regs)
+{
+	return regs->ip;
+}
+
+static inline void instruction_pointer_set(struct pt_regs *regs,
+		unsigned long val)
+{
+	regs->ip = val;
+}
+
+static inline unsigned long frame_pointer(struct pt_regs *regs)
+{
+	return regs->bp;
+}
+
+static inline unsigned long user_stack_pointer(struct pt_regs *regs)
+{
+	return regs->sp;
+}
+
+static inline void user_stack_pointer_set(struct pt_regs *regs,
+		unsigned long val)
+{
+	regs->sp = val;
+}
+
+static __always_inline bool regs_irqs_disabled(struct pt_regs *regs)
+{
+	return !(regs->flags & X86_EFLAGS_IF);
+}
 
 /* Query offset/name of register from its name/offset */
 extern int regs_query_register_offset(const char *name);
@@ -247,6 +251,18 @@ static inline unsigned long regs_get_register(struct pt_regs *regs,
 {
 	if (unlikely(offset > MAX_REG_OFFSET))
 		return 0;
+#ifdef CONFIG_X86_32
+	/* The selector fields are 16-bit. */
+	if (offset == offsetof(struct pt_regs, cs) ||
+	    offset == offsetof(struct pt_regs, ss) ||
+	    offset == offsetof(struct pt_regs, ds) ||
+	    offset == offsetof(struct pt_regs, es) ||
+	    offset == offsetof(struct pt_regs, fs) ||
+	    offset == offsetof(struct pt_regs, gs)) {
+		return *(u16 *)((unsigned long)regs + offset);
+
+	}
+#endif
 	return *(unsigned long *)((unsigned long)regs + offset);
 }
 
@@ -261,9 +277,31 @@ static inline unsigned long regs_get_register(struct pt_regs *regs,
 static inline int regs_within_kernel_stack(struct pt_regs *regs,
 					   unsigned long addr)
 {
-	return ((addr & ~(THREAD_SIZE - 1))  ==
-		(kernel_stack_pointer(regs) & ~(THREAD_SIZE - 1)));
+	return ((addr & ~(THREAD_SIZE - 1)) == (regs->sp & ~(THREAD_SIZE - 1)));
 }
+
+/**
+ * regs_get_kernel_stack_nth_addr() - get the address of the Nth entry on stack
+ * @regs:	pt_regs which contains kernel stack pointer.
+ * @n:		stack entry number.
+ *
+ * regs_get_kernel_stack_nth() returns the address of the @n th entry of the
+ * kernel stack which is specified by @regs. If the @n th entry is NOT in
+ * the kernel stack, this returns NULL.
+ */
+static inline unsigned long *regs_get_kernel_stack_nth_addr(struct pt_regs *regs, unsigned int n)
+{
+	unsigned long *addr = (unsigned long *)regs->sp;
+
+	addr += n;
+	if (regs_within_kernel_stack(regs, (unsigned long)addr))
+		return addr;
+	else
+		return NULL;
+}
+
+/* To avoid include hell, we can't include uaccess.h */
+extern long copy_from_kernel_nofault(void *dst, const void *src, size_t size);
 
 /**
  * regs_get_kernel_stack_nth() - get Nth entry of the stack
@@ -271,18 +309,61 @@ static inline int regs_within_kernel_stack(struct pt_regs *regs,
  * @n:		stack entry number.
  *
  * regs_get_kernel_stack_nth() returns @n th entry of the kernel stack which
- * is specified by @regs. If the @n th entry is NOT in the kernel stack,
+ * is specified by @regs. If the @n th entry is NOT in the kernel stack
  * this returns 0.
  */
 static inline unsigned long regs_get_kernel_stack_nth(struct pt_regs *regs,
 						      unsigned int n)
 {
-	unsigned long *addr = (unsigned long *)kernel_stack_pointer(regs);
-	addr += n;
-	if (regs_within_kernel_stack(regs, (unsigned long)addr))
-		return *addr;
-	else
-		return 0;
+	unsigned long *addr;
+	unsigned long val;
+	long ret;
+
+	addr = regs_get_kernel_stack_nth_addr(regs, n);
+	if (addr) {
+		ret = copy_from_kernel_nofault(&val, addr, sizeof(val));
+		if (!ret)
+			return val;
+	}
+	return 0;
+}
+
+/**
+ * regs_get_kernel_argument() - get Nth function argument in kernel
+ * @regs:	pt_regs of that context
+ * @n:		function argument number (start from 0)
+ *
+ * regs_get_argument() returns @n th argument of the function call.
+ * Note that this chooses most probably assignment, in some case
+ * it can be incorrect.
+ * This is expected to be called from kprobes or ftrace with regs
+ * where the top of stack is the return address.
+ */
+static inline unsigned long regs_get_kernel_argument(struct pt_regs *regs,
+						     unsigned int n)
+{
+	static const unsigned int argument_offs[] = {
+#ifdef __i386__
+		offsetof(struct pt_regs, ax),
+		offsetof(struct pt_regs, dx),
+		offsetof(struct pt_regs, cx),
+#define NR_REG_ARGUMENTS 3
+#else
+		offsetof(struct pt_regs, di),
+		offsetof(struct pt_regs, si),
+		offsetof(struct pt_regs, dx),
+		offsetof(struct pt_regs, cx),
+		offsetof(struct pt_regs, r8),
+		offsetof(struct pt_regs, r9),
+#define NR_REG_ARGUMENTS 6
+#endif
+	};
+
+	if (n >= NR_REG_ARGUMENTS) {
+		n -= NR_REG_ARGUMENTS - 1;
+		return regs_get_kernel_stack_nth(regs, n);
+	} else
+		return regs_get_register(regs, argument_offs[n]);
 }
 
 #define arch_has_single_step()	(1)
@@ -292,7 +373,7 @@ static inline unsigned long regs_get_kernel_stack_nth(struct pt_regs *regs,
 #define arch_has_block_step()	(boot_cpu_data.x86 >= 6)
 #endif
 
-#define ARCH_HAS_USER_SINGLE_STEP_INFO
+#define ARCH_HAS_USER_SINGLE_STEP_REPORT
 
 struct user_desc;
 extern int do_get_thread_area(struct task_struct *p, int idx,
@@ -300,8 +381,11 @@ extern int do_get_thread_area(struct task_struct *p, int idx,
 extern int do_set_thread_area(struct task_struct *p, int idx,
 			      struct user_desc __user *info, int can_allocate);
 
-#endif /* __KERNEL__ */
+#ifdef CONFIG_X86_64
+# define do_set_thread_area_64(p, s, t)	do_arch_prctl_64(p, s, t)
+#else
+# define do_set_thread_area_64(p, s, t)	(0)
+#endif
 
 #endif /* !__ASSEMBLY__ */
-
 #endif /* _ASM_X86_PTRACE_H */

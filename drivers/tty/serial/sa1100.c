@@ -1,34 +1,18 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  *  Driver for SA11x0 serial ports
  *
  *  Based on drivers/char/serial.c, by Linus Torvalds, Theodore Ts'o.
  *
  *  Copyright (C) 2000 Deep Blue Solutions Ltd.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
-
-#if defined(CONFIG_SERIAL_SA1100_CONSOLE) && defined(CONFIG_MAGIC_SYSRQ)
-#define SUPPORT_SYSRQ
-#endif
 
 #include <linux/module.h>
 #include <linux/ioport.h>
 #include <linux/init.h>
 #include <linux/console.h>
 #include <linux/sysrq.h>
+#include <linux/platform_data/sa11x0-serial.h>
 #include <linux/platform_device.h>
 #include <linux/tty.h>
 #include <linux/tty_flip.h>
@@ -38,7 +22,9 @@
 
 #include <asm/irq.h>
 #include <mach/hardware.h>
-#include <asm/mach/serial_sa1100.h>
+#include <mach/irqs.h>
+
+#include "serial_mctrl_gpio.h"
 
 /* We've been assigned a range on the "Low-density serial ports" major */
 #define SERIAL_SA1100_MAJOR	204
@@ -89,6 +75,7 @@ struct sa1100_port {
 	struct uart_port	port;
 	struct timer_list	timer;
 	unsigned int		old_status;
+	struct mctrl_gpios	*gpios;
 };
 
 /*
@@ -122,9 +109,9 @@ static void sa1100_mctrl_check(struct sa1100_port *sport)
  * This is our per-port timeout handler, for checking the
  * modem status signals.
  */
-static void sa1100_timeout(unsigned long data)
+static void sa1100_timeout(struct timer_list *t)
 {
-	struct sa1100_port *sport = (struct sa1100_port *)data;
+	struct sa1100_port *sport = from_timer(sport, t, timer);
 	unsigned long flags;
 
 	if (sport->port.state) {
@@ -141,7 +128,8 @@ static void sa1100_timeout(unsigned long data)
  */
 static void sa1100_stop_tx(struct uart_port *port)
 {
-	struct sa1100_port *sport = (struct sa1100_port *)port;
+	struct sa1100_port *sport =
+		container_of(port, struct sa1100_port, port);
 	u32 utcr3;
 
 	utcr3 = UART_GET_UTCR3(sport);
@@ -154,7 +142,8 @@ static void sa1100_stop_tx(struct uart_port *port)
  */
 static void sa1100_start_tx(struct uart_port *port)
 {
-	struct sa1100_port *sport = (struct sa1100_port *)port;
+	struct sa1100_port *sport =
+		container_of(port, struct sa1100_port, port);
 	u32 utcr3;
 
 	utcr3 = UART_GET_UTCR3(sport);
@@ -167,7 +156,8 @@ static void sa1100_start_tx(struct uart_port *port)
  */
 static void sa1100_stop_rx(struct uart_port *port)
 {
-	struct sa1100_port *sport = (struct sa1100_port *)port;
+	struct sa1100_port *sport =
+		container_of(port, struct sa1100_port, port);
 	u32 utcr3;
 
 	utcr3 = UART_GET_UTCR3(sport);
@@ -179,15 +169,17 @@ static void sa1100_stop_rx(struct uart_port *port)
  */
 static void sa1100_enable_ms(struct uart_port *port)
 {
-	struct sa1100_port *sport = (struct sa1100_port *)port;
+	struct sa1100_port *sport =
+		container_of(port, struct sa1100_port, port);
 
 	mod_timer(&sport->timer, jiffies);
+
+	mctrl_gpio_enable_ms(sport->gpios);
 }
 
 static void
 sa1100_rx_chars(struct sa1100_port *sport)
 {
-	struct tty_struct *tty = sport->port.state->port.tty;
 	unsigned int status, ch, flg;
 
 	status = UTSR1_TO_SM(UART_GET_UTSR1(sport)) |
@@ -218,9 +210,7 @@ sa1100_rx_chars(struct sa1100_port *sport)
 			else if (status & UTSR1_TO_SM(UTSR1_FRE))
 				flg = TTY_FRAME;
 
-#ifdef SUPPORT_SYSRQ
 			sport->port.sysrq = 0;
-#endif
 		}
 
 		if (uart_handle_sysrq_char(&sport->port, ch))
@@ -232,7 +222,8 @@ sa1100_rx_chars(struct sa1100_port *sport)
 		status = UTSR1_TO_SM(UART_GET_UTSR1(sport)) |
 			 UTSR0_TO_SM(UART_GET_UTSR0(sport));
 	}
-	tty_flip_buffer_push(tty);
+
+	tty_flip_buffer_push(&sport->port.state->port);
 }
 
 static void sa1100_tx_chars(struct sa1100_port *sport)
@@ -320,18 +311,29 @@ static irqreturn_t sa1100_int(int irq, void *dev_id)
  */
 static unsigned int sa1100_tx_empty(struct uart_port *port)
 {
-	struct sa1100_port *sport = (struct sa1100_port *)port;
+	struct sa1100_port *sport =
+		container_of(port, struct sa1100_port, port);
 
 	return UART_GET_UTSR1(sport) & UTSR1_TBY ? 0 : TIOCSER_TEMT;
 }
 
 static unsigned int sa1100_get_mctrl(struct uart_port *port)
 {
-	return TIOCM_CTS | TIOCM_DSR | TIOCM_CAR;
+	struct sa1100_port *sport =
+		container_of(port, struct sa1100_port, port);
+	int ret = TIOCM_CTS | TIOCM_DSR | TIOCM_CAR;
+
+	mctrl_gpio_get(sport->gpios, &ret);
+
+	return ret;
 }
 
 static void sa1100_set_mctrl(struct uart_port *port, unsigned int mctrl)
 {
+	struct sa1100_port *sport =
+		container_of(port, struct sa1100_port, port);
+
+	mctrl_gpio_set(sport->gpios, mctrl);
 }
 
 /*
@@ -339,7 +341,8 @@ static void sa1100_set_mctrl(struct uart_port *port, unsigned int mctrl)
  */
 static void sa1100_break_ctl(struct uart_port *port, int break_state)
 {
-	struct sa1100_port *sport = (struct sa1100_port *)port;
+	struct sa1100_port *sport =
+		container_of(port, struct sa1100_port, port);
 	unsigned long flags;
 	unsigned int utcr3;
 
@@ -355,7 +358,8 @@ static void sa1100_break_ctl(struct uart_port *port, int break_state)
 
 static int sa1100_startup(struct uart_port *port)
 {
-	struct sa1100_port *sport = (struct sa1100_port *)port;
+	struct sa1100_port *sport =
+		container_of(port, struct sa1100_port, port);
 	int retval;
 
 	/*
@@ -384,7 +388,8 @@ static int sa1100_startup(struct uart_port *port)
 
 static void sa1100_shutdown(struct uart_port *port)
 {
-	struct sa1100_port *sport = (struct sa1100_port *)port;
+	struct sa1100_port *sport =
+		container_of(port, struct sa1100_port, port);
 
 	/*
 	 * Stop our timer.
@@ -406,7 +411,8 @@ static void
 sa1100_set_termios(struct uart_port *port, struct ktermios *termios,
 		   struct ktermios *old)
 {
-	struct sa1100_port *sport = (struct sa1100_port *)port;
+	struct sa1100_port *sport =
+		container_of(port, struct sa1100_port, port);
 	unsigned long flags;
 	unsigned int utcr0, old_utcr3, baud, quot;
 	unsigned int old_csize = old ? old->c_cflag & CSIZE : CS8;
@@ -509,7 +515,8 @@ sa1100_set_termios(struct uart_port *port, struct ktermios *termios,
 
 static const char *sa1100_type(struct uart_port *port)
 {
-	struct sa1100_port *sport = (struct sa1100_port *)port;
+	struct sa1100_port *sport =
+		container_of(port, struct sa1100_port, port);
 
 	return sport->port.type == PORT_SA1100 ? "SA1100" : NULL;
 }
@@ -519,7 +526,8 @@ static const char *sa1100_type(struct uart_port *port)
  */
 static void sa1100_release_port(struct uart_port *port)
 {
-	struct sa1100_port *sport = (struct sa1100_port *)port;
+	struct sa1100_port *sport =
+		container_of(port, struct sa1100_port, port);
 
 	release_mem_region(sport->port.mapbase, UART_PORT_SIZE);
 }
@@ -529,7 +537,8 @@ static void sa1100_release_port(struct uart_port *port)
  */
 static int sa1100_request_port(struct uart_port *port)
 {
-	struct sa1100_port *sport = (struct sa1100_port *)port;
+	struct sa1100_port *sport =
+		container_of(port, struct sa1100_port, port);
 
 	return request_mem_region(sport->port.mapbase, UART_PORT_SIZE,
 			"sa11x0-uart") != NULL ? 0 : -EBUSY;
@@ -540,7 +549,8 @@ static int sa1100_request_port(struct uart_port *port)
  */
 static void sa1100_config_port(struct uart_port *port, int flags)
 {
-	struct sa1100_port *sport = (struct sa1100_port *)port;
+	struct sa1100_port *sport =
+		container_of(port, struct sa1100_port, port);
 
 	if (flags & UART_CONFIG_TYPE &&
 	    sa1100_request_port(&sport->port) == 0)
@@ -555,7 +565,8 @@ static void sa1100_config_port(struct uart_port *port, int flags)
 static int
 sa1100_verify_port(struct uart_port *port, struct serial_struct *ser)
 {
-	struct sa1100_port *sport = (struct sa1100_port *)port;
+	struct sa1100_port *sport =
+		container_of(port, struct sa1100_port, port);
 	int ret = 0;
 
 	if (ser->type != PORT_UNKNOWN && ser->type != PORT_SA1100)
@@ -623,9 +634,7 @@ static void __init sa1100_init_ports(void)
 		sa1100_ports[i].port.fifosize  = 8;
 		sa1100_ports[i].port.line      = i;
 		sa1100_ports[i].port.iotype    = UPIO_MEM;
-		init_timer(&sa1100_ports[i].timer);
-		sa1100_ports[i].timer.function = sa1100_timeout;
-		sa1100_ports[i].timer.data     = (unsigned long)&sa1100_ports[i];
+		timer_setup(&sa1100_ports[i].timer, sa1100_timeout, 0);
 	}
 
 	/*
@@ -636,7 +645,7 @@ static void __init sa1100_init_ports(void)
 	PPSR |= PPC_TXD1 | PPC_TXD3;
 }
 
-void __devinit sa1100_register_uart_fns(struct sa1100_port_fns *fns)
+void sa1100_register_uart_fns(struct sa1100_port_fns *fns)
 {
 	if (fns->get_mctrl)
 		sa1100_pops.get_mctrl = fns->get_mctrl;
@@ -644,7 +653,10 @@ void __devinit sa1100_register_uart_fns(struct sa1100_port_fns *fns)
 		sa1100_pops.set_mctrl = fns->set_mctrl;
 
 	sa1100_pops.pm       = fns->pm;
-	sa1100_pops.set_wake = fns->set_wake;
+	/*
+	 * FIXME: fns->set_wake is unused - this should be called from
+	 * the suspend() callback if device_may_wakeup(dev)) is set.
+	 */
 }
 
 void __init sa1100_register_uart(int idx, int port)
@@ -685,7 +697,8 @@ void __init sa1100_register_uart(int idx, int port)
 #ifdef CONFIG_SERIAL_SA1100_CONSOLE
 static void sa1100_console_putchar(struct uart_port *port, int ch)
 {
-	struct sa1100_port *sport = (struct sa1100_port *)port;
+	struct sa1100_port *sport =
+		container_of(port, struct sa1100_port, port);
 
 	while (!(UART_GET_UTSR1(sport) & UTSR1_TNF))
 		barrier();
@@ -836,26 +849,48 @@ static int sa1100_serial_resume(struct platform_device *dev)
 	return 0;
 }
 
+static int sa1100_serial_add_one_port(struct sa1100_port *sport, struct platform_device *dev)
+{
+	sport->port.dev = &dev->dev;
+	sport->port.has_sysrq = IS_ENABLED(CONFIG_SERIAL_SA1100_CONSOLE);
+
+	// mctrl_gpio_init() requires that the GPIO driver supports interrupts,
+	// but we need to support GPIO drivers for hardware that has no such
+	// interrupts.  Use mctrl_gpio_init_noauto() instead.
+	sport->gpios = mctrl_gpio_init_noauto(sport->port.dev, 0);
+	if (IS_ERR(sport->gpios)) {
+		int err = PTR_ERR(sport->gpios);
+
+		dev_err(sport->port.dev, "failed to get mctrl gpios: %d\n",
+			err);
+
+		if (err == -EPROBE_DEFER)
+			return err;
+
+		sport->gpios = NULL;
+	}
+
+	platform_set_drvdata(dev, sport);
+
+	return uart_add_one_port(&sa1100_reg, &sport->port);
+}
+
 static int sa1100_serial_probe(struct platform_device *dev)
 {
-	struct resource *res = dev->resource;
+	struct resource *res;
 	int i;
 
-	for (i = 0; i < dev->num_resources; i++, res++)
-		if (res->flags & IORESOURCE_MEM)
-			break;
+	res = platform_get_resource(dev, IORESOURCE_MEM, 0);
+	if (!res)
+		return -EINVAL;
 
-	if (i < dev->num_resources) {
-		for (i = 0; i < NR_PORTS; i++) {
-			if (sa1100_ports[i].port.mapbase != res->start)
-				continue;
-
-			sa1100_ports[i].port.dev = &dev->dev;
-			uart_add_one_port(&sa1100_reg, &sa1100_ports[i].port);
-			platform_set_drvdata(dev, &sa1100_ports[i]);
+	for (i = 0; i < NR_PORTS; i++)
+		if (sa1100_ports[i].port.mapbase == res->start)
 			break;
-		}
-	}
+	if (i == NR_PORTS)
+		return -ENODEV;
+
+	sa1100_serial_add_one_port(&sa1100_ports[i], dev);
 
 	return 0;
 }
@@ -863,8 +898,6 @@ static int sa1100_serial_probe(struct platform_device *dev)
 static int sa1100_serial_remove(struct platform_device *pdev)
 {
 	struct sa1100_port *sport = platform_get_drvdata(pdev);
-
-	platform_set_drvdata(pdev, NULL);
 
 	if (sport)
 		uart_remove_one_port(&sa1100_reg, &sport->port);
@@ -879,7 +912,6 @@ static struct platform_driver sa11x0_serial_driver = {
 	.resume		= sa1100_serial_resume,
 	.driver		= {
 		.name	= "sa11x0-uart",
-		.owner	= THIS_MODULE,
 	},
 };
 

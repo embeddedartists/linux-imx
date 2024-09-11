@@ -13,19 +13,18 @@
 #include <linux/platform_device.h>
 #include <linux/irq.h>
 #include <linux/mtd/physmap.h>
-#include <linux/mtd/nand.h>
+#include <linux/mtd/rawnand.h>
 #include <linux/timer.h>
 #include <linux/ata_platform.h>
 #include <linux/mv643xx_eth.h>
 #include <linux/i2c.h>
 #include <linux/pci.h>
 #include <linux/spi/spi.h>
-#include <linux/spi/orion_spi.h>
 #include <linux/spi/flash.h>
 #include <linux/gpio.h>
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
-#include <mach/dove.h>
+#include "dove.h"
 #include "common.h"
 
 static struct mv643xx_eth_platform_data dove_db_ge00_data = {
@@ -95,10 +94,11 @@ static void __init dove_db_init(void)
 
 MACHINE_START(DOVE_DB, "Marvell DB-MV88AP510-BP Development Board")
 	.atag_offset	= 0x100,
+	.nr_irqs	= DOVE_NR_IRQS,
 	.init_machine	= dove_db_init,
 	.map_io		= dove_map_io,
 	.init_early	= dove_init_early,
 	.init_irq	= dove_init_irq,
-	.timer		= &dove_timer,
+	.init_time	= dove_timer_init,
 	.restart	= dove_restart,
 MACHINE_END

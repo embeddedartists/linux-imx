@@ -1,13 +1,15 @@
+// SPDX-License-Identifier: GPL-2.0-only
 #include <linux/string.h>
 #include <linux/kernel.h>
 #include <linux/of.h>
-#include <linux/init.h>
 #include <linux/export.h>
 #include <linux/mod_devicetable.h>
 #include <linux/errno.h>
 #include <linux/irq.h>
-#include <linux/of_device.h>
 #include <linux/of_platform.h>
+#include <linux/of_address.h>
+#include <linux/of_device.h>
+#include <linux/of_irq.h>
 
 #include "of_device_common.h"
 
@@ -65,6 +67,7 @@ void of_propagate_archdata(struct platform_device *bus)
 		op->dev.archdata.stc = bus_sd->stc;
 		op->dev.archdata.host_controller = bus_sd->host_controller;
 		op->dev.archdata.numa_node = bus_sd->numa_node;
+		op->dev.dma_ops = bus->dev.dma_ops;
 
 		if (dp->child)
 			of_propagate_archdata(op);
@@ -150,8 +153,8 @@ int of_bus_sbus_match(struct device_node *np)
 	struct device_node *dp = np;
 
 	while (dp) {
-		if (!strcmp(dp->name, "sbus") ||
-		    !strcmp(dp->name, "sbi"))
+		if (of_node_name_eq(dp, "sbus") ||
+		    of_node_name_eq(dp, "sbi"))
 			return 1;
 
 		/* Have a look at use_1to1_mapping().  We're trying

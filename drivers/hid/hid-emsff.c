@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  Force feedback support for EMS Trio Linker Plus II
  *
@@ -5,29 +6,14 @@
  */
 
 /*
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
 
 #include <linux/hid.h>
 #include <linux/input.h>
-#include <linux/usb.h>
 #include <linux/module.h>
 
 #include "hid-ids.h"
-#include "usbhid/usbhid.h"
 
 struct emsff_device {
 	struct hid_report *report;
@@ -52,7 +38,7 @@ static int emsff_play(struct input_dev *dev, void *data,
 	emsff->report->field[0]->value[2] = strong;
 
 	dbg_hid("running with 0x%02x 0x%02x\n", strong, weak);
-	usbhid_submit_report(hid, emsff->report, USB_DIR_OUT);
+	hid_hw_request(hid, emsff->report, HID_REQ_SET_REPORT);
 
 	return 0;
 }
@@ -61,12 +47,18 @@ static int emsff_init(struct hid_device *hid)
 {
 	struct emsff_device *emsff;
 	struct hid_report *report;
-	struct hid_input *hidinput = list_first_entry(&hid->inputs,
-						struct hid_input, list);
+	struct hid_input *hidinput;
 	struct list_head *report_list =
 			&hid->report_enum[HID_OUTPUT_REPORT].report_list;
-	struct input_dev *dev = hidinput->input;
+	struct input_dev *dev;
 	int error;
+
+	if (list_empty(&hid->inputs)) {
+		hid_err(hid, "no inputs found\n");
+		return -ENODEV;
+	}
+	hidinput = list_first_entry(&hid->inputs, struct hid_input, list);
+	dev = hidinput->input;
 
 	if (list_empty(report_list)) {
 		hid_err(hid, "no output reports found\n");
@@ -104,7 +96,7 @@ static int emsff_init(struct hid_device *hid)
 	emsff->report->field[0]->value[4] = 0x00;
 	emsff->report->field[0]->value[5] = 0x00;
 	emsff->report->field[0]->value[6] = 0x00;
-	usbhid_submit_report(hid, emsff->report, USB_DIR_OUT);
+	hid_hw_request(hid, emsff->report, HID_REQ_SET_REPORT);
 
 	hid_info(hid, "force feedback for EMS based devices by Ignaz Forster <ignaz.forster@gmx.de>\n");
 
@@ -150,18 +142,7 @@ static struct hid_driver ems_driver = {
 	.id_table = ems_devices,
 	.probe = ems_probe,
 };
+module_hid_driver(ems_driver);
 
-static int ems_init(void)
-{
-	return hid_register_driver(&ems_driver);
-}
-
-static void ems_exit(void)
-{
-	hid_unregister_driver(&ems_driver);
-}
-
-module_init(ems_init);
-module_exit(ems_exit);
 MODULE_LICENSE("GPL");
 

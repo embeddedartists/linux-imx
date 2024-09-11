@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /* central.c: Central FHC driver for Sunfire/Starfire/Wildfire.
  *
  * Copyright (C) 1997, 1999, 2008 David S. Miller (davem@davemloft.net)
@@ -33,7 +34,7 @@ struct fhc {
 	struct platform_device	leds_pdev;
 };
 
-static int __devinit clock_board_calc_nslots(struct clock_board *p)
+static int clock_board_calc_nslots(struct clock_board *p)
 {
 	u8 reg = upa_readb(p->clock_regs + CLOCK_STAT1) & 0xc0;
 
@@ -54,13 +55,13 @@ static int __devinit clock_board_calc_nslots(struct clock_board *p)
 			else
 				return 5;
 		}
-		/* Fallthrough */
+		fallthrough;
 	default:
 		return 4;
 	}
 }
 
-static int __devinit clock_board_probe(struct platform_device *op)
+static int clock_board_probe(struct platform_device *op)
 {
 	struct clock_board *p = kzalloc(sizeof(*p), GFP_KERNEL);
 	int err = -ENOMEM;
@@ -152,12 +153,11 @@ static struct platform_driver clock_board_driver = {
 	.probe		= clock_board_probe,
 	.driver = {
 		.name = "clock_board",
-		.owner = THIS_MODULE,
 		.of_match_table = clock_board_match,
 	},
 };
 
-static int __devinit fhc_probe(struct platform_device *op)
+static int fhc_probe(struct platform_device *op)
 {
 	struct fhc *p = kzalloc(sizeof(*p), GFP_KERNEL);
 	int err = -ENOMEM;
@@ -168,7 +168,7 @@ static int __devinit fhc_probe(struct platform_device *op)
 		goto out;
 	}
 
-	if (!strcmp(op->dev.of_node->parent->name, "central"))
+	if (of_node_name_eq(op->dev.of_node->parent, "central"))
 		p->central = true;
 
 	p->pregs = of_ioremap(&op->resource[0], 0,
@@ -257,7 +257,6 @@ static struct platform_driver fhc_driver = {
 	.probe		= fhc_probe,
 	.driver = {
 		.name = "fhc",
-		.owner = THIS_MODULE,
 		.of_match_table = fhc_match,
 	},
 };
@@ -269,4 +268,4 @@ static int __init sunfire_init(void)
 	return 0;
 }
 
-subsys_initcall(sunfire_init);
+fs_initcall(sunfire_init);

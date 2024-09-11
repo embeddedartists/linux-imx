@@ -1,22 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  Copyright (c) by Jaroslav Kysela <perex@perex.cz>
  *  Routines for control of EMU10K1 MPU-401 in UART mode
- *
- *
- *   This program is free software; you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation; either version 2 of the License, or
- *   (at your option) any later version.
- *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License for more details.
- *
- *   You should have received a copy of the GNU General Public License
- *   along with this program; if not, write to the Free Software
- *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
- *
  */
 
 #include <linux/time.h>
@@ -64,7 +49,9 @@ static void mpu401_clear_rx(struct snd_emu10k1 *emu, struct snd_emu10k1_midi *mp
 		mpu401_read_data(emu, mpu);
 #ifdef CONFIG_SND_DEBUG
 	if (timeout <= 0)
-		snd_printk(KERN_ERR "cmd: clear rx timeout (status = 0x%x)\n", mpu401_read_stat(emu, mpu));
+		dev_err(emu->card->dev,
+			"cmd: clear rx timeout (status = 0x%x)\n",
+			mpu401_read_stat(emu, mpu));
 #endif
 }
 
@@ -141,7 +128,8 @@ static int snd_emu10k1_midi_cmd(struct snd_emu10k1 * emu, struct snd_emu10k1_mid
 	}
 	spin_unlock_irqrestore(&midi->input_lock, flags);
 	if (!ok) {
-		snd_printk(KERN_ERR "midi_cmd: 0x%x failed at 0x%lx (status = 0x%x, data = 0x%x)!!!\n",
+		dev_err(emu->card->dev,
+			"midi_cmd: 0x%x failed at 0x%lx (status = 0x%x, data = 0x%x)!!!\n",
 			   cmd, emu->port,
 			   mpu401_read_stat(emu, midi),
 			   mpu401_read_data(emu, midi));
@@ -305,14 +293,14 @@ static void snd_emu10k1_midi_output_trigger(struct snd_rawmidi_substream *substr
 
  */
 
-static struct snd_rawmidi_ops snd_emu10k1_midi_output =
+static const struct snd_rawmidi_ops snd_emu10k1_midi_output =
 {
 	.open =		snd_emu10k1_midi_output_open,
 	.close =	snd_emu10k1_midi_output_close,
 	.trigger =	snd_emu10k1_midi_output_trigger,
 };
 
-static struct snd_rawmidi_ops snd_emu10k1_midi_input =
+static const struct snd_rawmidi_ops snd_emu10k1_midi_input =
 {
 	.open =		snd_emu10k1_midi_input_open,
 	.close =	snd_emu10k1_midi_input_close,
@@ -326,12 +314,13 @@ static void snd_emu10k1_midi_free(struct snd_rawmidi *rmidi)
 	midi->rmidi = NULL;
 }
 
-static int __devinit emu10k1_midi_init(struct snd_emu10k1 *emu, struct snd_emu10k1_midi *midi, int device, char *name)
+static int emu10k1_midi_init(struct snd_emu10k1 *emu, struct snd_emu10k1_midi *midi, int device, char *name)
 {
 	struct snd_rawmidi *rmidi;
 	int err;
 
-	if ((err = snd_rawmidi_new(emu->card, name, device, 1, 1, &rmidi)) < 0)
+	err = snd_rawmidi_new(emu->card, name, device, 1, 1, &rmidi);
+	if (err < 0)
 		return err;
 	midi->emu = emu;
 	spin_lock_init(&midi->open_lock);
@@ -349,12 +338,13 @@ static int __devinit emu10k1_midi_init(struct snd_emu10k1 *emu, struct snd_emu10
 	return 0;
 }
 
-int __devinit snd_emu10k1_midi(struct snd_emu10k1 *emu)
+int snd_emu10k1_midi(struct snd_emu10k1 *emu)
 {
 	struct snd_emu10k1_midi *midi = &emu->midi;
 	int err;
 
-	if ((err = emu10k1_midi_init(emu, midi, 0, "EMU10K1 MPU-401 (UART)")) < 0)
+	err = emu10k1_midi_init(emu, midi, 0, "EMU10K1 MPU-401 (UART)");
+	if (err < 0)
 		return err;
 
 	midi->tx_enable = INTE_MIDITXENABLE;
@@ -366,13 +356,14 @@ int __devinit snd_emu10k1_midi(struct snd_emu10k1 *emu)
 	return 0;
 }
 
-int __devinit snd_emu10k1_audigy_midi(struct snd_emu10k1 *emu)
+int snd_emu10k1_audigy_midi(struct snd_emu10k1 *emu)
 {
 	struct snd_emu10k1_midi *midi;
 	int err;
 
 	midi = &emu->midi;
-	if ((err = emu10k1_midi_init(emu, midi, 0, "Audigy MPU-401 (UART)")) < 0)
+	err = emu10k1_midi_init(emu, midi, 0, "Audigy MPU-401 (UART)");
+	if (err < 0)
 		return err;
 
 	midi->tx_enable = INTE_MIDITXENABLE;
@@ -383,7 +374,8 @@ int __devinit snd_emu10k1_audigy_midi(struct snd_emu10k1 *emu)
 	midi->interrupt = snd_emu10k1_midi_interrupt;
 
 	midi = &emu->midi2;
-	if ((err = emu10k1_midi_init(emu, midi, 1, "Audigy MPU-401 #2")) < 0)
+	err = emu10k1_midi_init(emu, midi, 1, "Audigy MPU-401 #2");
+	if (err < 0)
 		return err;
 
 	midi->tx_enable = INTE_A_MIDITXENABLE2;

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * pata_atp867x.c - ARTOP 867X 64bit 4-channel UDMA133 ATA controller driver
  *
@@ -7,21 +8,6 @@
  * Based in part on early ide code from
  *	2003-2004 by Eric Uhrhane, Google, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
- *
- *
  * TODO:
  *   1. RAID features [comparison, XOR, striping, mirroring, etc.]
  */
@@ -29,7 +15,6 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/pci.h>
-#include <linux/init.h>
 #include <linux/blkdev.h>
 #include <linux/delay.h>
 #include <linux/device.h>
@@ -172,6 +157,7 @@ static int atp867x_get_active_clocks_shifted(struct ata_port *ap,
 	default:
 		printk(KERN_WARNING "ATP867X: active %dclk is invalid. "
 			"Using 12clk.\n", clk);
+		fallthrough;
 	case 9 ... 12:
 		clocks = 7;	/* 12 clk */
 		break;
@@ -204,6 +190,7 @@ static int atp867x_get_recover_clocks_shifted(unsigned int clk)
 	default:
 		printk(KERN_WARNING "ATP867X: recover %dclk is invalid. "
 			"Using default 12clk.\n", clk);
+		fallthrough;
 	case 12:	/* default 12 clk */
 		clocks = 0;
 		break;
@@ -435,7 +422,7 @@ static int atp867x_ata_pci_sff_init_host(struct ata_host *host)
 #ifdef	ATP867X_DEBUG
 	atp867x_check_res(pdev);
 
-	for (i = 0; i < PCI_ROM_RESOURCE; i++)
+	for (i = 0; i < PCI_STD_NUM_BARS; i++)
 		printk(KERN_DEBUG "ATP867X: iomap[%d]=0x%llx\n", i,
 			(unsigned long long)(host->iomap[i]));
 #endif
@@ -476,12 +463,7 @@ static int atp867x_ata_pci_sff_init_host(struct ata_host *host)
 
 	atp867x_fixup(host);
 
-	rc = pci_set_dma_mask(pdev, ATA_DMA_MASK);
-	if (rc)
-		return rc;
-
-	rc = pci_set_consistent_dma_mask(pdev, ATA_DMA_MASK);
-	return rc;
+	return dma_set_mask_and_coherent(&pdev->dev, ATA_DMA_MASK);
 }
 
 static int atp867x_init_one(struct pci_dev *pdev,
@@ -531,10 +513,10 @@ err_out:
 	return rc;
 }
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 static int atp867x_reinit_one(struct pci_dev *pdev)
 {
-	struct ata_host *host = dev_get_drvdata(&pdev->dev);
+	struct ata_host *host = pci_get_drvdata(pdev);
 	int rc;
 
 	rc = ata_pci_device_do_resume(pdev);
@@ -559,27 +541,16 @@ static struct pci_driver atp867x_driver = {
 	.id_table 	= atp867x_pci_tbl,
 	.probe 		= atp867x_init_one,
 	.remove		= ata_pci_remove_one,
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 	.suspend	= ata_pci_device_suspend,
 	.resume		= atp867x_reinit_one,
 #endif
 };
 
-static int __init atp867x_init(void)
-{
-	return pci_register_driver(&atp867x_driver);
-}
-
-static void __exit atp867x_exit(void)
-{
-	pci_unregister_driver(&atp867x_driver);
-}
+module_pci_driver(atp867x_driver);
 
 MODULE_AUTHOR("John(Jung-Ik) Lee, Google Inc.");
 MODULE_DESCRIPTION("low level driver for Artop/Acard 867x ATA controller");
 MODULE_LICENSE("GPL");
 MODULE_DEVICE_TABLE(pci, atp867x_pci_tbl);
 MODULE_VERSION(DRV_VERSION);
-
-module_init(atp867x_init);
-module_exit(atp867x_exit);

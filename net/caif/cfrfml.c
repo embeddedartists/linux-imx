@@ -1,7 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) ST-Ericsson AB 2010
- * Author:	Sjur Brendeland/sjur.brandeland@stericsson.com
- * License terms: GNU General Public License (GPL) version 2
+ * Author:	Sjur Brendeland
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ":%s(): " fmt, __func__
@@ -43,7 +43,7 @@ static void cfrfml_release(struct cflayer *layer)
 }
 
 struct cflayer *cfrfml_create(u8 channel_id, struct dev_info *dev_info,
-					int mtu_size)
+			      int mtu_size)
 {
 	int tmp;
 	struct cfrfml *this = kzalloc(sizeof(struct cfrfml), GFP_ATOMIC);
@@ -69,7 +69,7 @@ struct cflayer *cfrfml_create(u8 channel_id, struct dev_info *dev_info,
 }
 
 static struct cfpkt *rfm_append(struct cfrfml *rfml, char *seghead,
-			struct cfpkt *pkt, int *err)
+				struct cfpkt *pkt, int *err)
 {
 	struct cfpkt *tmppkt;
 	*err = -EPROTO;
@@ -116,7 +116,7 @@ static int cfrfml_receive(struct cflayer *layr, struct cfpkt *pkt)
 	if (segmented) {
 		if (rfml->incomplete_frm == NULL) {
 			/* Initial Segment */
-			if (cfpkt_peek_head(pkt, rfml->seghead, 6) < 0)
+			if (cfpkt_peek_head(pkt, rfml->seghead, 6) != 0)
 				goto out;
 
 			rfml->pdu_size = get_unaligned_le16(rfml->seghead+4);
@@ -159,7 +159,7 @@ static int cfrfml_receive(struct cflayer *layr, struct cfpkt *pkt)
 		tmppkt = NULL;
 
 		/* Verify that length is correct */
-		err = EPROTO;
+		err = -EPROTO;
 		if (rfml->pdu_size != cfpkt_getlen(pkt) - RFM_HEAD_SIZE + 1)
 			goto out;
 	}
@@ -184,6 +184,11 @@ out:
 					rfml->serv.dev_info.id);
 	}
 	spin_unlock(&rfml->sync);
+
+	if (unlikely(err == -EAGAIN))
+		/* It is not possible to recover after drop of a fragment */
+		err = -EIO;
+
 	return err;
 }
 
@@ -218,7 +223,7 @@ static int cfrfml_transmit(struct cflayer *layr, struct cfpkt *pkt)
 	caif_assert(layr->dn->transmit != NULL);
 
 	if (!cfsrvl_ready(&rfml->serv, &err))
-		return err;
+		goto out;
 
 	err = -EPROTO;
 	if (cfpkt_getlen(pkt) <= RFM_HEAD_SIZE-1)
@@ -228,7 +233,7 @@ static int cfrfml_transmit(struct cflayer *layr, struct cfpkt *pkt)
 	if (cfpkt_getlen(pkt) > rfml->fragment_size + RFM_HEAD_SIZE)
 		err = cfpkt_peek_head(pkt, head, 6);
 
-	if (err < 0)
+	if (err != 0)
 		goto out;
 
 	while (cfpkt_getlen(frontpkt) > rfml->fragment_size + RFM_HEAD_SIZE) {
@@ -251,14 +256,14 @@ static int cfrfml_transmit(struct cflayer *layr, struct cfpkt *pkt)
 
 		err = cfrfml_transmit_segment(rfml, frontpkt);
 
-		if (err != 0)
+		if (err != 0) {
+			frontpkt = NULL;
 			goto out;
+		}
+
 		frontpkt = rearpkt;
 		rearpkt = NULL;
 
-		err = -ENOMEM;
-		if (frontpkt == NULL)
-			goto out;
 		err = -EPROTO;
 		if (cfpkt_add_head(frontpkt, head, 6) < 0)
 			goto out;
@@ -286,19 +291,8 @@ out:
 		if (rearpkt)
 			cfpkt_destroy(rearpkt);
 
-		if (frontpkt && frontpkt != pkt) {
-
+		if (frontpkt)
 			cfpkt_destroy(frontpkt);
-			/*
-			 * Socket layer will free the original packet,
-			 * but this packet may already be sent and
-			 * freed. So we have to return 0 in this case
-			 * to avoid socket layer to re-free this packet.
-			 * The return of shutdown indication will
-			 * cause connection to be invalidated anyhow.
-			 */
-			err = 0;
-		}
 	}
 
 	return err;

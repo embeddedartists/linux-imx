@@ -1,37 +1,24 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  *  lis3lv02d.h - ST LIS3LV02DL accelerometer driver
  *
  *  Copyright (C) 2007-2008 Yan Burman
  *  Copyright (C) 2008-2009 Eric Piel
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
- *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with this program; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 #include <linux/platform_device.h>
-#include <linux/input-polldev.h>
+#include <linux/input.h>
 #include <linux/regulator/consumer.h>
 #include <linux/miscdevice.h>
 
 /*
  * This driver tries to support the "digital" accelerometer chips from
  * STMicroelectronics such as LIS3LV02DL, LIS302DL, LIS3L02DQ, LIS331DL,
- * LIS35DE, or LIS202DL. They are very similar in terms of programming, with
- * almost the same registers. In addition to differing on physical properties,
- * they differ on the number of axes (2/3), precision (8/12 bits), and special
- * features (freefall detection, click...). Unfortunately, not all the
- * differences can be probed via a register.
- * They can be connected either via I²C or SPI.
+ * LIS331DLH, LIS35DE, or LIS202DL. They are very similar in terms of
+ * programming, with almost the same registers. In addition to differing
+ * on physical properties, they differ on the number of axes (2/3),
+ * precision (8/12 bits), and special features (freefall detection,
+ * click...). Unfortunately, not all the differences can be probed via
+ * a register. They can be connected either via I²C or SPI.
  */
 
 #include <linux/lis3lv02d.h>
@@ -96,10 +83,20 @@ enum lis3lv02d_reg {
 };
 
 enum lis3_who_am_i {
+	WAI_3DLH	= 0x32,	/* 16 bits: LIS331DLH */
 	WAI_3DC		= 0x33,	/* 8 bits: LIS3DC, HP3DC */
 	WAI_12B		= 0x3A, /* 12 bits: LIS3LV02D[LQ]... */
 	WAI_8B		= 0x3B, /* 8 bits: LIS[23]02D[LQ]... */
 	WAI_6B		= 0x52, /* 6 bits: LIS331DLF - not supported */
+};
+
+enum lis3_type {
+	LIS3LV02D,
+	LIS3DC,
+	HP3DC,
+	LIS2302D,
+	LIS331DLF,
+	LIS331DLH,
 };
 
 enum lis3lv02d_ctrl1_12b {
@@ -127,6 +124,27 @@ enum lis3lv02d_ctrl1_3dc {
 	CTRL1_ODR1	= 0x20,
 	CTRL1_ODR2	= 0x40,
 	CTRL1_ODR3	= 0x80,
+};
+
+enum lis331dlh_ctrl1 {
+	CTRL1_DR0	= 0x08,
+	CTRL1_DR1	= 0x10,
+	CTRL1_PM0	= 0x20,
+	CTRL1_PM1	= 0x40,
+	CTRL1_PM2	= 0x80,
+};
+
+enum lis331dlh_ctrl2 {
+	CTRL2_HPEN1	= 0x04,
+	CTRL2_HPEN2	= 0x08,
+	CTRL2_FDS_3DLH	= 0x10,
+	CTRL2_BOOT_3DLH	= 0x80,
+};
+
+enum lis331dlh_ctrl4 {
+	CTRL4_STSIGN	= 0x08,
+	CTRL4_BLE	= 0x40,
+	CTRL4_BDU	= 0x80,
 };
 
 enum lis3lv02d_ctrl2 {
@@ -263,7 +281,7 @@ struct lis3lv02d {
 					* (1/1000th of earth gravity)
 					*/
 
-	struct input_polled_dev	*idev;     /* input device */
+	struct input_dev	*idev;     /* input device */
 	struct platform_device	*pdev;     /* platform device */
 	struct regulator_bulk_data regulators[2];
 	atomic_t		count;     /* interrupt count after last read */
@@ -279,9 +297,14 @@ struct lis3lv02d {
 	int                     data_ready_count[2];
 	atomic_t		wake_thread;
 	unsigned char           irq_cfg;
+	unsigned int		shift_adj;
 
 	struct lis3lv02d_platform_data *pdata;	/* for passing board config */
 	struct mutex		mutex;     /* Serialize poll and selftest */
+
+#ifdef CONFIG_OF
+	struct device_node	*of_node;
+#endif
 };
 
 int lis3lv02d_init_device(struct lis3lv02d *lis3);
@@ -290,5 +313,6 @@ void lis3lv02d_joystick_disable(struct lis3lv02d *lis3);
 void lis3lv02d_poweroff(struct lis3lv02d *lis3);
 int lis3lv02d_poweron(struct lis3lv02d *lis3);
 int lis3lv02d_remove_fs(struct lis3lv02d *lis3);
+int lis3lv02d_init_dt(struct lis3lv02d *lis3);
 
 extern struct lis3lv02d lis3_dev;

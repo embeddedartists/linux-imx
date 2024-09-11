@@ -1,15 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * wm831x-auxadc.c  --  AUXADC for Wolfson WM831x PMICs
  *
  * Copyright 2009-2011 Wolfson Microelectronics PLC.
  *
  * Author: Mark Brown <broonie@opensource.wolfsonmicro.com>
- *
- *  This program is free software; you can redistribute  it and/or modify it
- *  under  the terms of  the GNU General  Public License as published by the
- *  Free Software Foundation;  either version 2 of the  License, or (at your
- *  option) any later version.
- *
  */
 
 #include <linux/kernel.h>
@@ -98,11 +93,10 @@ static int wm831x_auxadc_read_irq(struct wm831x *wm831x,
 	wait_for_completion_timeout(&req->done, msecs_to_jiffies(500));
 
 	mutex_lock(&wm831x->auxadc_lock);
-
-	list_del(&req->list);
 	ret = req->val;
 
 out:
+	list_del(&req->list);
 	mutex_unlock(&wm831x->auxadc_lock);
 
 	kfree(req);
@@ -280,12 +274,13 @@ void wm831x_auxadc_init(struct wm831x *wm831x)
 	mutex_init(&wm831x->auxadc_lock);
 	INIT_LIST_HEAD(&wm831x->auxadc_pending);
 
-	if (wm831x->irq && wm831x->irq_base) {
+	if (wm831x->irq) {
 		wm831x->auxadc_read = wm831x_auxadc_read_irq;
 
-		ret = request_threaded_irq(wm831x->irq_base +
-					   WM831X_IRQ_AUXADC_DATA,
-					   NULL, wm831x_auxadc_irq, 0,
+		ret = request_threaded_irq(wm831x_irq(wm831x,
+						      WM831X_IRQ_AUXADC_DATA),
+					   NULL, wm831x_auxadc_irq,
+					   IRQF_ONESHOT,
 					   "auxadc", wm831x);
 		if (ret < 0) {
 			dev_err(wm831x->dev, "AUXADC IRQ request failed: %d\n",

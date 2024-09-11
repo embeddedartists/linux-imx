@@ -1,20 +1,6 @@
-/*
- *	This program is free software; you can redistribute it and/or
- *	modify it under the terms of the GNU General Public License
- *	as published by the Free Software Foundation; version 2
- *	of the License.
- *
- */
+/* SPDX-License-Identifier: GPL-2.0-only */
 #include <linux/linkage.h>
-#include <asm/alternative-asm.h>
-#include <asm/frame.h>
-#include <asm/dwarf2.h>
-
-#ifdef CONFIG_SMP
-#define SEG_PREFIX %gs:
-#else
-#define SEG_PREFIX
-#endif
+#include <asm/percpu.h>
 
 .text
 
@@ -27,8 +13,7 @@
  * %rcx : high 64 bits of new value
  * %al  : Operation successful
  */
-ENTRY(this_cpu_cmpxchg16b_emu)
-CFI_STARTPROC
+SYM_FUNC_START(this_cpu_cmpxchg16b_emu)
 
 #
 # Emulate 'cmpxchg16b %gs:(%rsi)' except we return the result in %al not
@@ -39,27 +24,24 @@ CFI_STARTPROC
 # *atomic* on a single cpu (as provided by the this_cpu_xx class of
 # macros).
 #
-this_cpu_cmpxchg16b_emu:
-	pushf
+	pushfq
 	cli
 
-	cmpq SEG_PREFIX(%rsi), %rax
-	jne not_same
-	cmpq SEG_PREFIX 8(%rsi), %rdx
-	jne not_same
+	cmpq PER_CPU_VAR((%rsi)), %rax
+	jne .Lnot_same
+	cmpq PER_CPU_VAR(8(%rsi)), %rdx
+	jne .Lnot_same
 
-	movq %rbx, SEG_PREFIX(%rsi)
-	movq %rcx, SEG_PREFIX 8(%rsi)
+	movq %rbx, PER_CPU_VAR((%rsi))
+	movq %rcx, PER_CPU_VAR(8(%rsi))
 
-	popf
+	popfq
 	mov $1, %al
 	ret
 
- not_same:
-	popf
+.Lnot_same:
+	popfq
 	xor %al,%al
 	ret
 
-CFI_ENDPROC
-
-ENDPROC(this_cpu_cmpxchg16b_emu)
+SYM_FUNC_END(this_cpu_cmpxchg16b_emu)

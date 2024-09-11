@@ -1,26 +1,12 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * V9FS cache definitions.
  *
  *  Copyright (C) 2009 by Abhishek Kulkarni <adkulkar@umail.iu.edu>
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License version 2
- *  as published by the Free Software Foundation.
- *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with this program; if not, write to:
- *  Free Software Foundation
- *  51 Franklin Street, Fifth Floor
- *  Boston, MA  02111-1301  USA
- *
  */
 
 #ifndef _9P_CACHE_H
+#define _9P_CACHE_H
 #ifdef CONFIG_9P_FSCACHE
 #include <linux/fscache.h>
 #include <linux/spinlock.h>
@@ -100,6 +86,18 @@ static inline void v9fs_fscache_wait_on_page_write(struct inode *inode,
 }
 
 #else /* CONFIG_9P_FSCACHE */
+
+static inline void v9fs_cache_inode_get_cookie(struct inode *inode)
+{
+}
+
+static inline void v9fs_cache_inode_put_cookie(struct inode *inode)
+{
+}
+
+static inline void v9fs_cache_inode_set_cookie(struct inode *inode, struct file *file)
+{
+}
 
 static inline int v9fs_fscache_release_page(struct page *page,
 					    gfp_t gfp) {

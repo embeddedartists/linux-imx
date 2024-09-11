@@ -1,15 +1,11 @@
-/*
- *  smdk_wm8994.c
- *
- *  This program is free software; you can redistribute  it and/or modify it
- *  under  the terms of  the GNU General  Public License as published by the
- *  Free Software Foundation;  either version 2 of the  License, or (at your
- *  option) any later version.
- */
+// SPDX-License-Identifier: GPL-2.0+
 
 #include "../codecs/wm8994.h"
 #include <sound/pcm_params.h>
+#include <sound/soc.h>
 #include <linux/module.h>
+#include <linux/of.h>
+#include <linux/of_device.h>
 
  /*
   * Default CFG switch settings to use this driver:
@@ -36,34 +32,30 @@
 /* SMDK has a 16.934MHZ crystal attached to WM8994 */
 #define SMDK_WM8994_FREQ 16934000
 
+struct smdk_wm8994_data {
+	int mclk1_rate;
+};
+
+/* Default SMDKs */
+static struct smdk_wm8994_data smdk_board_data = {
+	.mclk1_rate = SMDK_WM8994_FREQ,
+};
+
 static int smdk_hw_params(struct snd_pcm_substream *substream,
 	struct snd_pcm_hw_params *params)
 {
-	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
-	struct snd_soc_dai *codec_dai = rtd->codec_dai;
+	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
+	struct snd_soc_dai *codec_dai = asoc_rtd_to_codec(rtd, 0);
 	unsigned int pll_out;
 	int ret;
 
 	/* AIF1CLK should be >=3MHz for optimal performance */
-	if (params_format(params) == SNDRV_PCM_FORMAT_S24_LE)
+	if (params_width(params) == 24)
 		pll_out = params_rate(params) * 384;
 	else if (params_rate(params) == 8000 || params_rate(params) == 11025)
 		pll_out = params_rate(params) * 512;
 	else
 		pll_out = params_rate(params) * 256;
-
-	ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_I2S
-					 | SND_SOC_DAIFMT_NB_NF
-					 | SND_SOC_DAIFMT_CBM_CFM);
-	if (ret < 0)
-		return ret;
-
-	ret = snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_I2S
-					 | SND_SOC_DAIFMT_NB_NF
-					 | SND_SOC_DAIFMT_CBM_CFM);
-	if (ret < 0)
-		return ret;
 
 	ret = snd_soc_dai_set_pll(codec_dai, WM8994_FLL1, WM8994_FLL_SRC_MCLK1,
 					SMDK_WM8994_FREQ, pll_out);
@@ -81,26 +73,13 @@ static int smdk_hw_params(struct snd_pcm_substream *substream,
 /*
  * SMDK WM8994 DAI operations.
  */
-static struct snd_soc_ops smdk_ops = {
+static const struct snd_soc_ops smdk_ops = {
 	.hw_params = smdk_hw_params,
 };
 
 static int smdk_wm8994_init_paiftx(struct snd_soc_pcm_runtime *rtd)
 {
-	struct snd_soc_codec *codec = rtd->codec;
-	struct snd_soc_dapm_context *dapm = &codec->dapm;
-
-	/* HeadPhone */
-	snd_soc_dapm_enable_pin(dapm, "HPOUT1R");
-	snd_soc_dapm_enable_pin(dapm, "HPOUT1L");
-
-	/* MicIn */
-	snd_soc_dapm_enable_pin(dapm, "IN1LN");
-	snd_soc_dapm_enable_pin(dapm, "IN1RN");
-
-	/* LineIn */
-	snd_soc_dapm_enable_pin(dapm, "IN2LN");
-	snd_soc_dapm_enable_pin(dapm, "IN2RN");
+	struct snd_soc_dapm_context *dapm = &rtd->card->dapm;
 
 	/* Other pins NC */
 	snd_soc_dapm_nc_pin(dapm, "HPOUT2P");
@@ -121,24 +100,32 @@ static int smdk_wm8994_init_paiftx(struct snd_soc_pcm_runtime *rtd)
 	return 0;
 }
 
+SND_SOC_DAILINK_DEFS(aif1,
+	DAILINK_COMP_ARRAY(COMP_CPU("samsung-i2s.0")),
+	DAILINK_COMP_ARRAY(COMP_CODEC("wm8994-codec", "wm8994-aif1")),
+	DAILINK_COMP_ARRAY(COMP_PLATFORM("samsung-i2s.0")));
+
+SND_SOC_DAILINK_DEFS(fifo_tx,
+	DAILINK_COMP_ARRAY(COMP_CPU("samsung-i2s-sec")),
+	DAILINK_COMP_ARRAY(COMP_CODEC("wm8994-codec", "wm8994-aif1")),
+	DAILINK_COMP_ARRAY(COMP_PLATFORM("samsung-i2s-sec")));
+
 static struct snd_soc_dai_link smdk_dai[] = {
 	{ /* Primary DAI i/f */
 		.name = "WM8994 AIF1",
 		.stream_name = "Pri_Dai",
-		.cpu_dai_name = "samsung-i2s.0",
-		.codec_dai_name = "wm8994-aif1",
-		.platform_name = "samsung-audio",
-		.codec_name = "wm8994-codec",
 		.init = smdk_wm8994_init_paiftx,
+		.dai_fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF |
+			SND_SOC_DAIFMT_CBM_CFM,
 		.ops = &smdk_ops,
+		SND_SOC_DAILINK_REG(aif1),
 	}, { /* Sec_Fifo Playback i/f */
 		.name = "Sec_FIFO TX",
 		.stream_name = "Sec_Dai",
-		.cpu_dai_name = "samsung-i2s.4",
-		.codec_dai_name = "wm8994-aif1",
-		.platform_name = "samsung-audio",
-		.codec_name = "wm8994-codec",
+		.dai_fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF |
+			SND_SOC_DAIFMT_CBM_CFM,
 		.ops = &smdk_ops,
+		SND_SOC_DAILINK_REG(fifo_tx),
 	},
 };
 
@@ -149,31 +136,66 @@ static struct snd_soc_card smdk = {
 	.num_links = ARRAY_SIZE(smdk_dai),
 };
 
-static struct platform_device *smdk_snd_device;
+static const struct of_device_id samsung_wm8994_of_match[] __maybe_unused = {
+	{ .compatible = "samsung,smdk-wm8994", .data = &smdk_board_data },
+	{},
+};
+MODULE_DEVICE_TABLE(of, samsung_wm8994_of_match);
 
-static int __init smdk_audio_init(void)
+static int smdk_audio_probe(struct platform_device *pdev)
 {
 	int ret;
+	struct device_node *np = pdev->dev.of_node;
+	struct snd_soc_card *card = &smdk;
+	struct smdk_wm8994_data *board;
+	const struct of_device_id *id;
 
-	smdk_snd_device = platform_device_alloc("soc-audio", -1);
-	if (!smdk_snd_device)
+	card->dev = &pdev->dev;
+
+	board = devm_kzalloc(&pdev->dev, sizeof(*board), GFP_KERNEL);
+	if (!board)
 		return -ENOMEM;
 
-	platform_set_drvdata(smdk_snd_device, &smdk);
+	if (np) {
+		smdk_dai[0].cpus->dai_name = NULL;
+		smdk_dai[0].cpus->of_node = of_parse_phandle(np,
+				"samsung,i2s-controller", 0);
+		if (!smdk_dai[0].cpus->of_node) {
+			dev_err(&pdev->dev,
+			   "Property 'samsung,i2s-controller' missing or invalid\n");
+			ret = -EINVAL;
+			return ret;
+		}
 
-	ret = platform_device_add(smdk_snd_device);
-	if (ret)
-		platform_device_put(smdk_snd_device);
+		smdk_dai[0].platforms->name = NULL;
+		smdk_dai[0].platforms->of_node = smdk_dai[0].cpus->of_node;
+	}
+
+	id = of_match_device(samsung_wm8994_of_match, &pdev->dev);
+	if (id)
+		*board = *((struct smdk_wm8994_data *)id->data);
+
+	platform_set_drvdata(pdev, board);
+
+	ret = devm_snd_soc_register_card(&pdev->dev, card);
+
+	if (ret && ret != -EPROBE_DEFER)
+		dev_err(&pdev->dev, "snd_soc_register_card() failed:%d\n", ret);
 
 	return ret;
 }
-module_init(smdk_audio_init);
 
-static void __exit smdk_audio_exit(void)
-{
-	platform_device_unregister(smdk_snd_device);
-}
-module_exit(smdk_audio_exit);
+static struct platform_driver smdk_audio_driver = {
+	.driver		= {
+		.name	= "smdk-audio-wm8994",
+		.of_match_table = of_match_ptr(samsung_wm8994_of_match),
+		.pm	= &snd_soc_pm_ops,
+	},
+	.probe		= smdk_audio_probe,
+};
+
+module_platform_driver(smdk_audio_driver);
 
 MODULE_DESCRIPTION("ALSA SoC SMDK WM8994");
 MODULE_LICENSE("GPL");
+MODULE_ALIAS("platform:smdk-audio-wm8994");

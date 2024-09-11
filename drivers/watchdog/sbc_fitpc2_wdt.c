@@ -25,9 +25,8 @@
 #include <linux/io.h>
 #include <linux/uaccess.h>
 
-#include <asm/system.h>
 
-static int nowayout = WATCHDOG_NOWAYOUT;
+static bool nowayout = WATCHDOG_NOWAYOUT;
 static unsigned int margin = 60;	/* (secs) Default is 1 minute */
 static unsigned long wdt_status;
 static DEFINE_MUTEX(wdt_lock);
@@ -76,10 +75,10 @@ static int fitpc2_wdt_open(struct inode *inode, struct file *file)
 
 	wdt_enable();
 
-	return nonseekable_open(inode, file);
+	return stream_open(inode, file);
 }
 
-static ssize_t fitpc2_wdt_write(struct file *file, const char *data,
+static ssize_t fitpc2_wdt_write(struct file *file, const char __user *data,
 						size_t len, loff_t *ppos)
 {
 	size_t i;
@@ -126,16 +125,16 @@ static long fitpc2_wdt_ioctl(struct file *file, unsigned int cmd,
 
 	switch (cmd) {
 	case WDIOC_GETSUPPORT:
-		ret = copy_to_user((struct watchdog_info *)arg, &ident,
+		ret = copy_to_user((struct watchdog_info __user *)arg, &ident,
 				   sizeof(ident)) ? -EFAULT : 0;
 		break;
 
 	case WDIOC_GETSTATUS:
-		ret = put_user(0, (int *)arg);
+		ret = put_user(0, (int __user *)arg);
 		break;
 
 	case WDIOC_GETBOOTSTATUS:
-		ret = put_user(0, (int *)arg);
+		ret = put_user(0, (int __user *)arg);
 		break;
 
 	case WDIOC_KEEPALIVE:
@@ -144,7 +143,7 @@ static long fitpc2_wdt_ioctl(struct file *file, unsigned int cmd,
 		break;
 
 	case WDIOC_SETTIMEOUT:
-		ret = get_user(time, (int *)arg);
+		ret = get_user(time, (int __user *)arg);
 		if (ret)
 			break;
 
@@ -155,10 +154,10 @@ static long fitpc2_wdt_ioctl(struct file *file, unsigned int cmd,
 
 		margin = time;
 		wdt_enable();
-		/* Fall through */
+		fallthrough;
 
 	case WDIOC_GETTIMEOUT:
-		ret = put_user(margin, (int *)arg);
+		ret = put_user(margin, (int __user *)arg);
 		break;
 	}
 
@@ -171,8 +170,7 @@ static int fitpc2_wdt_release(struct inode *inode, struct file *file)
 		wdt_disable();
 		pr_info("Device disabled\n");
 	} else {
-		pr_warning("Device closed unexpectedly -"
-			" timer will not stop\n");
+		pr_warn("Device closed unexpectedly - timer will not stop\n");
 		wdt_enable();
 	}
 
@@ -188,6 +186,7 @@ static const struct file_operations fitpc2_wdt_fops = {
 	.llseek		= no_llseek,
 	.write		= fitpc2_wdt_write,
 	.unlocked_ioctl	= fitpc2_wdt_ioctl,
+	.compat_ioctl	= compat_ptr_ioctl,
 	.open		= fitpc2_wdt_open,
 	.release	= fitpc2_wdt_release,
 };
@@ -222,8 +221,8 @@ static int __init fitpc2_wdt_init(void)
 	}
 
 	if (margin < 31 || margin > 255) {
-		pr_err("margin must be in range 31 - 255"
-		       " seconds, you tried to set %d\n", margin);
+		pr_err("margin must be in range 31 - 255 seconds, you tried to set %d\n",
+		       margin);
 		err = -EINVAL;
 		goto err_margin;
 	}
@@ -231,7 +230,7 @@ static int __init fitpc2_wdt_init(void)
 	err = misc_register(&fitpc2_wdt_miscdev);
 	if (err) {
 		pr_err("cannot register miscdev on minor=%d (err=%d)\n",
-							WATCHDOG_MINOR, err);
+		       WATCHDOG_MINOR, err);
 		goto err_margin;
 	}
 
@@ -261,9 +260,7 @@ MODULE_DESCRIPTION("SBC-FITPC2 Watchdog");
 module_param(margin, int, 0);
 MODULE_PARM_DESC(margin, "Watchdog margin in seconds (default 60s)");
 
-module_param(nowayout, int, 0);
+module_param(nowayout, bool, 0);
 MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started");
 
 MODULE_LICENSE("GPL");
-MODULE_ALIAS_MISCDEV(WATCHDOG_MINOR);
-

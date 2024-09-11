@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * drivers/hwmon/lis3lv02d_i2c.c
  *
@@ -8,29 +9,18 @@
  * Copyright (C) 2009 Nokia Corporation and/or its subsidiary(-ies).
  *
  * Contact: Samu Onkalo <samu.p.onkalo@nokia.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA
  */
 
 #include <linux/module.h>
 #include <linux/kernel.h>
-#include <linux/init.h>
 #include <linux/err.h>
 #include <linux/i2c.h>
 #include <linux/pm_runtime.h>
 #include <linux/delay.h>
+#include <linux/of.h>
+#include <linux/of_platform.h>
+#include <linux/of_device.h>
+
 #include "lis3lv02d.h"
 
 #define DRV_NAME	"lis3lv02d_i2c"
@@ -90,7 +80,11 @@ static int lis3_i2c_init(struct lis3lv02d *lis3)
 	if (ret < 0)
 		return ret;
 
-	reg |= CTRL1_PD0 | CTRL1_Xen | CTRL1_Yen | CTRL1_Zen;
+	if (lis3->whoami == WAI_3DLH)
+		reg |= CTRL1_PM0 | CTRL1_Xen | CTRL1_Yen | CTRL1_Zen;
+	else
+		reg |= CTRL1_PD0 | CTRL1_Xen | CTRL1_Yen | CTRL1_Zen;
+
 	return lis3->write(lis3, CTRL_REG1, reg);
 }
 
@@ -98,11 +92,29 @@ static int lis3_i2c_init(struct lis3lv02d *lis3)
 static union axis_conversion lis3lv02d_axis_map =
 	{ .as_array = { LIS3_DEV_X, LIS3_DEV_Y, LIS3_DEV_Z } };
 
-static int __devinit lis3lv02d_i2c_probe(struct i2c_client *client,
+#ifdef CONFIG_OF
+static const struct of_device_id lis3lv02d_i2c_dt_ids[] = {
+	{ .compatible = "st,lis3lv02d" },
+	{}
+};
+MODULE_DEVICE_TABLE(of, lis3lv02d_i2c_dt_ids);
+#endif
+
+static int lis3lv02d_i2c_probe(struct i2c_client *client,
 					const struct i2c_device_id *id)
 {
 	int ret = 0;
 	struct lis3lv02d_platform_data *pdata = client->dev.platform_data;
+
+#ifdef CONFIG_OF
+	if (of_match_device(lis3lv02d_i2c_dt_ids, &client->dev)) {
+		lis3_dev.of_node = client->dev.of_node;
+		ret = lis3lv02d_init_dt(&lis3_dev);
+		if (ret)
+			return ret;
+		pdata = lis3_dev.pdata;
+	}
+#endif
 
 	if (pdata) {
 		if ((pdata->driver_features & LIS3_USE_BLOCK_READ) &&
@@ -165,7 +177,7 @@ fail:
 	return ret;
 }
 
-static int __devexit lis3lv02d_i2c_remove(struct i2c_client *client)
+static int lis3lv02d_i2c_remove(struct i2c_client *client)
 {
 	struct lis3lv02d *lis3 = i2c_get_clientdata(client);
 	struct lis3lv02d_platform_data *pdata = client->dev.platform_data;
@@ -184,7 +196,7 @@ static int __devexit lis3lv02d_i2c_remove(struct i2c_client *client)
 #ifdef CONFIG_PM_SLEEP
 static int lis3lv02d_i2c_suspend(struct device *dev)
 {
-	struct i2c_client *client = container_of(dev, struct i2c_client, dev);
+	struct i2c_client *client = to_i2c_client(dev);
 	struct lis3lv02d *lis3 = i2c_get_clientdata(client);
 
 	if (!lis3->pdata || !lis3->pdata->wakeup_flags)
@@ -194,7 +206,7 @@ static int lis3lv02d_i2c_suspend(struct device *dev)
 
 static int lis3lv02d_i2c_resume(struct device *dev)
 {
-	struct i2c_client *client = container_of(dev, struct i2c_client, dev);
+	struct i2c_client *client = to_i2c_client(dev);
 	struct lis3lv02d *lis3 = i2c_get_clientdata(client);
 
 	/*
@@ -210,10 +222,10 @@ static int lis3lv02d_i2c_resume(struct device *dev)
 }
 #endif /* CONFIG_PM_SLEEP */
 
-#ifdef CONFIG_PM_RUNTIME
+#ifdef CONFIG_PM
 static int lis3_i2c_runtime_suspend(struct device *dev)
 {
-	struct i2c_client *client = container_of(dev, struct i2c_client, dev);
+	struct i2c_client *client = to_i2c_client(dev);
 	struct lis3lv02d *lis3 = i2c_get_clientdata(client);
 
 	lis3lv02d_poweroff(lis3);
@@ -222,16 +234,17 @@ static int lis3_i2c_runtime_suspend(struct device *dev)
 
 static int lis3_i2c_runtime_resume(struct device *dev)
 {
-	struct i2c_client *client = container_of(dev, struct i2c_client, dev);
+	struct i2c_client *client = to_i2c_client(dev);
 	struct lis3lv02d *lis3 = i2c_get_clientdata(client);
 
 	lis3lv02d_poweron(lis3);
 	return 0;
 }
-#endif /* CONFIG_PM_RUNTIME */
+#endif /* CONFIG_PM */
 
 static const struct i2c_device_id lis3lv02d_id[] = {
-	{"lis3lv02d", 0 },
+	{"lis3lv02d", LIS3LV02D},
+	{"lis331dlh", LIS331DLH},
 	{}
 };
 
@@ -248,27 +261,16 @@ static const struct dev_pm_ops lis3_pm_ops = {
 static struct i2c_driver lis3lv02d_i2c_driver = {
 	.driver	 = {
 		.name   = DRV_NAME,
-		.owner  = THIS_MODULE,
 		.pm     = &lis3_pm_ops,
+		.of_match_table = of_match_ptr(lis3lv02d_i2c_dt_ids),
 	},
 	.probe	= lis3lv02d_i2c_probe,
-	.remove	= __devexit_p(lis3lv02d_i2c_remove),
+	.remove	= lis3lv02d_i2c_remove,
 	.id_table = lis3lv02d_id,
 };
 
-static int __init lis3lv02d_init(void)
-{
-	return i2c_add_driver(&lis3lv02d_i2c_driver);
-}
-
-static void __exit lis3lv02d_exit(void)
-{
-	i2c_del_driver(&lis3lv02d_i2c_driver);
-}
+module_i2c_driver(lis3lv02d_i2c_driver);
 
 MODULE_AUTHOR("Nokia Corporation");
 MODULE_DESCRIPTION("lis3lv02d I2C interface");
 MODULE_LICENSE("GPL");
-
-module_init(lis3lv02d_init);
-module_exit(lis3lv02d_exit);

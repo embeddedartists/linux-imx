@@ -1,14 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  OLPC XO-1.5 ebook switch driver
  *  (based on generic ACPI button driver)
  *
  *  Copyright (C) 2009 Paul Fox <pgf@laptop.org>
  *  Copyright (C) 2010 One Laptop per Child
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or (at
- *  your option) any later version.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -18,8 +14,7 @@
 #include <linux/init.h>
 #include <linux/types.h>
 #include <linux/input.h>
-#include <acpi/acpi_bus.h>
-#include <acpi/acpi_drivers.h>
+#include <linux/acpi.h>
 
 #define MODULE_NAME "xo15-ebook"
 
@@ -30,8 +25,6 @@
 #define XO15_EBOOK_SUBCLASS		"ebook"
 #define XO15_EBOOK_HID			"XO15EBK"
 #define XO15_EBOOK_DEVICE_NAME		"EBook Switch"
-
-ACPI_MODULE_NAME(MODULE_NAME);
 
 MODULE_DESCRIPTION("OLPC XO-1.5 ebook switch driver");
 MODULE_LICENSE("GPL");
@@ -71,16 +64,20 @@ static void ebook_switch_notify(struct acpi_device *device, u32 event)
 		ebook_send_state(device);
 		break;
 	default:
-		ACPI_DEBUG_PRINT((ACPI_DB_INFO,
-				  "Unsupported event [0x%x]\n", event));
+		acpi_handle_debug(device->handle,
+				  "Unsupported event [0x%x]\n", event);
 		break;
 	}
 }
 
-static int ebook_switch_resume(struct acpi_device *device)
+#ifdef CONFIG_PM_SLEEP
+static int ebook_switch_resume(struct device *dev)
 {
-	return ebook_send_state(device);
+	return ebook_send_state(to_acpi_device(dev));
 }
+#endif
+
+static SIMPLE_DEV_PM_OPS(ebook_switch_pm, NULL, ebook_switch_resume);
 
 static int ebook_switch_add(struct acpi_device *device)
 {
@@ -146,7 +143,7 @@ static int ebook_switch_add(struct acpi_device *device)
 	return error;
 }
 
-static int ebook_switch_remove(struct acpi_device *device, int type)
+static int ebook_switch_remove(struct acpi_device *device)
 {
 	struct ebook_switch *button = acpi_driver_data(device);
 
@@ -161,21 +158,9 @@ static struct acpi_driver xo15_ebook_driver = {
 	.ids = ebook_device_ids,
 	.ops = {
 		.add = ebook_switch_add,
-		.resume = ebook_switch_resume,
 		.remove = ebook_switch_remove,
 		.notify = ebook_switch_notify,
 	},
+	.drv.pm = &ebook_switch_pm,
 };
-
-static int __init xo15_ebook_init(void)
-{
-	return acpi_bus_register_driver(&xo15_ebook_driver);
-}
-
-static void __exit xo15_ebook_exit(void)
-{
-	acpi_bus_unregister_driver(&xo15_ebook_driver);
-}
-
-module_init(xo15_ebook_init);
-module_exit(xo15_ebook_exit);
+module_acpi_driver(xo15_ebook_driver);

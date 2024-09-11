@@ -1,11 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 #ifndef _I8042_IO_H
 #define _I8042_IO_H
 
-/*
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 as published by
- * the Free Software Foundation.
- */
 
 /*
  * Names.
@@ -24,8 +20,6 @@
 # define I8042_AUX_IRQ	(RTC_PORT(0) == 0x170 ? 9 : 12)	/* Jensen is special */
 #elif defined(__arm__)
 /* defined in include/asm-arm/arch-xxx/irqs.h */
-#include <asm/irq.h>
-#elif defined(CONFIG_SH_CAYMAN)
 #include <asm/irq.h>
 #elif defined(CONFIG_PPC)
 extern int of_i8042_kbd_irq;
@@ -76,12 +70,12 @@ static inline int i8042_platform_init(void)
 	if (check_legacy_ioport(I8042_DATA_REG))
 		return -ENODEV;
 #endif
-#if !defined(__sh__) && !defined(__alpha__) && !defined(__mips__)
+#if !defined(__sh__) && !defined(__alpha__)
 	if (!request_region(I8042_DATA_REG, 16, "i8042"))
 		return -EBUSY;
 #endif
 
-	i8042_reset = 1;
+	i8042_reset = I8042_RESET_ALWAYS;
 	return 0;
 }
 

@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * CE4100 on Falcon Falls
  *
  * (c) Copyright 2010 Intel Corporation
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; version 2 of the License.
  */
 /dts-v1/;
 / {
@@ -208,16 +205,19 @@
 					interrupts = <14 1>;
 				};
 
-				gpio@b,1 {
+				pcigpio: gpio@b,1 {
+					#gpio-cells = <2>;
+					#interrupt-cells = <2>;
 					compatible = "pci8086,2e67.2",
 						   "pci8086,2e67",
 						   "pciclassff0000",
 						   "pciclassff00";
 
-					#gpio-cells = <2>;
 					reg = <0x15900 0x0 0x0 0x0 0x0>;
 					interrupts = <15 1>;
+					interrupt-controller;
 					gpio-controller;
+					intel,muxctl = <0>;
 				};
 
 				i2c-controller@b,2 {

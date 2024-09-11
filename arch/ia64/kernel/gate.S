@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * This file contains the code that gets mapped at the upper end of each task's text
  * region.  For now, it contains the signal trampoline code only.
@@ -11,9 +12,10 @@
 #include <asm/errno.h>
 #include <asm/asm-offsets.h>
 #include <asm/sigcontext.h>
-#include <asm/system.h>
 #include <asm/unistd.h>
-#include "paravirt_inst.h"
+#include <asm/kregs.h>
+#include <asm/page.h>
+#include <asm/native/inst.h>
 
 /*
  * We can't easily refer to symbols inside the kernel.  To avoid full runtime relocation,
@@ -375,11 +377,4 @@ GLOBAL_ENTRY(__kernel_syscall_via_epc)
 (p9)	mov r8=ENOSYS
 	FSYS_RETURN
 
-#ifdef CONFIG_PARAVIRT
-	/*
-	 * padd to make the size of this symbol constant
-	 * independent of paravirtualization.
-	 */
-	.align PAGE_SIZE / 8
-#endif
 END(__kernel_syscall_via_epc)

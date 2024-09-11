@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  Copyright (c) 2001 Vojtech Pavlik
  */
@@ -7,30 +8,12 @@
  */
 
 /*
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
- *
- * Should you need to contact me, the author, you can do so either by
- * e-mail - mail your message to <vojtech@ucw.cz>, or by paper mail:
- * Vojtech Pavlik, Simunkova 1594, Prague 8, 182 00 Czech Republic
  */
 
 #include <asm/io.h>
 
 #include <linux/module.h>
 #include <linux/ioport.h>
-#include <linux/init.h>
 #include <linux/gameport.h>
 #include <linux/slab.h>
 #include <linux/pci.h>
@@ -57,7 +40,7 @@ static const struct pci_device_id emu_tbl[] = {
 
 MODULE_DEVICE_TABLE(pci, emu_tbl);
 
-static int __devinit emu_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
+static int emu_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	struct emu *emu;
 	struct gameport *port;
@@ -107,7 +90,7 @@ static int __devinit emu_probe(struct pci_dev *pdev, const struct pci_device_id 
 	return error;
 }
 
-static void __devexit emu_remove(struct pci_dev *pdev)
+static void emu_remove(struct pci_dev *pdev)
 {
 	struct emu *emu = pci_get_drvdata(pdev);
 
@@ -122,18 +105,7 @@ static struct pci_driver emu_driver = {
         .name =         "Emu10k1_gameport",
         .id_table =     emu_tbl,
         .probe =        emu_probe,
-        .remove =       __devexit_p(emu_remove),
+	.remove =	emu_remove,
 };
 
-static int __init emu_init(void)
-{
-	return pci_register_driver(&emu_driver);
-}
-
-static void __exit emu_exit(void)
-{
-	pci_unregister_driver(&emu_driver);
-}
-
-module_init(emu_init);
-module_exit(emu_exit);
+module_pci_driver(emu_driver);

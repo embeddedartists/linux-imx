@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * DECnet       An implementation of the DECnet protocol suite for the LINUX
  *              operating system.  DECnet is implemented using the  BSD Socket
@@ -22,7 +23,7 @@
 #include <net/dst.h>
 #include <net/flow.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #include <net/dn.h>
 #include <net/dn_dev.h>
@@ -74,7 +75,7 @@ static void strip_it(char *str)
 		case '\r':
 		case ':':
 			*str = 0;
-			/* Fallthrough */
+			fallthrough;
 		case 0:
 			return;
 		}
@@ -132,9 +133,8 @@ static int parse_addr(__le16 *addr, char *str)
 	return 0;
 }
 
-static int dn_node_address_handler(ctl_table *table, int write,
-				void __user *buffer,
-				size_t *lenp, loff_t *ppos)
+static int dn_node_address_handler(struct ctl_table *table, int write,
+		void *buffer, size_t *lenp, loff_t *ppos)
 {
 	char addr[DN_ASCBUF_LEN];
 	size_t len;
@@ -147,10 +147,7 @@ static int dn_node_address_handler(ctl_table *table, int write,
 
 	if (write) {
 		len = (*lenp < DN_ASCBUF_LEN) ? *lenp : (DN_ASCBUF_LEN-1);
-
-		if (copy_from_user(addr, buffer, len))
-			return -EFAULT;
-
+		memcpy(addr, buffer, len);
 		addr[len] = 0;
 		strip_it(addr);
 
@@ -172,20 +169,17 @@ static int dn_node_address_handler(ctl_table *table, int write,
 	len = strlen(addr);
 	addr[len++] = '\n';
 
-	if (len > *lenp) len = *lenp;
-
-	if (copy_to_user(buffer, addr, len))
-		return -EFAULT;
-
+	if (len > *lenp)
+		len = *lenp;
+	memcpy(buffer, addr, len);
 	*lenp = len;
 	*ppos += len;
 
 	return 0;
 }
 
-static int dn_def_dev_handler(ctl_table *table, int write,
-				void __user *buffer,
-				size_t *lenp, loff_t *ppos)
+static int dn_def_dev_handler(struct ctl_table *table, int write,
+		void *buffer, size_t *lenp, loff_t *ppos)
 {
 	size_t len;
 	struct net_device *dev;
@@ -200,9 +194,7 @@ static int dn_def_dev_handler(ctl_table *table, int write,
 		if (*lenp > 16)
 			return -E2BIG;
 
-		if (copy_from_user(devname, buffer, *lenp))
-			return -EFAULT;
-
+		memcpy(devname, buffer, *lenp);
 		devname[*lenp] = 0;
 		strip_it(devname);
 
@@ -237,16 +229,14 @@ static int dn_def_dev_handler(ctl_table *table, int write,
 
 	if (len > *lenp) len = *lenp;
 
-	if (copy_to_user(buffer, devname, len))
-		return -EFAULT;
-
+	memcpy(buffer, devname, len);
 	*lenp = len;
 	*ppos += len;
 
 	return 0;
 }
 
-static ctl_table dn_table[] = {
+static struct ctl_table dn_table[] = {
 	{
 		.procname = "node_address",
 		.maxlen = 7,
@@ -351,20 +341,14 @@ static ctl_table dn_table[] = {
 	{ }
 };
 
-static struct ctl_path dn_path[] = {
-	{ .procname = "net", },
-	{ .procname = "decnet", },
-	{ }
-};
-
 void dn_register_sysctl(void)
 {
-	dn_table_header = register_sysctl_paths(dn_path, dn_table);
+	dn_table_header = register_net_sysctl(&init_net, "net/decnet", dn_table);
 }
 
 void dn_unregister_sysctl(void)
 {
-	unregister_sysctl_table(dn_table_header);
+	unregister_net_sysctl_table(dn_table_header);
 }
 
 #else  /* CONFIG_SYSCTL */

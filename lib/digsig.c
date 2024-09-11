@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2011 Nokia Corporation
  * Copyright (C) 2011 Intel Corporation
@@ -5,10 +6,6 @@
  * Author:
  * Dmitry Kasatkin <dmitry.kasatkin@nokia.com>
  *                 <dmitry.kasatkin@intel.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, version 2 of the License.
  *
  * File: sign.c
  *	implements signature (RSA) verification
@@ -23,66 +20,45 @@
 #include <linux/key.h>
 #include <linux/crypto.h>
 #include <crypto/hash.h>
-#include <crypto/sha.h>
+#include <crypto/sha1.h>
 #include <keys/user-type.h>
 #include <linux/mpi.h>
 #include <linux/digsig.h>
 
 static struct crypto_shash *shash;
 
-static int pkcs_1_v1_5_decode_emsa(const unsigned char *msg,
-			unsigned long  msglen,
-			unsigned long  modulus_bitlen,
-			unsigned char *out,
-			unsigned long *outlen,
-			int *is_valid)
+static const char *pkcs_1_v1_5_decode_emsa(const unsigned char *msg,
+						unsigned long  msglen,
+						unsigned long  modulus_bitlen,
+						unsigned long *outlen)
 {
 	unsigned long modulus_len, ps_len, i;
-	int result;
-
-	/* default to invalid packet */
-	*is_valid = 0;
 
 	modulus_len = (modulus_bitlen >> 3) + (modulus_bitlen & 7 ? 1 : 0);
 
 	/* test message size */
 	if ((msglen > modulus_len) || (modulus_len < 11))
-		return -EINVAL;
+		return NULL;
 
 	/* separate encoded message */
-	if ((msg[0] != 0x00) || (msg[1] != (unsigned char)1)) {
-		result = -EINVAL;
-		goto bail;
-	}
+	if (msg[0] != 0x00 || msg[1] != 0x01)
+		return NULL;
 
 	for (i = 2; i < modulus_len - 1; i++)
 		if (msg[i] != 0xFF)
 			break;
 
 	/* separator check */
-	if (msg[i] != 0) {
+	if (msg[i] != 0)
 		/* There was no octet with hexadecimal value 0x00
 		to separate ps from m. */
-		result = -EINVAL;
-		goto bail;
-	}
+		return NULL;
 
 	ps_len = i - 2;
 
-	if (*outlen < (msglen - (2 + ps_len + 1))) {
-		*outlen = msglen - (2 + ps_len + 1);
-		result = -EOVERFLOW;
-		goto bail;
-	}
-
 	*outlen = (msglen - (2 + ps_len + 1));
-	memcpy(out, &msg[2 + ps_len + 1], *outlen);
 
-	/* valid packet */
-	*is_valid = 1;
-	result    = 0;
-bail:
-	return result;
+	return msg + 2 + ps_len + 1;
 }
 
 /*
@@ -96,15 +72,27 @@ static int digsig_verify_rsa(struct key *key,
 	unsigned long len;
 	unsigned long mlen, mblen;
 	unsigned nret, l;
-	int valid, head, i;
-	unsigned char *out1 = NULL, *out2 = NULL;
+	int head, i;
+	unsigned char *out1 = NULL;
+	const char *m;
 	MPI in = NULL, res = NULL, pkey[2];
-	uint8_t *p, *datap, *endp;
-	struct user_key_payload *ukp;
+	uint8_t *p, *datap;
+	const uint8_t *endp;
+	const struct user_key_payload *ukp;
 	struct pubkey_hdr *pkh;
 
 	down_read(&key->sem);
-	ukp = key->payload.data;
+	ukp = user_key_payload_locked(key);
+
+	if (!ukp) {
+		/* key was revoked before we acquired its semaphore */
+		err = -EKEYREVOKED;
+		goto err1;
+	}
+
+	if (ukp->datalen < sizeof(*pkh))
+		goto err1;
+
 	pkh = (struct pubkey_hdr *)ukp->data;
 
 	if (pkh->version != 1)
@@ -117,16 +105,25 @@ static int digsig_verify_rsa(struct key *key,
 		goto err1;
 
 	datap = pkh->mpi;
-	endp = datap + ukp->datalen;
+	endp = ukp->data + ukp->datalen;
 
 	for (i = 0; i < pkh->nmpi; i++) {
 		unsigned int remaining = endp - datap;
 		pkey[i] = mpi_read_from_buffer(datap, &remaining);
+		if (IS_ERR(pkey[i])) {
+			err = PTR_ERR(pkey[i]);
+			goto err;
+		}
 		datap += remaining;
 	}
 
 	mblen = mpi_get_nbits(pkey[0]);
-	mlen = (mblen + 7)/8;
+	mlen = DIV_ROUND_UP(mblen, 8);
+
+	if (mlen == 0) {
+		err = -EINVAL;
+		goto err;
+	}
 
 	err = -ENOMEM;
 
@@ -134,14 +131,12 @@ static int digsig_verify_rsa(struct key *key,
 	if (!out1)
 		goto err;
 
-	out2 = kzalloc(mlen, GFP_KERNEL);
-	if (!out2)
-		goto err;
-
 	nret = siglen;
 	in = mpi_read_from_buffer(sig, &nret);
-	if (!in)
+	if (IS_ERR(in)) {
+		err = PTR_ERR(in);
 		goto err;
+	}
 
 	res = mpi_alloc(mpi_get_nlimbs(in) * 2);
 	if (!res)
@@ -167,19 +162,19 @@ static int digsig_verify_rsa(struct key *key,
 	memset(out1, 0, head);
 	memcpy(out1 + head, p, l);
 
-	err = -EINVAL;
-	pkcs_1_v1_5_decode_emsa(out1, len, mblen, out2, &len, &valid);
+	kfree(p);
 
-	if (valid && len == hlen)
-		err = memcmp(out2, h, hlen);
+	m = pkcs_1_v1_5_decode_emsa(out1, len, mblen, &len);
+
+	if (!m || len != hlen || memcmp(m, h, hlen))
+		err = -EINVAL;
 
 err:
 	mpi_free(in);
 	mpi_free(res);
 	kfree(out1);
-	kfree(out2);
-	mpi_free(pkey[0]);
-	mpi_free(pkey[1]);
+	while (--i >= 0)
+		mpi_free(pkey[i]);
 err1:
 	up_read(&key->sem);
 
@@ -190,10 +185,11 @@ err1:
  * digsig_verify() - digital signature verification with public key
  * @keyring:	keyring to search key in
  * @sig:	digital signature
- * @sigen:	length of the signature
+ * @siglen:	length of the signature
  * @data:	data
  * @datalen:	length of the data
- * @return:	0 on success, -EINVAL otherwise
+ *
+ * Returns 0 on success, -EINVAL otherwise
  *
  * Verifies data integrity against digital signature.
  * Currently only RSA is supported.
@@ -222,9 +218,9 @@ int digsig_verify(struct key *keyring, const char *sig, int siglen,
 		/* search in specific keyring */
 		key_ref_t kref;
 		kref = keyring_search(make_key_ref(keyring, 1UL),
-						&key_type_user, name);
+				      &key_type_user, name, true);
 		if (IS_ERR(kref))
-			key = ERR_PTR(PTR_ERR(kref));
+			key = ERR_CAST(kref);
 		else
 			key = key_ref_to_ptr(kref);
 	} else {
@@ -241,7 +237,6 @@ int digsig_verify(struct key *keyring, const char *sig, int siglen,
 		goto err;
 
 	desc->tfm = shash;
-	desc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
 
 	crypto_shash_init(desc);
 	crypto_shash_update(desc, data, datalen);

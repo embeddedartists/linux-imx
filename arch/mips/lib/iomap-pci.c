@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Implement the default iomap interfaces
  *
@@ -7,11 +8,13 @@
  *     written by Ralf Baechle <ralf@linux-mips.org>
  */
 #include <linux/pci.h>
-#include <linux/module.h>
+#include <linux/export.h>
 #include <asm/io.h>
 
-static void __iomem *ioport_map_pci(struct pci_dev *dev,
-                                     unsigned long port, unsigned int nr)
+#ifdef CONFIG_PCI_DRIVERS_LEGACY
+
+void __iomem *__pci_ioport_map(struct pci_dev *dev,
+			       unsigned long port, unsigned int nr)
 {
 	struct pci_controller *ctrl = dev->bus->sysdata;
 	unsigned long base = ctrl->io_map_base;
@@ -29,7 +32,7 @@ static void __iomem *ioport_map_pci(struct pci_dev *dev,
 		sprintf(name, "%04x:%02x", pci_domain_nr(bus), bus->number);
 		printk(KERN_WARNING "io_map_base of root PCI bus %s unset.  "
 		       "Trying to continue but you better\nfix this issue or "
-		       "report it to linux-mips@linux-mips.org or your "
+		       "report it to linux-mips@vger.kernel.org or your "
 		       "vendor.\n", name);
 #ifdef CONFIG_PCI_DOMAINS
 		panic("To avoid data corruption io_map_base MUST be set with "
@@ -40,9 +43,4 @@ static void __iomem *ioport_map_pci(struct pci_dev *dev,
 	return (void __iomem *) (ctrl->io_map_base + port);
 }
 
-void pci_iounmap(struct pci_dev *dev, void __iomem * addr)
-{
-	iounmap(addr);
-}
-
-EXPORT_SYMBOL(pci_iounmap);
+#endif /* CONFIG_PCI_DRIVERS_LEGACY */

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * IRQ flags defines.
  *
@@ -9,6 +10,9 @@
 
 #ifndef _ASM_IA64_IRQFLAGS_H
 #define _ASM_IA64_IRQFLAGS_H
+
+#include <asm/pal.h>
+#include <asm/kregs.h>
 
 #ifdef CONFIG_IA64_DEBUG_IRQ
 extern unsigned long last_cli_ip;
@@ -32,11 +36,7 @@ static inline void arch_maybe_save_ip(unsigned long flags)
 static inline unsigned long arch_local_save_flags(void)
 {
 	ia64_stop();
-#ifdef CONFIG_PARAVIRT
-	return ia64_get_psr_i();
-#else
 	return ia64_getreg(_IA64_REG_PSR);
-#endif
 }
 
 static inline unsigned long arch_local_irq_save(void)
@@ -87,6 +87,7 @@ static inline bool arch_irqs_disabled(void)
 
 static inline void arch_safe_halt(void)
 {
+	arch_local_irq_enable();
 	ia64_pal_halt_light();	/* PAL_HALT_LIGHT */
 }
 

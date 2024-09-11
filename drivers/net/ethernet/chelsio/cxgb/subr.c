@@ -12,8 +12,7 @@
  * published by the Free Software Foundation.                                *
  *                                                                           *
  * You should have received a copy of the GNU General Public License along   *
- * with this program; if not, write to the Free Software Foundation, Inc.,   *
- * 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.                 *
+ * with this program; if not, see <http://www.gnu.org/licenses/>.            *
  *                                                                           *
  * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR IMPLIED    *
  * WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF      *
@@ -171,7 +170,7 @@ void t1_link_changed(adapter_t *adapter, int port_id)
 	t1_link_negotiated(adapter, port_id, link_ok, speed, duplex, fc);
 }
 
-static int t1_pci_intr_handler(adapter_t *adapter)
+static bool t1_pci_intr_handler(adapter_t *adapter)
 {
 	u32 pcix_cause;
 
@@ -180,9 +179,13 @@ static int t1_pci_intr_handler(adapter_t *adapter)
 	if (pcix_cause) {
 		pci_write_config_dword(adapter->pdev, A_PCICFG_INTR_CAUSE,
 				       pcix_cause);
-		t1_fatal_err(adapter);    /* PCI errors are fatal */
+		/* PCI errors are fatal */
+		t1_interrupts_disable(adapter);
+		adapter->pending_thread_intr |= F_PL_INTR_SGE_ERR;
+		pr_alert("%s: PCI error encountered.\n", adapter->name);
+		return true;
 	}
-	return 0;
+	return false;
 }
 
 #ifdef CONFIG_CHELSIO_T1_1G
@@ -211,13 +214,16 @@ static int fpga_phy_intr_handler(adapter_t *adapter)
 /*
  * Slow path interrupt handler for FPGAs.
  */
-static int fpga_slow_intr(adapter_t *adapter)
+static irqreturn_t fpga_slow_intr(adapter_t *adapter)
 {
 	u32 cause = readl(adapter->regs + A_PL_CAUSE);
+	irqreturn_t ret = IRQ_NONE;
 
 	cause &= ~F_PL_INTR_SGE_DATA;
-	if (cause & F_PL_INTR_SGE_ERR)
-		t1_sge_intr_error_handler(adapter->sge);
+	if (cause & F_PL_INTR_SGE_ERR) {
+		if (t1_sge_intr_error_handler(adapter->sge))
+			ret = IRQ_WAKE_THREAD;
+	}
 
 	if (cause & FPGA_PCIX_INTERRUPT_GMAC)
 		fpga_phy_intr_handler(adapter);
@@ -232,14 +238,19 @@ static int fpga_slow_intr(adapter_t *adapter)
 		/* Clear TP interrupt */
 		writel(tp_cause, adapter->regs + FPGA_TP_ADDR_INTERRUPT_CAUSE);
 	}
-	if (cause & FPGA_PCIX_INTERRUPT_PCIX)
-		t1_pci_intr_handler(adapter);
+	if (cause & FPGA_PCIX_INTERRUPT_PCIX) {
+		if (t1_pci_intr_handler(adapter))
+			ret = IRQ_WAKE_THREAD;
+	}
 
 	/* Clear the interrupts just processed. */
 	if (cause)
 		writel(cause, adapter->regs + A_PL_CAUSE);
 
-	return cause != 0;
+	if (ret != IRQ_NONE)
+		return ret;
+
+	return cause == 0 ? IRQ_NONE : IRQ_HANDLED;
 }
 #endif
 
@@ -523,7 +534,7 @@ static const struct board_info t1_board[] = {
 
 };
 
-DEFINE_PCI_DEVICE_TABLE(t1_pci_tbl) = {
+const struct pci_device_id t1_pci_tbl[] = {
 	CH_DEVICE(8, 0, CH_BRD_T110_1CU),
 	CH_DEVICE(8, 1, CH_BRD_T110_1CU),
 	CH_DEVICE(7, 0, CH_BRD_N110_1F),
@@ -843,31 +854,45 @@ void t1_interrupts_clear(adapter_t* adapter)
 /*
  * Slow path interrupt handler for ASICs.
  */
-static int asic_slow_intr(adapter_t *adapter)
+static irqreturn_t asic_slow_intr(adapter_t *adapter)
 {
 	u32 cause = readl(adapter->regs + A_PL_CAUSE);
+	irqreturn_t ret = IRQ_HANDLED;
 
 	cause &= adapter->slow_intr_mask;
 	if (!cause)
-		return 0;
-	if (cause & F_PL_INTR_SGE_ERR)
-		t1_sge_intr_error_handler(adapter->sge);
+		return IRQ_NONE;
+	if (cause & F_PL_INTR_SGE_ERR) {
+		if (t1_sge_intr_error_handler(adapter->sge))
+			ret = IRQ_WAKE_THREAD;
+	}
 	if (cause & F_PL_INTR_TP)
 		t1_tp_intr_handler(adapter->tp);
 	if (cause & F_PL_INTR_ESPI)
 		t1_espi_intr_handler(adapter->espi);
-	if (cause & F_PL_INTR_PCIX)
-		t1_pci_intr_handler(adapter);
-	if (cause & F_PL_INTR_EXT)
-		t1_elmer0_ext_intr(adapter);
+	if (cause & F_PL_INTR_PCIX) {
+		if (t1_pci_intr_handler(adapter))
+			ret = IRQ_WAKE_THREAD;
+	}
+	if (cause & F_PL_INTR_EXT) {
+		/* Wake the threaded interrupt to handle external interrupts as
+		 * we require a process context. We disable EXT interrupts in
+		 * the interim and let the thread reenable them when it's done.
+		 */
+		adapter->pending_thread_intr |= F_PL_INTR_EXT;
+		adapter->slow_intr_mask &= ~F_PL_INTR_EXT;
+		writel(adapter->slow_intr_mask | F_PL_INTR_SGE_DATA,
+		       adapter->regs + A_PL_ENABLE);
+		ret = IRQ_WAKE_THREAD;
+	}
 
 	/* Clear the interrupts just processed. */
 	writel(cause, adapter->regs + A_PL_CAUSE);
 	readl(adapter->regs + A_PL_CAUSE); /* flush writes */
-	return 1;
+	return ret;
 }
 
-int t1_slow_intr_handler(adapter_t *adapter)
+irqreturn_t t1_slow_intr_handler(adapter_t *adapter)
 {
 #ifdef CONFIG_CHELSIO_T1_1G
 	if (!t1_is_asic(adapter))
@@ -892,8 +917,8 @@ static void power_sequence_xpak(adapter_t* adapter)
 	}
 }
 
-int __devinit t1_get_board_rev(adapter_t *adapter, const struct board_info *bi,
-			       struct adapter_params *p)
+int t1_get_board_rev(adapter_t *adapter, const struct board_info *bi,
+		     struct adapter_params *p)
 {
 	p->chip_version = bi->chip_term;
 	p->is_asic = (p->chip_version != CHBT_TERM_FPGA);
@@ -992,7 +1017,7 @@ out_err:
 /*
  * Determine a card's PCI mode.
  */
-static void __devinit get_pci_mode(adapter_t *adapter, struct chelsio_pci_params *p)
+static void get_pci_mode(adapter_t *adapter, struct chelsio_pci_params *p)
 {
 	static const unsigned short speed_map[] = { 33, 66, 100, 133 };
 	u32 pci_mode;
@@ -1028,8 +1053,8 @@ void t1_free_sw_modules(adapter_t *adapter)
 		t1_espi_destroy(adapter->espi);
 }
 
-static void __devinit init_link_config(struct link_config *lc,
-				       const struct board_info *bi)
+static void init_link_config(struct link_config *lc,
+			     const struct board_info *bi)
 {
 	lc->supported = bi->caps;
 	lc->requested_speed = lc->speed = SPEED_INVALID;
@@ -1049,8 +1074,7 @@ static void __devinit init_link_config(struct link_config *lc,
  * Allocate and initialize the data structures that hold the SW state of
  * the Terminator HW modules.
  */
-int __devinit t1_init_sw_modules(adapter_t *adapter,
-				 const struct board_info *bi)
+int t1_init_sw_modules(adapter_t *adapter, const struct board_info *bi)
 {
 	unsigned int i;
 

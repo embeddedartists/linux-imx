@@ -1,8 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
  *
  * Copyright (C) Jonathan Naylor G4KLX (g4klx@g4klx.demon.co.uk)
  */
@@ -25,8 +22,7 @@
 #include <linux/if_arp.h>
 #include <linux/skbuff.h>
 #include <net/sock.h>
-#include <asm/uaccess.h>
-#include <asm/system.h>
+#include <linux/uaccess.h>
 #include <linux/fcntl.h>
 #include <linux/mm.h>
 #include <linux/interrupt.h>
@@ -35,7 +31,6 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #include <linux/stat.h>
-#include <linux/netfilter.h>
 #include <linux/sysctl.h>
 #include <linux/export.h>
 #include <net/ip.h>
@@ -52,14 +47,13 @@ int ax25_uid_policy;
 
 EXPORT_SYMBOL(ax25_uid_policy);
 
-ax25_uid_assoc *ax25_findbyuid(uid_t uid)
+ax25_uid_assoc *ax25_findbyuid(kuid_t uid)
 {
 	ax25_uid_assoc *ax25_uid, *res = NULL;
-	struct hlist_node *node;
 
 	read_lock(&ax25_uid_lock);
-	ax25_uid_for_each(ax25_uid, node, &ax25_uid_list) {
-		if (ax25_uid->uid == uid) {
+	ax25_uid_for_each(ax25_uid, &ax25_uid_list) {
+		if (uid_eq(ax25_uid->uid, uid)) {
 			ax25_uid_hold(ax25_uid);
 			res = ax25_uid;
 			break;
@@ -75,7 +69,6 @@ EXPORT_SYMBOL(ax25_findbyuid);
 int ax25_uid_ioctl(int cmd, struct sockaddr_ax25 *sax)
 {
 	ax25_uid_assoc *ax25_uid;
-	struct hlist_node *node;
 	ax25_uid_assoc *user;
 	unsigned long res;
 
@@ -83,9 +76,9 @@ int ax25_uid_ioctl(int cmd, struct sockaddr_ax25 *sax)
 	case SIOCAX25GETUID:
 		res = -ENOENT;
 		read_lock(&ax25_uid_lock);
-		ax25_uid_for_each(ax25_uid, node, &ax25_uid_list) {
+		ax25_uid_for_each(ax25_uid, &ax25_uid_list) {
 			if (ax25cmp(&sax->sax25_call, &ax25_uid->call) == 0) {
-				res = ax25_uid->uid;
+				res = from_kuid_munged(current_user_ns(), ax25_uid->uid);
 				break;
 			}
 		}
@@ -94,9 +87,14 @@ int ax25_uid_ioctl(int cmd, struct sockaddr_ax25 *sax)
 		return res;
 
 	case SIOCAX25ADDUID:
+	{
+		kuid_t sax25_kuid;
 		if (!capable(CAP_NET_ADMIN))
 			return -EPERM;
-		user = ax25_findbyuid(sax->sax25_uid);
+		sax25_kuid = make_kuid(current_user_ns(), sax->sax25_uid);
+		if (!uid_valid(sax25_kuid))
+			return -EINVAL;
+		user = ax25_findbyuid(sax25_kuid);
 		if (user) {
 			ax25_uid_put(user);
 			return -EEXIST;
@@ -106,8 +104,8 @@ int ax25_uid_ioctl(int cmd, struct sockaddr_ax25 *sax)
 		if ((ax25_uid = kmalloc(sizeof(*ax25_uid), GFP_KERNEL)) == NULL)
 			return -ENOMEM;
 
-		atomic_set(&ax25_uid->refcount, 1);
-		ax25_uid->uid  = sax->sax25_uid;
+		refcount_set(&ax25_uid->refcount, 1);
+		ax25_uid->uid  = sax25_kuid;
 		ax25_uid->call = sax->sax25_call;
 
 		write_lock(&ax25_uid_lock);
@@ -115,14 +113,14 @@ int ax25_uid_ioctl(int cmd, struct sockaddr_ax25 *sax)
 		write_unlock(&ax25_uid_lock);
 
 		return 0;
-
+	}
 	case SIOCAX25DELUID:
 		if (!capable(CAP_NET_ADMIN))
 			return -EPERM;
 
 		ax25_uid = NULL;
 		write_lock(&ax25_uid_lock);
-		ax25_uid_for_each(ax25_uid, node, &ax25_uid_list) {
+		ax25_uid_for_each(ax25_uid, &ax25_uid_list) {
 			if (ax25cmp(&sax->sax25_call, &ax25_uid->call) == 0)
 				break;
 		}
@@ -173,31 +171,19 @@ static int ax25_uid_seq_show(struct seq_file *seq, void *v)
 		struct ax25_uid_assoc *pt;
 
 		pt = hlist_entry(v, struct ax25_uid_assoc, uid_node);
-		seq_printf(seq, "%6d %s\n", pt->uid, ax2asc(buf, &pt->call));
+		seq_printf(seq, "%6d %s\n",
+			from_kuid_munged(seq_user_ns(seq), pt->uid),
+			ax2asc(buf, &pt->call));
 	}
 	return 0;
 }
 
-static const struct seq_operations ax25_uid_seqops = {
+const struct seq_operations ax25_uid_seqops = {
 	.start = ax25_uid_seq_start,
 	.next = ax25_uid_seq_next,
 	.stop = ax25_uid_seq_stop,
 	.show = ax25_uid_seq_show,
 };
-
-static int ax25_uid_info_open(struct inode *inode, struct file *file)
-{
-	return seq_open(file, &ax25_uid_seqops);
-}
-
-const struct file_operations ax25_uid_fops = {
-	.owner = THIS_MODULE,
-	.open = ax25_uid_info_open,
-	.read = seq_read,
-	.llseek = seq_lseek,
-	.release = seq_release,
-};
-
 #endif
 
 /*
@@ -206,11 +192,10 @@ const struct file_operations ax25_uid_fops = {
 void __exit ax25_uid_free(void)
 {
 	ax25_uid_assoc *ax25_uid;
-	struct hlist_node *node;
 
 	write_lock(&ax25_uid_lock);
 again:
-	ax25_uid_for_each(ax25_uid, node, &ax25_uid_list) {
+	ax25_uid_for_each(ax25_uid, &ax25_uid_list) {
 		hlist_del_init(&ax25_uid->uid_node);
 		ax25_uid_put(ax25_uid);
 		goto again;

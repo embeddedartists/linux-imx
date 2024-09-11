@@ -1,0 +1,208 @@
+/*
+ * Copyright (C) 2015 Freescale Semiconductor, Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+ 
+/dts-v1/;
+
+#include "imx6ulea-com.dtsi"
+
+/ {
+	model = "Embedded Artists i.MX6 UltraLite COM Kit";
+	compatible = "fsl,imx6ulea-com", "fsl,imx6ul";
+
+	chosen {
+		stdout-path = &uart1;
+	};
+
+	regulators {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		reg_3v3: regulator@2 {
+			compatible = "regulator-fixed";
+			reg = <2>;
+			regulator-name = "reg-3v3";
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+		};
+	};
+};
+
+
+&clks {
+	assigned-clocks = <&clks IMX6UL_CLK_PLL4_AUDIO_DIV>;
+	assigned-clock-rates = <860160000>;
+};
+
+&uart1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart1>;
+	status = "okay";
+};
+
+&usbotg1 {
+	vbus-supply = <&reg_3v3>;
+	status = "okay";
+};
+
+&usbotg2 {
+	dr_mode = "host";
+	disable-over-current;
+	status = "okay";
+};
+
+&i2c1 {
+        gpio_buff1: pca9698@20 {
+                compatible = "nxp,pca9698";
+                reg = <0x20>;
+                gpio-controller;
+                #gpio-cells = <2>;
+        };
+        gpio_buff2: pca9698@21 {
+                compatible = "nxp,pca9698";
+                reg = <0x21>;
+                gpio-controller;
+                #gpio-cells = <2>;
+        };
+        gpio_buff3: pca9698@22 {
+                compatible = "nxp,pca9698";
+                reg = <0x22>;
+                gpio-controller;
+                #gpio-cells = <2>;
+        };
+        gpio_buff4: pca9698@23 {
+                compatible = "nxp,pca9698";
+                reg = <0x23>;
+                gpio-controller;
+                #gpio-cells = <2>;
+        };
+        gpio_buff5: pca9698@24 {
+                compatible = "nxp,pca9698";
+                reg = <0x24>;
+                gpio-controller;
+                #gpio-cells = <2>;
+        };
+};
+
+&i2c2 {
+	status = "disabled";
+};
+
+&iomuxc {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_test>;
+
+	imx6ulea-com-kit {
+		pinctrl_test: tstgrp {
+			fsl,pins = <
+				/* From: pinctrl_hog_1: hoggrp-1 */
+				MX6UL_PAD_LCD_RESET__WDOG1_WDOG_ANY			0x30b0
+				MX6UL_PAD_GPIO1_IO05__GPIO1_IO05			0x1f099 /* SD1 VSELECT */
+				MX6UL_PAD_GPIO1_IO09__GPIO1_IO09			0x1f099 /* SD1 RESET */
+				MX6UL_PAD_SNVS_TAMPER1__GPIO5_IO01			0x1f099 /* CAN Regulator */
+
+				/* From: pinctrl_flexcan1: flexcan1grp */
+				MX6UL_PAD_UART3_RTS_B__GPIO1_IO27			0x1f099
+				MX6UL_PAD_UART3_CTS_B__GPIO1_IO26			0x1f099
+
+				/* From: pinctrl_flexcan2: flexcan2grp */
+				MX6UL_PAD_UART2_RTS_B__GPIO1_IO23			0x1f099
+				MX6UL_PAD_UART2_CTS_B__GPIO1_IO22			0x1f099
+
+				/* From: pinctrl_lcdif_dat: lcdifdatgrp */
+				MX6UL_PAD_LCD_DATA00__GPIO3_IO05			0x1f099
+				MX6UL_PAD_LCD_DATA01__GPIO3_IO06			0x1f099
+				MX6UL_PAD_LCD_DATA02__GPIO3_IO07			0x1f099
+				MX6UL_PAD_LCD_DATA03__GPIO3_IO08			0x1f099
+				MX6UL_PAD_LCD_DATA04__GPIO3_IO09			0x1f099
+				MX6UL_PAD_LCD_DATA05__GPIO3_IO10			0x1f099
+				MX6UL_PAD_LCD_DATA06__GPIO3_IO11			0x1f099
+				MX6UL_PAD_LCD_DATA07__GPIO3_IO12			0x1f099
+				MX6UL_PAD_LCD_DATA08__GPIO3_IO13			0x1f099
+				MX6UL_PAD_LCD_DATA09__GPIO3_IO14			0x1f099
+				MX6UL_PAD_LCD_DATA10__GPIO3_IO15			0x1f099
+				MX6UL_PAD_LCD_DATA11__GPIO3_IO16			0x1f099
+				MX6UL_PAD_LCD_DATA12__GPIO3_IO17			0x1f099
+				MX6UL_PAD_LCD_DATA13__GPIO3_IO18			0x1f099
+				MX6UL_PAD_LCD_DATA14__GPIO3_IO19			0x1f099
+				MX6UL_PAD_LCD_DATA15__GPIO3_IO20			0x1f099
+				MX6UL_PAD_LCD_DATA16__GPIO3_IO21			0x1f099
+				MX6UL_PAD_LCD_DATA17__GPIO3_IO22			0x1f099
+				MX6UL_PAD_LCD_DATA18__GPIO3_IO23			0x1f099
+				MX6UL_PAD_LCD_DATA19__GPIO3_IO24			0x1f099
+				MX6UL_PAD_LCD_DATA20__GPIO3_IO25			0x1f099
+				MX6UL_PAD_LCD_DATA21__GPIO3_IO26			0x1f099
+				MX6UL_PAD_LCD_DATA22__GPIO3_IO27			0x1f099
+				MX6UL_PAD_LCD_DATA23__GPIO3_IO28			0x1f099
+
+				/* From: pinctrl_lcdif_ctrl: lcdifctrlgrp */
+				MX6UL_PAD_LCD_CLK__GPIO3_IO00				0x1f099
+				MX6UL_PAD_LCD_ENABLE__GPIO3_IO01			0x1f099
+				MX6UL_PAD_LCD_HSYNC__GPIO3_IO02				0x1f099
+				MX6UL_PAD_LCD_VSYNC__GPIO3_IO03				0x1f099
+				MX6UL_PAD_GPIO1_IO02__GPIO1_IO02			0x1f099
+
+				/* From: pinctrl_pwm1: pwm1grp */
+				MX6UL_PAD_GPIO1_IO08__GPIO1_IO08			0x1f099
+
+				/* From: pinctrl_usdhc1: usdhc1grp */
+				MX6UL_PAD_SD1_CMD__GPIO2_IO16				0x1f099
+				MX6UL_PAD_SD1_CLK__GPIO2_IO17				0x1f099
+				MX6UL_PAD_SD1_DATA0__GPIO2_IO18				0x1f099
+				MX6UL_PAD_SD1_DATA1__GPIO2_IO19				0x1f099
+				MX6UL_PAD_SD1_DATA2__GPIO2_IO20				0x1f099
+				MX6UL_PAD_SD1_DATA3__GPIO2_IO21				0x1f099
+				MX6UL_PAD_GPIO1_IO03__GPIO1_IO03			0x1f099
+
+				/* From: pinctrl_sai2: sai2grp */
+				MX6UL_PAD_JTAG_TDI__GPIO1_IO13				0x1f099
+				MX6UL_PAD_JTAG_TDO__GPIO1_IO12				0x1f099
+				MX6UL_PAD_JTAG_TRST_B__GPIO1_IO15			0x1f099
+				MX6UL_PAD_JTAG_TCK__GPIO1_IO14				0x1f099
+				MX6UL_PAD_JTAG_TMS__GPIO1_IO11				0x1f099
+
+				/* pinctrl_rgb_connector: rgb_connector_grp */
+				MX6UL_PAD_CSI_DATA03__GPIO4_IO24			0x1f099
+
+				/* From: pinctrl_uart2: uart2grp */
+				MX6UL_PAD_UART2_TX_DATA__GPIO1_IO20			0x1f099
+				MX6UL_PAD_UART2_RX_DATA__GPIO1_IO21			0x1f099
+
+				/* From: pinctrl_uart3: uart3grp */
+				MX6UL_PAD_UART3_TX_DATA__GPIO1_IO24			0x1f099
+				MX6UL_PAD_UART3_RX_DATA__GPIO1_IO25			0x1f099
+
+				/* From: imx6ulea-com.dtsi: pinctrl_qspi: qspigrp */
+				MX6UL_PAD_NAND_WP_B__GPIO4_IO11				0x1f099
+				MX6UL_PAD_NAND_READY_B__GPIO4_IO12			0x1f099
+				MX6UL_PAD_NAND_CE0_B__GPIO4_IO13			0x1f099
+				MX6UL_PAD_NAND_CE1_B__GPIO4_IO14			0x1f099
+				MX6UL_PAD_NAND_CLE__GPIO4_IO15				0x1f099
+				MX6UL_PAD_NAND_DQS__GPIO4_IO16				0x1f099
+
+				/* From: imx6ulea-com.dtsi: pinctrl_i2c2: i2c2grp */
+				MX6UL_PAD_UART5_TX_DATA__GPIO1_IO30			0x1f099
+				MX6UL_PAD_UART5_RX_DATA__GPIO1_IO31			0x1f099
+
+				/* Previously undeclared: */
+				MX6UL_PAD_BOOT_MODE1__GPIO5_IO11			0x1f099
+				MX6UL_PAD_JTAG_MOD__GPIO1_IO10				0x1f099
+				MX6UL_PAD_UART1_CTS_B__GPIO1_IO18			0x1f099
+				MX6UL_PAD_UART1_RTS_B__GPIO1_IO19			0x1f099
+				MX6UL_PAD_GPIO1_IO01__GPIO1_IO01			0x1f099
+			>;
+		};
+
+		pinctrl_uart1: uart1grp {
+			fsl,pins = <
+				MX6UL_PAD_UART1_TX_DATA__UART1_DCE_TX 0x1f0b1
+				MX6UL_PAD_UART1_RX_DATA__UART1_DCE_RX 0x1f0b1
+			>;
+		};
+	};
+};

@@ -23,11 +23,6 @@
 */
 
 #define DRV_NAME		"3c515"
-#define DRV_VERSION		"0.99t-ac"
-#define DRV_RELDATE		"28-Oct-2002"
-
-static char *version =
-DRV_NAME ".c:v" DRV_VERSION " " DRV_RELDATE " becker@scyld.com and others\n";
 
 #define CORKSCREW 1
 
@@ -72,7 +67,7 @@ static int max_interrupt_work = 20;
 #include <linux/ethtool.h>
 #include <linux/bitops.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/io.h>
 #include <asm/dma.h>
 
@@ -84,7 +79,6 @@ static int max_interrupt_work = 20;
 MODULE_AUTHOR("Donald Becker <becker@scyld.com>");
 MODULE_DESCRIPTION("3Com 3c515 Corkscrew driver");
 MODULE_LICENSE("GPL");
-MODULE_VERSION(DRV_VERSION);
 
 /* "Knobs" for adjusting internal parameters. */
 /* Put out somewhat more debugging messages. (0 - no msg, 1 minimal msgs). */
@@ -367,11 +361,11 @@ static struct net_device *corkscrew_scan(int unit);
 static int corkscrew_setup(struct net_device *dev, int ioaddr,
 			    struct pnp_dev *idev, int card_number);
 static int corkscrew_open(struct net_device *dev);
-static void corkscrew_timer(unsigned long arg);
+static void corkscrew_timer(struct timer_list *t);
 static netdev_tx_t corkscrew_start_xmit(struct sk_buff *skb,
 					struct net_device *dev);
 static int corkscrew_rx(struct net_device *dev);
-static void corkscrew_timeout(struct net_device *dev);
+static void corkscrew_timeout(struct net_device *dev, unsigned int txqueue);
 static int boomerang_rx(struct net_device *dev);
 static irqreturn_t corkscrew_interrupt(int irq, void *dev_id);
 static int corkscrew_close(struct net_device *dev);
@@ -413,31 +407,24 @@ MODULE_PARM_DESC(max_interrupt_work, "3c515 maximum events handled per interrupt
 /* we will need locking (and refcounting) if we ever use it for more */
 static LIST_HEAD(root_corkscrew_dev);
 
-int init_module(void)
+static int corkscrew_init_module(void)
 {
 	int found = 0;
 	if (debug >= 0)
 		corkscrew_debug = debug;
-	if (corkscrew_debug)
-		pr_debug("%s", version);
 	while (corkscrew_scan(-1))
 		found++;
 	return found ? 0 : -ENODEV;
 }
+module_init(corkscrew_init_module);
 
 #else
 struct net_device *tc515_probe(int unit)
 {
 	struct net_device *dev = corkscrew_scan(unit);
-	static int printed;
 
 	if (!dev)
 		return ERR_PTR(-ENODEV);
-
-	if (corkscrew_debug > 0 && !printed) {
-		printed = 1;
-		pr_debug("%s", version);
-	}
 
 	return dev;
 }
@@ -515,7 +502,7 @@ static struct net_device *corkscrew_scan(int unit)
 			if (pnp_device_attach(idev) < 0)
 				continue;
 			if (pnp_activate_dev(idev) < 0) {
-				pr_warning("pnp activate failed (out of resources?)\n");
+				pr_warn("pnp activate failed (out of resources?)\n");
 				pnp_device_detach(idev);
 				continue;
 			}
@@ -570,7 +557,6 @@ static const struct net_device_ops netdev_ops = {
 	.ndo_tx_timeout		= corkscrew_timeout,
 	.ndo_get_stats		= corkscrew_get_stats,
 	.ndo_set_rx_mode	= set_rx_mode,
-	.ndo_change_mtu		= eth_change_mtu,
 	.ndo_set_mac_address 	= eth_mac_addr,
 	.ndo_validate_addr	= eth_validate_addr,
 };
@@ -628,6 +614,8 @@ static int corkscrew_setup(struct net_device *dev, int ioaddr,
 
 	spin_lock_init(&vp->lock);
 
+	timer_setup(&vp->timer, corkscrew_timer, 0);
+
 	/* Read the station address from the EEPROM. */
 	EL3WINDOW(0);
 	for (i = 0; i < 0x18; i++) {
@@ -659,7 +647,7 @@ static int corkscrew_setup(struct net_device *dev, int ioaddr,
 	pr_cont(", IRQ %d\n", dev->irq);
 	/* Tell them about an invalid IRQ. */
 	if (corkscrew_debug && (dev->irq <= 0 || dev->irq > 15))
-		pr_warning(" *** Warning: this IRQ is unlikely to work! ***\n");
+		pr_warn(" *** Warning: this IRQ is unlikely to work! ***\n");
 
 	{
 		static const char * const ram_split[] = {
@@ -708,6 +696,7 @@ static int corkscrew_open(struct net_device *dev)
 {
 	int ioaddr = dev->base_addr;
 	struct corkscrew_private *vp = netdev_priv(dev);
+	bool armtimer = false;
 	__u32 config;
 	int i;
 
@@ -732,12 +721,7 @@ static int corkscrew_open(struct net_device *dev)
 		if (corkscrew_debug > 1)
 			pr_debug("%s: Initial media type %s.\n",
 			       dev->name, media_tbl[dev->if_port].name);
-
-		init_timer(&vp->timer);
-		vp->timer.expires = jiffies + media_tbl[dev->if_port].wait;
-		vp->timer.data = (unsigned long) dev;
-		vp->timer.function = corkscrew_timer;	/* timer handler */
-		add_timer(&vp->timer);
+		armtimer = true;
 	} else
 		dev->if_port = vp->default_media;
 
@@ -776,6 +760,9 @@ static int corkscrew_open(struct net_device *dev)
 			       vp->product_name, dev)) {
 		return -EAGAIN;
 	}
+
+	if (armtimer)
+		mod_timer(&vp->timer, jiffies + media_tbl[dev->if_port].wait);
 
 	if (corkscrew_debug > 1) {
 		EL3WINDOW(4);
@@ -826,11 +813,10 @@ static int corkscrew_open(struct net_device *dev)
 				vp->rx_ring[i].next = 0;
 			vp->rx_ring[i].status = 0;	/* Clear complete bit. */
 			vp->rx_ring[i].length = PKT_BUF_SZ | 0x80000000;
-			skb = dev_alloc_skb(PKT_BUF_SZ);
+			skb = netdev_alloc_skb(dev, PKT_BUF_SZ);
 			vp->rx_skbuff[i] = skb;
 			if (skb == NULL)
 				break;	/* Bad news!  */
-			skb->dev = dev;	/* Mark as being used by this device. */
 			skb_reserve(skb, 2);	/* Align IP on 16 byte boundaries */
 			vp->rx_ring[i].addr = isa_virt_to_bus(skb->data);
 		}
@@ -870,11 +856,11 @@ static int corkscrew_open(struct net_device *dev)
 	return 0;
 }
 
-static void corkscrew_timer(unsigned long data)
+static void corkscrew_timer(struct timer_list *t)
 {
 #ifdef AUTOMEDIA
-	struct net_device *dev = (struct net_device *) data;
-	struct corkscrew_private *vp = netdev_priv(dev);
+	struct corkscrew_private *vp = from_timer(vp, t, timer);
+	struct net_device *dev = vp->our_dev;
 	int ioaddr = dev->base_addr;
 	unsigned long flags;
 	int ok = 0;
@@ -962,19 +948,19 @@ static void corkscrew_timer(unsigned long data)
 #endif				/* AUTOMEDIA */
 }
 
-static void corkscrew_timeout(struct net_device *dev)
+static void corkscrew_timeout(struct net_device *dev, unsigned int txqueue)
 {
 	int i;
 	struct corkscrew_private *vp = netdev_priv(dev);
 	int ioaddr = dev->base_addr;
 
-	pr_warning("%s: transmit timed out, tx_status %2.2x status %4.4x.\n",
-	       dev->name, inb(ioaddr + TxStatus),
-	       inw(ioaddr + EL3_STATUS));
+	pr_warn("%s: transmit timed out, tx_status %2.2x status %4.4x\n",
+		dev->name, inb(ioaddr + TxStatus),
+		inw(ioaddr + EL3_STATUS));
 	/* Slight code bloat to be user friendly. */
 	if ((inb(ioaddr + TxStatus) & 0x88) == 0x88)
-		pr_warning("%s: Transmitter encountered 16 collisions --"
-		       " network cable problem?\n", dev->name);
+		pr_warn("%s: Transmitter encountered 16 collisions -- network cable problem?\n",
+			dev->name);
 #ifndef final_version
 	pr_debug("  Flags; bus-master %d, full %d; dirty %d current %d.\n",
 	       vp->full_bus_master_tx, vp->tx_full, vp->dirty_tx,
@@ -993,7 +979,7 @@ static void corkscrew_timeout(struct net_device *dev)
 		if (!(inw(ioaddr + EL3_STATUS) & CmdInProgress))
 			break;
 	outw(TxEnable, ioaddr + EL3_CMD);
-	dev->trans_start = jiffies; /* prevent tx timeout */
+	netif_trans_update(dev); /* prevent tx timeout */
 	dev->stats.tx_errors++;
 	dev->stats.tx_dropped++;
 	netif_wake_queue(dev);
@@ -1064,7 +1050,7 @@ static netdev_tx_t corkscrew_start_xmit(struct sk_buff *skb,
 #ifdef VORTEX_BUS_MASTER
 	if (vp->bus_master) {
 		/* Set the bus-master controller to transfer the packet. */
-		outl((int) (skb->data), ioaddr + Wn7_MasterAddr);
+		outl(isa_virt_to_bus(skb->data), ioaddr + Wn7_MasterAddr);
 		outw((skb->len + 3) & ~3, ioaddr + Wn7_MasterLen);
 		vp->tx_skb = skb;
 		outw(StartDMADown, ioaddr + EL3_CMD);
@@ -1178,7 +1164,7 @@ static irqreturn_t corkscrew_interrupt(int irq, void *dev_id)
 				if (inl(ioaddr + DownListPtr) == isa_virt_to_bus(&lp->tx_ring[entry]))
 					break;	/* It still hasn't been processed. */
 				if (lp->tx_skbuff[entry]) {
-					dev_kfree_skb_irq(lp->tx_skbuff[entry]);
+					dev_consume_skb_irq(lp->tx_skbuff[entry]);
 					lp->tx_skbuff[entry] = NULL;
 				}
 				dirty_tx++;
@@ -1193,7 +1179,7 @@ static irqreturn_t corkscrew_interrupt(int irq, void *dev_id)
 #ifdef VORTEX_BUS_MASTER
 		if (status & DMADone) {
 			outw(0x1000, ioaddr + Wn7_MasterStatus);	/* Ack the event. */
-			dev_kfree_skb_irq(lp->tx_skb);	/* Release the transferred buffer */
+			dev_consume_skb_irq(lp->tx_skb);	/* Release the transferred buffer */
 			netif_wake_queue(dev);
 		}
 #endif
@@ -1295,7 +1281,7 @@ static int corkscrew_rx(struct net_device *dev)
 			short pkt_len = rx_status & 0x1fff;
 			struct sk_buff *skb;
 
-			skb = dev_alloc_skb(pkt_len + 5 + 2);
+			skb = netdev_alloc_skb(dev, pkt_len + 5 + 2);
 			if (corkscrew_debug > 4)
 				pr_debug("Receiving packet size %d status %4.4x.\n",
 				     pkt_len, rx_status);
@@ -1368,12 +1354,12 @@ static int boomerang_rx(struct net_device *dev)
 			/* Check if the packet is long enough to just accept without
 			   copying to a properly sized skbuff. */
 			if (pkt_len < rx_copybreak &&
-			    (skb = dev_alloc_skb(pkt_len + 4)) != NULL) {
+			    (skb = netdev_alloc_skb(dev, pkt_len + 4)) != NULL) {
 				skb_reserve(skb, 2);	/* Align IP on 16 byte boundaries */
 				/* 'skb_put()' points to the start of sk_buff data area. */
-				memcpy(skb_put(skb, pkt_len),
-				       isa_bus_to_virt(vp->rx_ring[entry].
-						   addr), pkt_len);
+				skb_put_data(skb,
+					     isa_bus_to_virt(vp->rx_ring[entry].addr),
+					     pkt_len);
 				rx_copy++;
 			} else {
 				void *temp;
@@ -1383,13 +1369,10 @@ static int boomerang_rx(struct net_device *dev)
 				temp = skb_put(skb, pkt_len);
 				/* Remove this checking code for final release. */
 				if (isa_bus_to_virt(vp->rx_ring[entry].addr) != temp)
-					pr_warning("%s: Warning -- the skbuff addresses do not match"
-					     " in boomerang_rx: %p vs. %p / %p.\n",
-					     dev->name,
-					     isa_bus_to_virt(vp->
-							 rx_ring[entry].
-							 addr), skb->head,
-					     temp);
+					pr_warn("%s: Warning -- the skbuff addresses do not match in boomerang_rx: %p vs. %p / %p\n",
+						dev->name,
+						isa_bus_to_virt(vp->rx_ring[entry].addr),
+						skb->head, temp);
 				rx_nocopy++;
 			}
 			skb->protocol = eth_type_trans(skb, dev);
@@ -1403,10 +1386,9 @@ static int boomerang_rx(struct net_device *dev)
 		struct sk_buff *skb;
 		entry = vp->dirty_rx % RX_RING_SIZE;
 		if (vp->rx_skbuff[entry] == NULL) {
-			skb = dev_alloc_skb(PKT_BUF_SZ);
+			skb = netdev_alloc_skb(dev, PKT_BUF_SZ);
 			if (skb == NULL)
 				break;	/* Bad news!  */
-			skb->dev = dev;	/* Mark as being used by this device. */
 			skb_reserve(skb, 2);	/* Align IP on 16 byte boundaries */
 			vp->rx_ring[entry].addr = isa_virt_to_bus(skb->data);
 			vp->rx_skbuff[entry] = skb;
@@ -1432,7 +1414,7 @@ static int corkscrew_close(struct net_device *dev)
 			dev->name, rx_nocopy, rx_copy, queued_packet);
 	}
 
-	del_timer(&vp->timer);
+	del_timer_sync(&vp->timer);
 
 	/* Turn off statistics ASAP.  We update lp->stats below. */
 	outw(StatsDisable, ioaddr + EL3_CMD);
@@ -1526,7 +1508,7 @@ static void update_stats(int ioaddr, struct net_device *dev)
 static void set_rx_mode(struct net_device *dev)
 {
 	int ioaddr = dev->base_addr;
-	short new_mode;
+	unsigned short new_mode;
 
 	if (dev->flags & IFF_PROMISC) {
 		if (corkscrew_debug > 3)
@@ -1544,9 +1526,9 @@ static void set_rx_mode(struct net_device *dev)
 static void netdev_get_drvinfo(struct net_device *dev,
 			       struct ethtool_drvinfo *info)
 {
-	strcpy(info->driver, DRV_NAME);
-	strcpy(info->version, DRV_VERSION);
-	sprintf(info->bus_info, "ISA 0x%lx", dev->base_addr);
+	strlcpy(info->driver, DRV_NAME, sizeof(info->driver));
+	snprintf(info->bus_info, sizeof(info->bus_info), "ISA 0x%lx",
+		 dev->base_addr);
 }
 
 static u32 netdev_get_msglevel(struct net_device *dev)

@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *	IEEE 802.1D Generic Attribute Registration Protocol (GARP)
  *
  *	Copyright (c) 2008 Patrick McHardy <kaber@trash.net>
- *
- *	This program is free software; you can redistribute it and/or
- *	modify it under the terms of the GNU General Public License
- *	version 2 as published by the Free Software Foundation.
  */
 #include <linux/kernel.h>
 #include <linux/timer.h>
@@ -157,9 +154,9 @@ static struct garp_attr *garp_attr_lookup(const struct garp_applicant *app,
 	while (parent) {
 		attr = rb_entry(parent, struct garp_attr, node);
 		d = garp_attr_cmp(attr, data, len, type);
-		if (d < 0)
+		if (d > 0)
 			parent = parent->rb_left;
-		else if (d > 0)
+		else if (d < 0)
 			parent = parent->rb_right;
 		else
 			return attr;
@@ -167,7 +164,8 @@ static struct garp_attr *garp_attr_lookup(const struct garp_applicant *app,
 	return NULL;
 }
 
-static void garp_attr_insert(struct garp_applicant *app, struct garp_attr *new)
+static struct garp_attr *garp_attr_create(struct garp_applicant *app,
+					  const void *data, u8 len, u8 type)
 {
 	struct rb_node *parent = NULL, **p = &app->gid.rb_node;
 	struct garp_attr *attr;
@@ -176,21 +174,16 @@ static void garp_attr_insert(struct garp_applicant *app, struct garp_attr *new)
 	while (*p) {
 		parent = *p;
 		attr = rb_entry(parent, struct garp_attr, node);
-		d = garp_attr_cmp(attr, new->data, new->dlen, new->type);
-		if (d < 0)
+		d = garp_attr_cmp(attr, data, len, type);
+		if (d > 0)
 			p = &parent->rb_left;
-		else if (d > 0)
+		else if (d < 0)
 			p = &parent->rb_right;
+		else {
+			/* The attribute already exists; re-use it. */
+			return attr;
+		}
 	}
-	rb_link_node(&new->node, parent, p);
-	rb_insert_color(&new->node, &app->gid);
-}
-
-static struct garp_attr *garp_attr_create(struct garp_applicant *app,
-					  const void *data, u8 len, u8 type)
-{
-	struct garp_attr *attr;
-
 	attr = kmalloc(sizeof(*attr) + len, GFP_ATOMIC);
 	if (!attr)
 		return attr;
@@ -198,7 +191,9 @@ static struct garp_attr *garp_attr_create(struct garp_applicant *app,
 	attr->type  = type;
 	attr->dlen  = len;
 	memcpy(attr->data, data, len);
-	garp_attr_insert(app, attr);
+
+	rb_link_node(&attr->node, parent, p);
+	rb_insert_color(&attr->node, &app->gid);
 	return attr;
 }
 
@@ -206,6 +201,19 @@ static void garp_attr_destroy(struct garp_applicant *app, struct garp_attr *attr
 {
 	rb_erase(&attr->node, &app->gid);
 	kfree(attr);
+}
+
+static void garp_attr_destroy_all(struct garp_applicant *app)
+{
+	struct rb_node *node, *next;
+	struct garp_attr *attr;
+
+	for (node = rb_first(&app->gid);
+	     next = node ? rb_next(node) : NULL, node != NULL;
+	     node = next) {
+		attr = rb_entry(node, struct garp_attr, node);
+		garp_attr_destroy(app, attr);
+	}
 }
 
 static int garp_pdu_init(struct garp_applicant *app)
@@ -223,7 +231,7 @@ static int garp_pdu_init(struct garp_applicant *app)
 	skb->protocol = htons(ETH_P_802_2);
 	skb_reserve(skb, LL_RESERVED_SPACE(app->dev) + LLC_RESERVE);
 
-	gp = (struct garp_pdu_hdr *)__skb_put(skb, sizeof(*gp));
+	gp = __skb_put(skb, sizeof(*gp));
 	put_unaligned(htons(GARP_PROTOCOL_ID), &gp->protocol);
 
 	app->pdu = skb;
@@ -234,7 +242,7 @@ static int garp_pdu_append_end_mark(struct garp_applicant *app)
 {
 	if (skb_tailroom(app->pdu) < sizeof(u8))
 		return -1;
-	*(u8 *)__skb_put(app->pdu, sizeof(u8)) = GARP_END_MARK;
+	__skb_put_u8(app->pdu, GARP_END_MARK);
 	return 0;
 }
 
@@ -270,7 +278,7 @@ static int garp_pdu_append_msg(struct garp_applicant *app, u8 attrtype)
 
 	if (skb_tailroom(app->pdu) < sizeof(*gm))
 		return -1;
-	gm = (struct garp_msg_hdr *)__skb_put(app->pdu, sizeof(*gm));
+	gm = __skb_put(app->pdu, sizeof(*gm));
 	gm->attrtype = attrtype;
 	garp_cb(app->pdu)->cur_type = attrtype;
 	return 0;
@@ -301,7 +309,7 @@ again:
 	len = sizeof(*ga) + attr->dlen;
 	if (skb_tailroom(app->pdu) < len)
 		goto queue;
-	ga = (struct garp_attr_hdr *)__skb_put(app->pdu, len);
+	ga = __skb_put(app->pdu, len);
 	ga->len   = len;
 	ga->event = event;
 	memcpy(ga->data, attr->data, attr->dlen);
@@ -399,13 +407,13 @@ static void garp_join_timer_arm(struct garp_applicant *app)
 {
 	unsigned long delay;
 
-	delay = (u64)msecs_to_jiffies(garp_join_time) * net_random() >> 32;
+	delay = (u64)msecs_to_jiffies(garp_join_time) * prandom_u32() >> 32;
 	mod_timer(&app->join_timer, jiffies + delay);
 }
 
-static void garp_join_timer(unsigned long data)
+static void garp_join_timer(struct timer_list *t)
 {
-	struct garp_applicant *app = (struct garp_applicant *)data;
+	struct garp_applicant *app = from_timer(app, t, join_timer);
 
 	spin_lock(&app->lock);
 	garp_gid_event(app, GARP_EVENT_TRANSMIT_PDU);
@@ -586,7 +594,7 @@ int garp_init_applicant(struct net_device *dev, struct garp_application *appl)
 	spin_lock_init(&app->lock);
 	skb_queue_head_init(&app->queue);
 	rcu_assign_pointer(dev->garp_port->applicants[appl->type], app);
-	setup_timer(&app->join_timer, garp_join_timer, (unsigned long)app);
+	timer_setup(&app->join_timer, garp_join_timer, 0);
 	garp_join_timer_arm(app);
 	return 0;
 
@@ -611,8 +619,13 @@ void garp_uninit_applicant(struct net_device *dev, struct garp_application *appl
 	/* Delete timer and generate a final TRANSMIT_PDU event to flush out
 	 * all pending messages before the applicant is gone. */
 	del_timer_sync(&app->join_timer);
+
+	spin_lock_bh(&app->lock);
 	garp_gid_event(app, GARP_EVENT_TRANSMIT_PDU);
+	garp_attr_destroy_all(app);
 	garp_pdu_queue(app);
+	spin_unlock_bh(&app->lock);
+
 	garp_queue_xmit(app);
 
 	dev_mc_del(dev, appl->proto.group_address);

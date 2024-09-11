@@ -12,8 +12,6 @@
 #define _XTENSA_PLATFORM_H
 
 #include <linux/types.h>
-#include <linux/pci.h>
-
 #include <asm/bootparam.h>
 
 /*
@@ -28,11 +26,6 @@ extern void platform_init(bp_tag_t*);
  * string.
  */
 extern void platform_setup (char **);
-
-/*
- * platform_init_irq is called from init_IRQ.
- */
-extern void platform_init_irq (void);
 
 /*
  * platform_restart is called to restart the system.
@@ -60,19 +53,14 @@ extern void platform_idle (void);
 extern void platform_heartbeat (void);
 
 /*
- * platform_pcibios_init is called to allow the platform to setup the pci bus.
- */
-extern void platform_pcibios_init (void);
-
-/*
- * platform_pcibios_fixup allows to modify the PCI configuration.
- */
-extern int platform_pcibios_fixup (void);
-
-/*
  * platform_calibrate_ccount calibrates cpu clock freq (CONFIG_XTENSA_CALIBRATE)
  */
 extern void platform_calibrate_ccount (void);
 
-#endif	/* _XTENSA_PLATFORM_H */
+/*
+ * Flush and reset the mmu, simulate a processor reset, and
+ * jump to the reset vector.
+ */
+void cpu_reset(void) __attribute__((noreturn));
 
+#endif	/* _XTENSA_PLATFORM_H */

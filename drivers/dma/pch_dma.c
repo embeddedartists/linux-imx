@@ -1,29 +1,20 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Topcliff PCH DMA controller driver
  * Copyright (c) 2010 Intel Corporation
- * Copyright (C) 2011 OKI SEMICONDUCTOR CO., LTD.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ * Copyright (C) 2011 LAPIS Semiconductor Co., Ltd.
  */
 
 #include <linux/dmaengine.h>
 #include <linux/dma-mapping.h>
 #include <linux/init.h>
 #include <linux/pci.h>
+#include <linux/slab.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/pch_dma.h>
+
+#include "dmaengine.h"
 
 #define DRV_NAME "pch-dma"
 
@@ -99,13 +90,12 @@ struct pch_dma_desc {
 struct pch_dma_chan {
 	struct dma_chan		chan;
 	void __iomem *membase;
-	enum dma_data_direction	dir;
+	enum dma_transfer_direction dir;
 	struct tasklet_struct	tasklet;
 	unsigned long		err_status;
 
 	spinlock_t		lock;
 
-	dma_cookie_t		completed_cookie;
 	struct list_head	active_list;
 	struct list_head	queue;
 	struct list_head	free_list;
@@ -125,7 +115,7 @@ struct pch_dma_chan {
 struct pch_dma {
 	struct dma_device	dma;
 	void __iomem *membase;
-	struct pci_pool		*pool;
+	struct dma_pool		*pool;
 	struct pch_dma_regs	regs;
 	struct pch_dma_desc_regs ch_regs[MAX_CHAN_NR];
 	struct pch_dma_chan	channels[MAX_CHAN_NR];
@@ -224,7 +214,7 @@ static void pdc_set_dir(struct dma_chan *chan)
 		mask_ctl = DMA_MASK_CTL0_MODE & ~(DMA_CTL0_MODE_MASK_BITS <<
 				       (DMA_CTL0_BITS_PER_CH * chan->chan_id));
 		val &= mask_mode;
-		if (pd_chan->dir == DMA_TO_DEVICE)
+		if (pd_chan->dir == DMA_MEM_TO_DEV)
 			val |= 0x1 << (DMA_CTL0_BITS_PER_CH * chan->chan_id +
 				       DMA_CTL0_DIR_SHIFT_BITS);
 		else
@@ -242,7 +232,7 @@ static void pdc_set_dir(struct dma_chan *chan)
 		mask_ctl = DMA_MASK_CTL2_MODE & ~(DMA_CTL0_MODE_MASK_BITS <<
 						 (DMA_CTL0_BITS_PER_CH * ch));
 		val &= mask_mode;
-		if (pd_chan->dir == DMA_TO_DEVICE)
+		if (pd_chan->dir == DMA_MEM_TO_DEV)
 			val |= 0x1 << (DMA_CTL0_BITS_PER_CH * ch +
 				       DMA_CTL0_DIR_SHIFT_BITS);
 		else
@@ -359,14 +349,13 @@ static void pdc_chain_complete(struct pch_dma_chan *pd_chan,
 			       struct pch_dma_desc *desc)
 {
 	struct dma_async_tx_descriptor *txd = &desc->txd;
-	dma_async_tx_callback callback = txd->callback;
-	void *param = txd->callback_param;
+	struct dmaengine_desc_callback cb;
 
+	dmaengine_desc_get_callback(txd, &cb);
 	list_splice_init(&desc->tx_list, &pd_chan->free_list);
 	list_move(&desc->desc_node, &pd_chan->free_list);
 
-	if (callback)
-		callback(param);
+	dmaengine_desc_callback_invoke(&cb, NULL);
 }
 
 static void pdc_complete_all(struct pch_dma_chan *pd_chan)
@@ -416,28 +405,12 @@ static void pdc_advance_work(struct pch_dma_chan *pd_chan)
 	}
 }
 
-static dma_cookie_t pdc_assign_cookie(struct pch_dma_chan *pd_chan,
-				      struct pch_dma_desc *desc)
-{
-	dma_cookie_t cookie = pd_chan->chan.cookie;
-
-	if (++cookie < 0)
-		cookie = 1;
-
-	pd_chan->chan.cookie = cookie;
-	desc->txd.cookie = cookie;
-
-	return cookie;
-}
-
 static dma_cookie_t pd_tx_submit(struct dma_async_tx_descriptor *txd)
 {
 	struct pch_dma_desc *desc = to_pd_desc(txd);
 	struct pch_dma_chan *pd_chan = to_pd_chan(txd->chan);
-	dma_cookie_t cookie;
 
 	spin_lock(&pd_chan->lock);
-	cookie = pdc_assign_cookie(pd_chan, desc);
 
 	if (list_empty(&pd_chan->active_list)) {
 		list_add_tail(&desc->desc_node, &pd_chan->active_list);
@@ -456,9 +429,8 @@ static struct pch_dma_desc *pdc_alloc_desc(struct dma_chan *chan, gfp_t flags)
 	struct pch_dma *pd = to_pd(chan->device);
 	dma_addr_t addr;
 
-	desc = pci_pool_alloc(pd->pool, flags, &addr);
+	desc = dma_pool_zalloc(pd->pool, flags, &addr);
 	if (desc) {
-		memset(desc, 0, sizeof(struct pch_dma_desc));
 		INIT_LIST_HEAD(&desc->tx_list);
 		dma_async_tx_descriptor_init(&desc->txd, chan);
 		desc->txd.tx_submit = pd_tx_submit;
@@ -489,7 +461,7 @@ static struct pch_dma_desc *pdc_desc_get(struct pch_dma_chan *pd_chan)
 	dev_dbg(chan2dev(&pd_chan->chan), "scanned %d descriptors\n", i);
 
 	if (!ret) {
-		ret = pdc_alloc_desc(&pd_chan->chan, GFP_NOIO);
+		ret = pdc_alloc_desc(&pd_chan->chan, GFP_ATOMIC);
 		if (ret) {
 			spin_lock(&pd_chan->lock);
 			pd_chan->descs_allocated++;
@@ -544,7 +516,7 @@ static int pd_alloc_chan_resources(struct dma_chan *chan)
 	spin_lock_irq(&pd_chan->lock);
 	list_splice(&tmp_list, &pd_chan->free_list);
 	pd_chan->descs_allocated = i;
-	pd_chan->completed_cookie = chan->cookie = 1;
+	dma_cookie_init(chan);
 	spin_unlock_irq(&pd_chan->lock);
 
 	pdc_enable_irq(chan, 1);
@@ -569,7 +541,7 @@ static void pd_free_chan_resources(struct dma_chan *chan)
 	spin_unlock_irq(&pd_chan->lock);
 
 	list_for_each_entry_safe(desc, _d, &tmp_list, desc_node)
-		pci_pool_free(pd->pool, desc, desc->txd.phys);
+		dma_pool_free(pd->pool, desc, desc->txd.phys);
 
 	pdc_enable_irq(chan, 0);
 }
@@ -577,21 +549,7 @@ static void pd_free_chan_resources(struct dma_chan *chan)
 static enum dma_status pd_tx_status(struct dma_chan *chan, dma_cookie_t cookie,
 				    struct dma_tx_state *txstate)
 {
-	struct pch_dma_chan *pd_chan = to_pd_chan(chan);
-	dma_cookie_t last_used;
-	dma_cookie_t last_completed;
-	int ret;
-
-	spin_lock_irq(&pd_chan->lock);
-	last_completed = pd_chan->completed_cookie;
-	last_used = chan->cookie;
-	spin_unlock_irq(&pd_chan->lock);
-
-	ret = dma_async_is_complete(cookie, last_completed, last_used);
-
-	dma_set_tx_state(txstate, last_completed, last_used, 0);
-
-	return ret;
+	return dma_cookie_status(chan, cookie, txstate);
 }
 
 static void pd_issue_pending(struct dma_chan *chan)
@@ -607,7 +565,8 @@ static void pd_issue_pending(struct dma_chan *chan)
 
 static struct dma_async_tx_descriptor *pd_prep_slave_sg(struct dma_chan *chan,
 			struct scatterlist *sgl, unsigned int sg_len,
-			enum dma_data_direction direction, unsigned long flags)
+			enum dma_transfer_direction direction, unsigned long flags,
+			void *context)
 {
 	struct pch_dma_chan *pd_chan = to_pd_chan(chan);
 	struct pch_dma_slave *pd_slave = chan->private;
@@ -623,9 +582,9 @@ static struct dma_async_tx_descriptor *pd_prep_slave_sg(struct dma_chan *chan,
 		return NULL;
 	}
 
-	if (direction == DMA_FROM_DEVICE)
+	if (direction == DMA_DEV_TO_MEM)
 		reg = pd_slave->rx_reg;
-	else if (direction == DMA_TO_DEVICE)
+	else if (direction == DMA_MEM_TO_DEV)
 		reg = pd_slave->tx_reg;
 	else
 		return NULL;
@@ -640,7 +599,7 @@ static struct dma_async_tx_descriptor *pd_prep_slave_sg(struct dma_chan *chan,
 			goto err_desc_get;
 
 		desc->regs.dev_addr = reg;
-		desc->regs.mem_addr = sg_phys(sg);
+		desc->regs.mem_addr = sg_dma_address(sg);
 		desc->regs.size = sg_dma_len(sg);
 		desc->regs.next = DMA_DESC_FOLLOW_WITHOUT_IRQ;
 
@@ -690,15 +649,11 @@ err_desc_get:
 	return NULL;
 }
 
-static int pd_device_control(struct dma_chan *chan, enum dma_ctrl_cmd cmd,
-			     unsigned long arg)
+static int pd_device_terminate_all(struct dma_chan *chan)
 {
 	struct pch_dma_chan *pd_chan = to_pd_chan(chan);
 	struct pch_dma_desc *desc, *_d;
 	LIST_HEAD(list);
-
-	if (cmd != DMA_TERMINATE_ALL)
-		return -ENXIO;
 
 	spin_lock_irq(&pd_chan->lock);
 
@@ -715,9 +670,9 @@ static int pd_device_control(struct dma_chan *chan, enum dma_ctrl_cmd cmd,
 	return 0;
 }
 
-static void pdc_tasklet(unsigned long data)
+static void pdc_tasklet(struct tasklet_struct *t)
 {
-	struct pch_dma_chan *pd_chan = (struct pch_dma_chan *)data;
+	struct pch_dma_chan *pd_chan = from_tasklet(pd_chan, t, tasklet);
 	unsigned long flags;
 
 	if (!pdc_is_idle(pd_chan)) {
@@ -780,8 +735,7 @@ static irqreturn_t pd_irq(int irq, void *devid)
 	return ret0 | ret2;
 }
 
-#ifdef	CONFIG_PM
-static void pch_dma_save_regs(struct pch_dma *pd)
+static void __maybe_unused pch_dma_save_regs(struct pch_dma *pd)
 {
 	struct pch_dma_chan *pd_chan;
 	struct dma_chan *chan, *_c;
@@ -804,7 +758,7 @@ static void pch_dma_save_regs(struct pch_dma *pd)
 	}
 }
 
-static void pch_dma_restore_regs(struct pch_dma *pd)
+static void __maybe_unused pch_dma_restore_regs(struct pch_dma *pd)
 {
 	struct pch_dma_chan *pd_chan;
 	struct dma_chan *chan, *_c;
@@ -827,42 +781,27 @@ static void pch_dma_restore_regs(struct pch_dma *pd)
 	}
 }
 
-static int pch_dma_suspend(struct pci_dev *pdev, pm_message_t state)
+static int __maybe_unused pch_dma_suspend(struct device *dev)
 {
-	struct pch_dma *pd = pci_get_drvdata(pdev);
+	struct pch_dma *pd = dev_get_drvdata(dev);
 
 	if (pd)
 		pch_dma_save_regs(pd);
 
-	pci_save_state(pdev);
-	pci_disable_device(pdev);
-	pci_set_power_state(pdev, pci_choose_state(pdev, state));
-
 	return 0;
 }
 
-static int pch_dma_resume(struct pci_dev *pdev)
+static int __maybe_unused pch_dma_resume(struct device *dev)
 {
-	struct pch_dma *pd = pci_get_drvdata(pdev);
-	int err;
-
-	pci_set_power_state(pdev, PCI_D0);
-	pci_restore_state(pdev);
-
-	err = pci_enable_device(pdev);
-	if (err) {
-		dev_dbg(&pdev->dev, "failed to enable device\n");
-		return err;
-	}
+	struct pch_dma *pd = dev_get_drvdata(dev);
 
 	if (pd)
 		pch_dma_restore_regs(pd);
 
 	return 0;
 }
-#endif
 
-static int __devinit pch_dma_probe(struct pci_dev *pdev,
+static int pch_dma_probe(struct pci_dev *pdev,
 				   const struct pci_device_id *id)
 {
 	struct pch_dma *pd;
@@ -886,6 +825,7 @@ static int __devinit pch_dma_probe(struct pci_dev *pdev,
 
 	if (!(pci_resource_flags(pdev, 1) & IORESOURCE_MEM)) {
 		dev_err(&pdev->dev, "Cannot find proper base address\n");
+		err = -ENODEV;
 		goto err_disable_pdev;
 	}
 
@@ -909,6 +849,7 @@ static int __devinit pch_dma_probe(struct pci_dev *pdev,
 	}
 
 	pci_set_master(pdev);
+	pd->dma.dev = &pdev->dev;
 
 	err = request_irq(pdev->irq, pd_irq, IRQF_SHARED, DRV_NAME, pd);
 	if (err) {
@@ -916,7 +857,7 @@ static int __devinit pch_dma_probe(struct pci_dev *pdev,
 		goto err_iounmap;
 	}
 
-	pd->pool = pci_pool_create("pch_dma_desc_pool", pdev,
+	pd->pool = dma_pool_create("pch_dma_desc_pool", &pdev->dev,
 				   sizeof(struct pch_dma_desc), 4, 0);
 	if (!pd->pool) {
 		dev_err(&pdev->dev, "Failed to alloc DMA descriptors\n");
@@ -924,7 +865,6 @@ static int __devinit pch_dma_probe(struct pci_dev *pdev,
 		goto err_free_irq;
 	}
 
-	pd->dma.dev = &pdev->dev;
 
 	INIT_LIST_HEAD(&pd->dma.channels);
 
@@ -932,7 +872,7 @@ static int __devinit pch_dma_probe(struct pci_dev *pdev,
 		struct pch_dma_chan *pd_chan = &pd->channels[i];
 
 		pd_chan->chan.device = &pd->dma;
-		pd_chan->chan.cookie = 1;
+		dma_cookie_init(&pd_chan->chan);
 
 		pd_chan->membase = &regs->desc[i];
 
@@ -942,8 +882,7 @@ static int __devinit pch_dma_probe(struct pci_dev *pdev,
 		INIT_LIST_HEAD(&pd_chan->queue);
 		INIT_LIST_HEAD(&pd_chan->free_list);
 
-		tasklet_init(&pd_chan->tasklet, pdc_tasklet,
-			     (unsigned long)pd_chan);
+		tasklet_setup(&pd_chan->tasklet, pdc_tasklet);
 		list_add_tail(&pd_chan->chan.device_node, &pd->dma.channels);
 	}
 
@@ -956,7 +895,7 @@ static int __devinit pch_dma_probe(struct pci_dev *pdev,
 	pd->dma.device_tx_status = pd_tx_status;
 	pd->dma.device_issue_pending = pd_issue_pending;
 	pd->dma.device_prep_slave_sg = pd_prep_slave_sg;
-	pd->dma.device_control = pd_device_control;
+	pd->dma.device_terminate_all = pd_device_terminate_all;
 
 	err = dma_async_device_register(&pd->dma);
 	if (err) {
@@ -967,7 +906,7 @@ static int __devinit pch_dma_probe(struct pci_dev *pdev,
 	return 0;
 
 err_free_pool:
-	pci_pool_destroy(pd->pool);
+	dma_pool_destroy(pd->pool);
 err_free_irq:
 	free_irq(pdev->irq, pd);
 err_iounmap:
@@ -977,10 +916,11 @@ err_free_res:
 err_disable_pdev:
 	pci_disable_device(pdev);
 err_free_mem:
+	kfree(pd);
 	return err;
 }
 
-static void __devexit pch_dma_remove(struct pci_dev *pdev)
+static void pch_dma_remove(struct pci_dev *pdev)
 {
 	struct pch_dma *pd = pci_get_drvdata(pdev);
 	struct pch_dma_chan *pd_chan;
@@ -989,16 +929,16 @@ static void __devexit pch_dma_remove(struct pci_dev *pdev)
 	if (pd) {
 		dma_async_device_unregister(&pd->dma);
 
+		free_irq(pdev->irq, pd);
+
 		list_for_each_entry_safe(chan, _c, &pd->dma.channels,
 					 device_node) {
 			pd_chan = to_pd_chan(chan);
 
-			tasklet_disable(&pd_chan->tasklet);
 			tasklet_kill(&pd_chan->tasklet);
 		}
 
-		pci_pool_destroy(pd->pool);
-		free_irq(pdev->irq, pd);
+		dma_pool_destroy(pd->pool);
 		pci_iounmap(pdev, pd->membase);
 		pci_release_regions(pdev);
 		pci_disable_device(pdev);
@@ -1007,7 +947,6 @@ static void __devexit pch_dma_remove(struct pci_dev *pdev)
 }
 
 /* PCI Device ID of DMA device */
-#define PCI_VENDOR_ID_ROHM             0x10DB
 #define PCI_DEVICE_ID_EG20T_PCH_DMA_8CH        0x8810
 #define PCI_DEVICE_ID_EG20T_PCH_DMA_4CH        0x8815
 #define PCI_DEVICE_ID_ML7213_DMA1_8CH	0x8026
@@ -1018,8 +957,10 @@ static void __devexit pch_dma_remove(struct pci_dev *pdev)
 #define PCI_DEVICE_ID_ML7223_DMA2_4CH	0x800E
 #define PCI_DEVICE_ID_ML7223_DMA3_4CH	0x8017
 #define PCI_DEVICE_ID_ML7223_DMA4_4CH	0x803B
+#define PCI_DEVICE_ID_ML7831_DMA1_8CH	0x8810
+#define PCI_DEVICE_ID_ML7831_DMA2_4CH	0x8815
 
-DEFINE_PCI_DEVICE_TABLE(pch_dma_id_table) = {
+static const struct pci_device_id pch_dma_id_table[] = {
 	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_EG20T_PCH_DMA_8CH), 8 },
 	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_EG20T_PCH_DMA_4CH), 4 },
 	{ PCI_VDEVICE(ROHM, PCI_DEVICE_ID_ML7213_DMA1_8CH), 8}, /* UART Video */
@@ -1030,34 +971,25 @@ DEFINE_PCI_DEVICE_TABLE(pch_dma_id_table) = {
 	{ PCI_VDEVICE(ROHM, PCI_DEVICE_ID_ML7223_DMA2_4CH), 4}, /* Video SPI */
 	{ PCI_VDEVICE(ROHM, PCI_DEVICE_ID_ML7223_DMA3_4CH), 4}, /* Security */
 	{ PCI_VDEVICE(ROHM, PCI_DEVICE_ID_ML7223_DMA4_4CH), 4}, /* FPGA */
+	{ PCI_VDEVICE(ROHM, PCI_DEVICE_ID_ML7831_DMA1_8CH), 8}, /* UART */
+	{ PCI_VDEVICE(ROHM, PCI_DEVICE_ID_ML7831_DMA2_4CH), 4}, /* SPI */
 	{ 0, },
 };
+
+static SIMPLE_DEV_PM_OPS(pch_dma_pm_ops, pch_dma_suspend, pch_dma_resume);
 
 static struct pci_driver pch_dma_driver = {
 	.name		= DRV_NAME,
 	.id_table	= pch_dma_id_table,
 	.probe		= pch_dma_probe,
-	.remove		= __devexit_p(pch_dma_remove),
-#ifdef CONFIG_PM
-	.suspend	= pch_dma_suspend,
-	.resume		= pch_dma_resume,
-#endif
+	.remove		= pch_dma_remove,
+	.driver.pm	= &pch_dma_pm_ops,
 };
 
-static int __init pch_dma_init(void)
-{
-	return pci_register_driver(&pch_dma_driver);
-}
+module_pci_driver(pch_dma_driver);
 
-static void __exit pch_dma_exit(void)
-{
-	pci_unregister_driver(&pch_dma_driver);
-}
-
-module_init(pch_dma_init);
-module_exit(pch_dma_exit);
-
-MODULE_DESCRIPTION("Intel EG20T PCH / OKI SEMICONDUCTOR ML7213 IOH "
+MODULE_DESCRIPTION("Intel EG20T PCH / LAPIS Semicon ML7213/ML7223/ML7831 IOH "
 		   "DMA controller driver");
 MODULE_AUTHOR("Yong Wang <yong.y.wang@intel.com>");
 MODULE_LICENSE("GPL v2");
+MODULE_DEVICE_TABLE(pci, pch_dma_id_table);

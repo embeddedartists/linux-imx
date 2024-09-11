@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * OpenRISC module.c
  *
@@ -7,11 +8,6 @@
  *
  * Modifications for the OpenRISC architecture:
  * Copyright (C) 2010-2011 Jonas Bonn <jonas@southpole.se>
- *
- *      This program is free software; you can redistribute it and/or
- *      modify it under the terms of the GNU General Public License
- *      as published by the Free Software Foundation; either version
- *      2 of the License, or (at your option) any later version.
  */
 
 #include <linux/moduleloader.h>
@@ -47,12 +43,10 @@ int apply_relocate_add(Elf32_Shdr *sechdrs,
 			*location = value;
 			break;
 		case R_OR32_CONST:
-			location = (uint16_t *)location + 1;
-			*((uint16_t *)location) = (uint16_t) (value);
+			*((uint16_t *)location + 1) = value;
 			break;
 		case R_OR32_CONSTH:
-			location = (uint16_t *)location + 1;
-			*((uint16_t *)location) = (uint16_t) (value >> 16);
+			*((uint16_t *)location + 1) = value >> 16;
 			break;
 		case R_OR32_JUMPTARG:
 			value -= (uint32_t)location;

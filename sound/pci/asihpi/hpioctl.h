@@ -1,27 +1,16 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*******************************************************************************
 
     AudioScience HPI driver
     Copyright (C) 1997-2011  AudioScience Inc. <support@audioscience.com>
 
-    This program is free software; you can redistribute it and/or modify
-    it under the terms of version 2 of the GNU General Public License as
-    published by the Free Software Foundation;
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program; if not, write to the Free Software
-    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 Linux HPI ioctl, and shared module init functions
 *******************************************************************************/
 
-int __devinit asihpi_adapter_probe(struct pci_dev *pci_dev,
-	const struct pci_device_id *pci_id);
-void __devexit asihpi_adapter_remove(struct pci_dev *pci_dev);
+int asihpi_adapter_probe(struct pci_dev *pci_dev,
+			 const struct pci_device_id *pci_id);
+void asihpi_adapter_remove(struct pci_dev *pci_dev);
 void __init asihpi_init(void);
 void __exit asihpi_exit(void);
 

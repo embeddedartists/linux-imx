@@ -1,18 +1,11 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2005-2010 Brocade Communications Systems, Inc.
+ * Copyright (c) 2005-2014 Brocade Communications Systems, Inc.
+ * Copyright (c) 2014- QLogic Corporation.
  * All rights reserved
- * www.brocade.com
+ * www.qlogic.com
  *
- * Linux driver for Brocade Fibre Channel Host Bus Adapter.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License (GPL) Version 2 as
- * published by the Free Software Foundation
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
+ * Linux driver for QLogic BR-series Fibre Channel Host Bus Adapter.
  */
 
 #include "bfad_drv.h"
@@ -95,14 +88,11 @@ bfa_port_get_stats_isr(struct bfa_port_s *port, bfa_status_t status)
 	port->stats_busy = BFA_FALSE;
 
 	if (status == BFA_STATUS_OK) {
-		struct timeval tv;
-
 		memcpy(port->stats, port->stats_dma.kva,
 		       sizeof(union bfa_port_stats_u));
 		bfa_port_stats_swap(port, port->stats);
 
-		do_gettimeofday(&tv);
-		port->stats->fc.secs_reset = tv.tv_sec - port->stats_reset_time;
+		port->stats->fc.secs_reset = ktime_get_seconds() - port->stats_reset_time;
 	}
 
 	if (port->stats_cbfn) {
@@ -123,16 +113,13 @@ bfa_port_get_stats_isr(struct bfa_port_s *port, bfa_status_t status)
 static void
 bfa_port_clear_stats_isr(struct bfa_port_s *port, bfa_status_t status)
 {
-	struct timeval tv;
-
 	port->stats_status = status;
 	port->stats_busy   = BFA_FALSE;
 
 	/*
 	* re-initialize time stamp for stats reset
 	*/
-	do_gettimeofday(&tv);
-	port->stats_reset_time = tv.tv_sec;
+	port->stats_reset_time = ktime_get_seconds();
 
 	if (port->stats_cbfn) {
 		port->stats_cbfn(port->stats_cbarg, status);
@@ -250,6 +237,12 @@ bfa_port_enable(struct bfa_port_s *port, bfa_port_endis_cbfn_t cbfn,
 		return BFA_STATUS_IOC_FAILURE;
 	}
 
+	/* if port is d-port enabled, return error */
+	if (port->dport_enabled) {
+		bfa_trc(port, BFA_STATUS_DPORT_ERR);
+		return BFA_STATUS_DPORT_ERR;
+	}
+
 	if (port->endis_pending) {
 		bfa_trc(port, BFA_STATUS_DEVBUSY);
 		return BFA_STATUS_DEVBUSY;
@@ -298,6 +291,12 @@ bfa_port_disable(struct bfa_port_s *port, bfa_port_endis_cbfn_t cbfn,
 	if (!bfa_ioc_is_operational(port->ioc)) {
 		bfa_trc(port, BFA_STATUS_IOC_FAILURE);
 		return BFA_STATUS_IOC_FAILURE;
+	}
+
+	/* if port is d-port enabled, return error */
+	if (port->dport_enabled) {
+		bfa_trc(port, BFA_STATUS_DPORT_ERR);
+		return BFA_STATUS_DPORT_ERR;
 	}
 
 	if (port->endis_pending) {
@@ -431,6 +430,10 @@ bfa_port_notify(void *arg, enum bfa_ioc_event_e event)
 			port->endis_cbfn = NULL;
 			port->endis_pending = BFA_FALSE;
 		}
+
+		/* clear D-port mode */
+		if (port->dport_enabled)
+			bfa_port_set_dportenabled(port, BFA_FALSE);
 		break;
 	default:
 		break;
@@ -454,8 +457,6 @@ void
 bfa_port_attach(struct bfa_port_s *port, struct bfa_ioc_s *ioc,
 		 void *dev, struct bfa_trc_mod_s *trcmod)
 {
-	struct timeval tv;
-
 	WARN_ON(!port);
 
 	port->dev    = dev;
@@ -467,6 +468,7 @@ bfa_port_attach(struct bfa_port_s *port, struct bfa_ioc_s *ioc,
 	port->stats_cbfn = NULL;
 	port->endis_cbfn = NULL;
 	port->pbc_disabled = BFA_FALSE;
+	port->dport_enabled = BFA_FALSE;
 
 	bfa_ioc_mbox_regisr(port->ioc, BFI_MC_PORT, bfa_port_isr, port);
 	bfa_q_qe_init(&port->ioc_notify);
@@ -476,10 +478,24 @@ bfa_port_attach(struct bfa_port_s *port, struct bfa_ioc_s *ioc,
 	/*
 	 * initialize time stamp for stats reset
 	 */
-	do_gettimeofday(&tv);
-	port->stats_reset_time = tv.tv_sec;
+	port->stats_reset_time = ktime_get_seconds();
 
 	bfa_trc(port, 0);
+}
+
+/*
+ * bfa_port_set_dportenabled();
+ *
+ * Port module- set pbc disabled flag
+ *
+ * @param[in] port - Pointer to the Port module data structure
+ *
+ * @return void
+ */
+void
+bfa_port_set_dportenabled(struct bfa_port_s *port, bfa_boolean_t enabled)
+{
+	port->dport_enabled = enabled;
 }
 
 /*
@@ -740,7 +756,7 @@ bfa_cee_reset_stats(struct bfa_cee_s *cee,
  * @return void
  */
 
-void
+static void
 bfa_cee_isr(void *cbarg, struct bfi_mbmsg_s *m)
 {
 	union bfi_cee_i2h_msg_u *msg;
@@ -776,7 +792,7 @@ bfa_cee_isr(void *cbarg, struct bfi_mbmsg_s *m)
  * @return void
  */
 
-void
+static void
 bfa_cee_notify(void *arg, enum bfa_ioc_event_e event)
 {
 	struct bfa_cee_s *cee = (struct bfa_cee_s *) arg;

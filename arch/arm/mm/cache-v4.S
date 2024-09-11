@@ -1,14 +1,12 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  *  linux/arch/arm/mm/cache-v4.S
  *
  *  Copyright (C) 1997-2002 Russell king
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 #include <linux/linkage.h>
 #include <linux/init.h>
+#include <asm/assembler.h>
 #include <asm/page.h>
 #include "proc-macros.S"
 
@@ -18,7 +16,7 @@
  *	Unconditionally clean and invalidate the entire icache.
  */
 ENTRY(v4_flush_icache_all)
-	mov	pc, lr
+	ret	lr
 ENDPROC(v4_flush_icache_all)
 
 /*
@@ -40,7 +38,7 @@ ENTRY(v4_flush_kern_cache_all)
 #ifdef CONFIG_CPU_CP15
 	mov	r0, #0
 	mcr	p15, 0, r0, c7, c7, 0		@ flush ID cache
-	mov	pc, lr
+	ret	lr
 #else
 	/* FALLTHROUGH */
 #endif
@@ -58,8 +56,8 @@ ENTRY(v4_flush_kern_cache_all)
 ENTRY(v4_flush_user_cache_range)
 #ifdef CONFIG_CPU_CP15
 	mov	ip, #0
-	mcreq	p15, 0, ip, c7, c7, 0		@ flush ID cache
-	mov	pc, lr
+	mcr	p15, 0, ip, c7, c7, 0		@ flush ID cache
+	ret	lr
 #else
 	/* FALLTHROUGH */
 #endif
@@ -88,7 +86,8 @@ ENTRY(v4_coherent_kern_range)
  *	- end	 - virtual end address
  */
 ENTRY(v4_coherent_user_range)
-	mov	pc, lr
+	mov	r0, #0
+	ret	lr
 
 /*
  *	flush_kern_dcache_area(void *addr, size_t size)
@@ -115,7 +114,7 @@ ENTRY(v4_dma_flush_range)
 	mov	r0, #0
 	mcr	p15, 0, r0, c7, c7, 0		@ flush ID cache
 #endif
-	mov	pc, lr
+	ret	lr
 
 /*
  *	dma_unmap_area(start, size, dir)
@@ -135,9 +134,12 @@ ENTRY(v4_dma_unmap_area)
  *	- dir	- DMA direction
  */
 ENTRY(v4_dma_map_area)
-	mov	pc, lr
+	ret	lr
 ENDPROC(v4_dma_unmap_area)
 ENDPROC(v4_dma_map_area)
+
+	.globl	v4_flush_kern_cache_louis
+	.equ	v4_flush_kern_cache_louis, v4_flush_kern_cache_all
 
 	__INITDATA
 

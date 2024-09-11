@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _ASM_X86_KGDB_H
 #define _ASM_X86_KGDB_H
 
@@ -5,6 +6,8 @@
  * Copyright (C) 2001-2004 Amit S. Kale
  * Copyright (C) 2008 Wind River Systems, Inc.
  */
+
+#include <asm/ptrace.h>
 
 /*
  * BUFMAX defines the maximum number of characters in inbound/outbound
@@ -64,11 +67,15 @@ enum regnames {
 	GDB_PS,			/* 17 */
 	GDB_CS,			/* 18 */
 	GDB_SS,			/* 19 */
+	GDB_DS,			/* 20 */
+	GDB_ES,			/* 21 */
+	GDB_FS,			/* 22 */
+	GDB_GS,			/* 23 */
 };
 #define GDB_ORIG_AX		57
-#define DBG_MAX_REG_NUM		20
-/* 17 64 bit regs and 3 32 bit regs */
-#define NUMREGBYTES		((17 * 8) + (3 * 4))
+#define DBG_MAX_REG_NUM		24
+/* 17 64 bit regs and 5 32 bit regs */
+#define NUMREGBYTES		((17 * 8) + (5 * 4))
 #endif /* ! CONFIG_X86_32 */
 
 static inline void arch_kgdb_breakpoint(void)

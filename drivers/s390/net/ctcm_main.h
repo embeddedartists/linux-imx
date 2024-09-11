@@ -1,6 +1,5 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
- *	drivers/s390/net/ctcm_main.h
- *
  *	Copyright IBM Corp. 2001, 2007
  *	Authors:	Fritz Elfert (felfert@millenux.com)
  *			Peter Tiedemann (ptiedem@de.ibm.com)
@@ -123,7 +122,7 @@ struct ctcm_profile {
 	unsigned long doios_multi;
 	unsigned long txlen;
 	unsigned long tx_time;
-	struct timespec send_stamp;
+	unsigned long send_stamp;
 };
 
 /*
@@ -225,13 +224,7 @@ struct ctcm_priv {
 int ctcm_open(struct net_device *dev);
 int ctcm_close(struct net_device *dev);
 
-/*
- * prototypes for non-static sysfs functions
- */
-int ctcm_add_attributes(struct device *dev);
-void ctcm_remove_attributes(struct device *dev);
-int ctcm_add_files(struct device *dev);
-void ctcm_remove_files(struct device *dev);
+extern const struct attribute_group *ctcm_attr_groups[];
 
 /*
  * Compatibility macros for busy handling
@@ -304,11 +297,6 @@ struct mpc_group *ctcmpc_init_mpc_group(struct ctcm_priv *priv);
 
 /* test if struct ctcm_priv of struct net_device has MPC protocol setting */
 #define IS_MPCDEV(dev) IS_MPC((struct ctcm_priv *)dev->ml_priv)
-
-static inline gfp_t gfp_type(void)
-{
-	return in_interrupt() ? GFP_ATOMIC : GFP_KERNEL;
-}
 
 /*
  * Definition of our link level header.

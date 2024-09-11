@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (C) 2007-2009 Texas Instruments Inc
  * Copyright (C) 2007 MontaVista Software, Inc.
@@ -6,27 +7,15 @@
  * - Initial version
  * Murali Karicheri (mkaricheri@gmail.com), Texas Instruments Ltd.
  * - ported to sub device interface
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation version 2..
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
- *
  */
 #ifndef _OSD_H
 #define _OSD_H
 
 #include <media/davinci/vpbe_types.h>
 
-#define VPBE_OSD_SUBDEV_NAME "vpbe-osd"
+#define DM644X_VPBE_OSD_SUBDEV_NAME	"dm644x,vpbe-osd"
+#define DM365_VPBE_OSD_SUBDEV_NAME	"dm365,vpbe-osd"
+#define DM355_VPBE_OSD_SUBDEV_NAME	"dm355,vpbe-osd"
 
 /**
  * enum osd_layer
@@ -65,9 +54,9 @@ enum osd_win_layer {
  * @PIXFMT_4BPP: 4-bits-per-pixel bitmap
  * @PIXFMT_8BPP: 8-bits-per-pixel bitmap
  * @PIXFMT_RGB565: 16-bits-per-pixel RGB565
- * @PIXFMT_YCbCrI: YUV 4:2:2
+ * @PIXFMT_YCBCRI: YUV 4:2:2
  * @PIXFMT_RGB888: 24-bits-per-pixel RGB888
- * @PIXFMT_YCrCbI: YUV 4:2:2 with chroma swap
+ * @PIXFMT_YCRCBI: YUV 4:2:2 with chroma swap
  * @PIXFMT_NV12: YUV 4:2:0 planar
  * @PIXFMT_OSD_ATTR: OSD Attribute Window pixel format (4bpp)
  *
@@ -80,9 +69,9 @@ enum osd_pix_format {
 	PIXFMT_4BPP,
 	PIXFMT_8BPP,
 	PIXFMT_RGB565,
-	PIXFMT_YCbCrI,
+	PIXFMT_YCBCRI,
 	PIXFMT_RGB888,
-	PIXFMT_YCrCbI,
+	PIXFMT_YCRCBI,
 	PIXFMT_NV12,
 	PIXFMT_OSD_ATTR,
 };
@@ -221,7 +210,7 @@ enum osd_cursor_h_width {
 };
 
 /**
- * enum davinci_cursor_v_width
+ * enum osd_cursor_v_width
  * @V_WIDTH_1: vertical line width is 1 line
  * @V_WIDTH_2: vertical line width is 2 lines
  * @V_WIDTH_4: vertical line width is 4 lines
@@ -357,7 +346,7 @@ struct osd_state {
 	spinlock_t lock;
 	struct device *dev;
 	dma_addr_t osd_base_phys;
-	unsigned long osd_base;
+	void __iomem *osd_base;
 	unsigned long osd_size;
 	/* 1-->the isr will toggle the VID0 ping-pong buffer */
 	int pingpong;
@@ -387,7 +376,6 @@ struct osd_state {
 };
 
 struct osd_platform_data {
-	enum vpbe_version vpbe_type;
 	int  field_inv_wa_enable;
 };
 

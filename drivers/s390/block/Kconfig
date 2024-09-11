@@ -1,19 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0
 comment "S/390 block device drivers"
 	depends on S390 && BLOCK
 
-config BLK_DEV_XPRAM
-	def_tristate m
-	prompt "XPRAM disk support"
-	depends on S390 && BLOCK
-	help
-	  Select this option if you want to use your expanded storage on S/390
-	  or zSeries as a disk.  This is useful as a _fast_ swap device if you
-	  want to access more than 2G of memory when running in 31 bit mode.
-	  This option is also available as a module which will be called
-	  xpram.  If unsure, say "N".
-
 config DCSSBLK
 	def_tristate m
+	select FS_DAX_LIMITED
+	select DAX_DRIVER
 	prompt "DCSSBLK support"
 	depends on S390 && BLOCK
 	help
@@ -23,7 +15,6 @@ config DASD
 	def_tristate y
 	prompt "Support for DASD devices"
 	depends on CCW && BLOCK
-	select IOSCHED_DEADLINE
 	help
 	  Enable this option if you want to access DASDs directly utilizing
 	  S/390s channel subsystem commands. This is necessary for running
@@ -35,7 +26,7 @@ config DASD_PROFILE
 	depends on DASD
 	help
 	  Enable this option if you want to see profiling information
-          in /proc/dasd/statistics.
+	  in /proc/dasd/statistics.
 
 config DASD_ECKD
 	def_tristate y
@@ -70,3 +61,14 @@ config DASD_EER
 	  This driver provides a character device interface to the
 	  DASD extended error reporting. This is only needed if you want to
 	  use applications written for the EER facility.
+
+config SCM_BLOCK
+	def_tristate m
+	prompt "Support for Storage Class Memory"
+	depends on S390 && BLOCK && EADM_SCH && SCM_BUS
+	help
+	  Block device driver for Storage Class Memory (SCM). This driver
+	  provides a block device interface for each available SCM increment.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called scm_block.

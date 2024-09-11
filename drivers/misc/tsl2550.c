@@ -1,26 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  tsl2550.c - Linux kernel modules for ambient light sensor
  *
  *  Copyright (C) 2007 Rodolfo Giometti <giometti@linux.it>
  *  Copyright (C) 2007 Eurotech S.p.A. <info@eurotech.it>
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
- *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with this program; if not, write to the Free Software
- *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 #include <linux/module.h>
-#include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/i2c.h>
 #include <linux/mutex.h>
@@ -162,23 +148,21 @@ static int tsl2550_calculate_lux(u8 ch0, u8 ch1)
 	u16 c0 = count_lut[ch0];
 	u16 c1 = count_lut[ch1];
 
-	/*
-	 * Calculate ratio.
-	 * Note: the "128" is a scaling factor
-	 */
-	u8 r = 128;
-
 	/* Avoid division by 0 and count 1 cannot be greater than count 0 */
 	if (c1 <= c0)
 		if (c0) {
-			r = c1 * 128 / c0;
+			/*
+			 * Calculate ratio.
+			 * Note: the "128" is a scaling factor
+			 */
+			u8 r = c1 * 128 / c0;
 
 			/* Calculate LUX */
 			lux = ((c0 - c1) * ratio_lut[r]) / 256;
 		} else
 			lux = 0;
 	else
-		return -EAGAIN;
+		return 0;
 
 	/* LUX range check */
 	return lux > TSL2550_MAX_LUX ? TSL2550_MAX_LUX : lux;
@@ -204,7 +188,7 @@ static ssize_t tsl2550_store_power_state(struct device *dev,
 	unsigned long val = simple_strtoul(buf, NULL, 10);
 	int ret;
 
-	if (val < 0 || val > 1)
+	if (val > 1)
 		return -EINVAL;
 
 	mutex_lock(&data->update_lock);
@@ -236,7 +220,7 @@ static ssize_t tsl2550_store_operating_mode(struct device *dev,
 	unsigned long val = simple_strtoul(buf, NULL, 10);
 	int ret;
 
-	if (val < 0 || val > 1)
+	if (val > 1)
 		return -EINVAL;
 
 	if (data->power_state == 0)
@@ -347,10 +331,10 @@ static int tsl2550_init_client(struct i2c_client *client)
  */
 
 static struct i2c_driver tsl2550_driver;
-static int __devinit tsl2550_probe(struct i2c_client *client,
+static int tsl2550_probe(struct i2c_client *client,
 				   const struct i2c_device_id *id)
 {
-	struct i2c_adapter *adapter = to_i2c_adapter(client->dev.parent);
+	struct i2c_adapter *adapter = client->adapter;
 	struct tsl2550_data *data;
 	int *opmode, err = 0;
 
@@ -405,7 +389,7 @@ exit:
 	return err;
 }
 
-static int __devexit tsl2550_remove(struct i2c_client *client)
+static int tsl2550_remove(struct i2c_client *client)
 {
 	sysfs_remove_group(&client->dev.kobj, &tsl2550_attr_group);
 
@@ -417,24 +401,26 @@ static int __devexit tsl2550_remove(struct i2c_client *client)
 	return 0;
 }
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 
-static int tsl2550_suspend(struct i2c_client *client, pm_message_t mesg)
+static int tsl2550_suspend(struct device *dev)
 {
-	return tsl2550_set_power_state(client, 0);
+	return tsl2550_set_power_state(to_i2c_client(dev), 0);
 }
 
-static int tsl2550_resume(struct i2c_client *client)
+static int tsl2550_resume(struct device *dev)
 {
-	return tsl2550_set_power_state(client, 1);
+	return tsl2550_set_power_state(to_i2c_client(dev), 1);
 }
+
+static SIMPLE_DEV_PM_OPS(tsl2550_pm_ops, tsl2550_suspend, tsl2550_resume);
+#define TSL2550_PM_OPS (&tsl2550_pm_ops)
 
 #else
 
-#define tsl2550_suspend		NULL
-#define tsl2550_resume		NULL
+#define TSL2550_PM_OPS NULL
 
-#endif /* CONFIG_PM */
+#endif /* CONFIG_PM_SLEEP */
 
 static const struct i2c_device_id tsl2550_id[] = {
 	{ "tsl2550", 0 },
@@ -442,32 +428,26 @@ static const struct i2c_device_id tsl2550_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, tsl2550_id);
 
+static const struct of_device_id tsl2550_of_match[] = {
+	{ .compatible = "taos,tsl2550" },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, tsl2550_of_match);
+
 static struct i2c_driver tsl2550_driver = {
 	.driver = {
 		.name	= TSL2550_DRV_NAME,
-		.owner	= THIS_MODULE,
+		.of_match_table = tsl2550_of_match,
+		.pm	= TSL2550_PM_OPS,
 	},
-	.suspend = tsl2550_suspend,
-	.resume	= tsl2550_resume,
 	.probe	= tsl2550_probe,
-	.remove	= __devexit_p(tsl2550_remove),
+	.remove	= tsl2550_remove,
 	.id_table = tsl2550_id,
 };
 
-static int __init tsl2550_init(void)
-{
-	return i2c_add_driver(&tsl2550_driver);
-}
-
-static void __exit tsl2550_exit(void)
-{
-	i2c_del_driver(&tsl2550_driver);
-}
+module_i2c_driver(tsl2550_driver);
 
 MODULE_AUTHOR("Rodolfo Giometti <giometti@linux.it>");
 MODULE_DESCRIPTION("TSL2550 ambient light sensor driver");
 MODULE_LICENSE("GPL");
 MODULE_VERSION(DRIVER_VERSION);
-
-module_init(tsl2550_init);
-module_exit(tsl2550_exit);

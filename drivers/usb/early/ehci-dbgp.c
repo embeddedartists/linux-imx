@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Standalone EHCI usb debug driver
  *
@@ -13,7 +14,8 @@
 
 #include <linux/console.h>
 #include <linux/errno.h>
-#include <linux/module.h>
+#include <linux/init.h>
+#include <linux/iopoll.h>
 #include <linux/pci_regs.h>
 #include <linux/pci_ids.h>
 #include <linux/usb/ch9.h>
@@ -160,17 +162,11 @@ static inline u32 dbgp_pid_read_update(u32 x, u32 tok)
 static int dbgp_wait_until_complete(void)
 {
 	u32 ctrl;
-	int loop = DBGP_TIMEOUT;
+	int ret;
 
-	do {
-		ctrl = readl(&ehci_debug->control);
-		/* Stop when the transaction is finished */
-		if (ctrl & DBGP_DONE)
-			break;
-		udelay(1);
-	} while (--loop > 0);
-
-	if (!loop)
+	ret = readl_poll_timeout_atomic(&ehci_debug->control, ctrl,
+				(ctrl & DBGP_DONE), 1, DBGP_TIMEOUT);
+	if (ret)
 		return -DBGP_TIMEOUT;
 
 	/*
@@ -334,7 +330,7 @@ static int dbgp_control_msg(unsigned devnum, int requesttype,
 	int ret;
 
 	read = (requesttype & USB_DIR_IN) != 0;
-	if (size > (read ? DBGP_MAX_PACKET:0))
+	if (size > (read ? DBGP_MAX_PACKET : 0))
 		return -1;
 
 	/* Compute the control message */
@@ -450,7 +446,7 @@ static int dbgp_ehci_startup(void)
 	writel(FLAG_CF, &ehci_regs->configured_flag);
 
 	/* Wait until the controller is no longer halted */
-	loop = 10;
+	loop = 1000;
 	do {
 		status = readl(&ehci_regs->status);
 		if (!(status & STS_HALT))
@@ -491,7 +487,7 @@ static int ehci_wait_for_port(int port);
  * Return -ENODEV for any general failure
  * Return -EIO if wait for port fails
  */
-int dbgp_external_startup(void)
+static int _dbgp_external_startup(void)
 {
 	int devnum;
 	struct usb_debug_descriptor dbgp_desc;
@@ -567,10 +563,6 @@ try_again:
 		dbgp_printk("Could not find attached debug device\n");
 		goto err;
 	}
-	if (ret < 0) {
-		dbgp_printk("Attached device is not a debug device\n");
-		goto err;
-	}
 	dbgp_endpoint_out = dbgp_desc.bDebugOutEndpoint;
 	dbgp_endpoint_in = dbgp_desc.bDebugInEndpoint;
 
@@ -584,7 +576,6 @@ try_again:
 				USB_DEBUG_DEVNUM);
 			goto err;
 		}
-		devnum = USB_DEBUG_DEVNUM;
 		dbgp_printk("debug device renamed to 127\n");
 	}
 
@@ -613,7 +604,6 @@ err:
 		goto try_again;
 	return -ENODEV;
 }
-EXPORT_SYMBOL_GPL(dbgp_external_startup);
 
 static int ehci_reset_port(int port)
 {
@@ -636,28 +626,28 @@ static int ehci_reset_port(int port)
 		if (!(portsc & PORT_RESET))
 			break;
 	}
-		if (portsc & PORT_RESET) {
-			/* force reset to complete */
-			loop = 100 * 1000;
-			writel(portsc & ~(PORT_RWC_BITS | PORT_RESET),
-				&ehci_regs->port_status[port - 1]);
-			do {
-				udelay(1);
-				portsc = readl(&ehci_regs->port_status[port-1]);
-			} while ((portsc & PORT_RESET) && (--loop > 0));
-		}
+	if (portsc & PORT_RESET) {
+		/* force reset to complete */
+		loop = 100 * 1000;
+		writel(portsc & ~(PORT_RWC_BITS | PORT_RESET),
+			&ehci_regs->port_status[port - 1]);
+		do {
+			udelay(1);
+			portsc = readl(&ehci_regs->port_status[port-1]);
+		} while ((portsc & PORT_RESET) && (--loop > 0));
+	}
 
-		/* Device went away? */
-		if (!(portsc & PORT_CONNECT))
-			return -ENOTCONN;
+	/* Device went away? */
+	if (!(portsc & PORT_CONNECT))
+		return -ENOTCONN;
 
-		/* bomb out completely if something weird happened */
-		if ((portsc & PORT_CSC))
-			return -EINVAL;
+	/* bomb out completely if something weird happened */
+	if ((portsc & PORT_CSC))
+		return -EINVAL;
 
-		/* If we've finished resetting, then break out of the loop */
-		if (!(portsc & PORT_RESET) && (portsc & PORT_PE))
-			return 0;
+	/* If we've finished resetting, then break out of the loop */
+	if (!(portsc & PORT_RESET) && (portsc & PORT_PE))
+		return 0;
 	return -EBUSY;
 }
 
@@ -804,7 +794,7 @@ try_next_port:
 		dbgp_ehci_status("ehci skip - already configured");
 	}
 
-	ret = dbgp_external_startup();
+	ret = _dbgp_external_startup();
 	if (ret == -EIO)
 		goto next_debug_port;
 
@@ -917,7 +907,7 @@ int __init early_dbgp_init(char *s)
 
 static void early_dbgp_write(struct console *con, const char *str, u32 n)
 {
-	int chunk, ret;
+	int chunk;
 	char buf[DBGP_MAX_PACKET];
 	int use_cr = 0;
 	u32 cmd, ctrl;
@@ -934,7 +924,7 @@ static void early_dbgp_write(struct console *con, const char *str, u32 n)
 		ctrl = readl(&ehci_debug->control);
 		if (!(ctrl & DBGP_ENABLED)) {
 			dbgp_not_safe = 1;
-			dbgp_external_startup();
+			_dbgp_external_startup();
 		} else {
 			cmd |= CMD_RUN;
 			writel(cmd, &ehci_regs->command);
@@ -956,8 +946,8 @@ static void early_dbgp_write(struct console *con, const char *str, u32 n)
 			buf[chunk] = *str;
 		}
 		if (chunk > 0) {
-			ret = dbgp_bulk_write(USB_DEBUG_DEVNUM,
-				      dbgp_endpoint_out, buf, chunk);
+			dbgp_bulk_write(USB_DEBUG_DEVNUM,
+					dbgp_endpoint_out, buf, chunk);
 		}
 	}
 	if (unlikely(reset_run)) {
@@ -974,9 +964,14 @@ struct console early_dbgp_console = {
 	.index =	-1,
 };
 
-int dbgp_reset_prep(void)
+#if IS_ENABLED(CONFIG_USB)
+int dbgp_reset_prep(struct usb_hcd *hcd)
 {
+	int ret = xen_dbgp_reset_prep(hcd);
 	u32 ctrl;
+
+	if (ret)
+		return ret;
 
 	dbgp_not_safe = 1;
 	if (!ehci_debug)
@@ -997,6 +992,13 @@ int dbgp_reset_prep(void)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(dbgp_reset_prep);
+
+int dbgp_external_startup(struct usb_hcd *hcd)
+{
+	return xen_dbgp_external_startup(hcd) ?: _dbgp_external_startup();
+}
+EXPORT_SYMBOL_GPL(dbgp_external_startup);
+#endif /* USB */
 
 #ifdef CONFIG_KGDB
 
@@ -1051,7 +1053,8 @@ static int __init kgdbdbgp_parse_config(char *str)
 		kgdbdbgp_wait_time = simple_strtoul(ptr, &ptr, 10);
 	}
 	kgdb_register_io_module(&kgdbdbgp_io_ops);
-	kgdbdbgp_io_ops.is_console = early_dbgp_console.index != -1;
+	if (early_dbgp_console.index != -1)
+		kgdbdbgp_io_ops.cons = &early_dbgp_console;
 
 	return 0;
 }
@@ -1085,5 +1088,5 @@ static int __init kgdbdbgp_start_thread(void)
 
 	return 0;
 }
-module_init(kgdbdbgp_start_thread);
+device_initcall(kgdbdbgp_start_thread);
 #endif /* CONFIG_KGDB */

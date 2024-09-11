@@ -1,6 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2001 - 2007 Jeff Dike (jdike@{linux.intel,addtoit}.com)
- * Licensed under the GPL
  */
 
 #include <stdio.h>
@@ -9,8 +9,8 @@
 #include <errno.h>
 #include <termios.h>
 #include "chan_user.h"
-#include "os.h"
-#include "um_malloc.h"
+#include <os.h>
+#include <um_malloc.h>
 
 struct fd_chan {
 	int fd;

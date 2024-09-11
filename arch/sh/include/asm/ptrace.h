@@ -1,49 +1,46 @@
-#ifndef __ASM_SH_PTRACE_H
-#define __ASM_SH_PTRACE_H
-
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Copyright (C) 1999, 2000  Niibe Yutaka
  */
+#ifndef __ASM_SH_PTRACE_H
+#define __ASM_SH_PTRACE_H
 
-#define PTRACE_GETREGS		12	/* General registers */
-#define PTRACE_SETREGS		13
-
-#define PTRACE_GETFPREGS	14	/* FPU registers */
-#define PTRACE_SETFPREGS	15
-
-#define PTRACE_GETFDPIC		31	/* get the ELF fdpic loadmap address */
-
-#define PTRACE_GETFDPIC_EXEC	0	/* [addr] request the executable loadmap */
-#define PTRACE_GETFDPIC_INTERP	1	/* [addr] request the interpreter loadmap */
-
-#define	PTRACE_GETDSPREGS	55	/* DSP registers */
-#define	PTRACE_SETDSPREGS	56
-
-#define PT_TEXT_END_ADDR	240
-#define PT_TEXT_ADDR		244	/* &(struct user)->start_code */
-#define PT_DATA_ADDR		248	/* &(struct user)->start_data */
-#define PT_TEXT_LEN		252
-
-#if defined(__SH5__) || defined(CONFIG_CPU_SH5)
-#include "ptrace_64.h"
-#else
-#include "ptrace_32.h"
-#endif
-
-#ifdef __KERNEL__
 
 #include <linux/stringify.h>
 #include <linux/stddef.h>
 #include <linux/thread_info.h>
 #include <asm/addrspace.h>
 #include <asm/page.h>
-#include <asm/system.h>
+#include <uapi/asm/ptrace.h>
 
 #define user_mode(regs)			(((regs)->sr & 0x40000000)==0)
 #define kernel_stack_pointer(_regs)	((unsigned long)(_regs)->regs[15])
 
-#define GET_FP(regs)	((regs)->regs[14])
-#define GET_USP(regs)	((regs)->regs[15])
+static inline unsigned long instruction_pointer(struct pt_regs *regs)
+{
+	return regs->pc;
+}
+static inline void instruction_pointer_set(struct pt_regs *regs,
+		unsigned long val)
+{
+	regs->pc = val;
+}
+
+static inline unsigned long frame_pointer(struct pt_regs *regs)
+{
+	return regs->regs[14];
+}
+
+static inline unsigned long user_stack_pointer(struct pt_regs *regs)
+{
+	return regs->regs[15];
+}
+
+static inline void user_stack_pointer_set(struct pt_regs *regs,
+		unsigned long val)
+{
+	regs->regs[15] = val;
+}
 
 #define arch_has_single_step()	(1)
 
@@ -138,9 +135,5 @@ static inline unsigned long profile_pc(struct pt_regs *regs)
 
 	return pc;
 }
-#define profile_pc profile_pc
-
-#include <asm-generic/ptrace.h>
-#endif /* __KERNEL__ */
 
 #endif /* __ASM_SH_PTRACE_H */

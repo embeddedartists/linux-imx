@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Register definitions and functions for:
  *  Philips UCB1400 driver
@@ -10,10 +11,6 @@
  * Spliting done by: Marek Vasut <marek.vasut@gmail.com>
  * If something doesn't work and it worked before spliting, e-mail me,
  * dont bother Nicolas please ;-)
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  *
  * This code is heavily based on ucb1x00-*.c copyrighted by Russell King
  * covering the UCB1100, UCB1200 and UCB1300..  Support for the UCB1400 has
@@ -83,15 +80,12 @@
 #define UCB_ID			0x7e
 #define UCB_ID_1400             0x4304
 
-struct ucb1400_gpio_data {
-	int gpio_offset;
-	int (*gpio_setup)(struct device *dev, int ngpio);
-	int (*gpio_teardown)(struct device *dev, int ngpio);
-};
-
 struct ucb1400_gpio {
 	struct gpio_chip	gc;
 	struct snd_ac97		*ac97;
+	int			gpio_offset;
+	int			(*gpio_setup)(struct device *dev, int ngpio);
+	int			(*gpio_teardown)(struct device *dev, int ngpio);
 };
 
 struct ucb1400_ts {
@@ -110,6 +104,9 @@ struct ucb1400 {
 
 struct ucb1400_pdata {
 	int	irq;
+	int	gpio_offset;
+	int	(*gpio_setup)(struct device *dev, int ngpio);
+	int	(*gpio_teardown)(struct device *dev, int ngpio);
 };
 
 static inline u16 ucb1400_reg_read(struct snd_ac97 *ac97, u16 reg)
@@ -161,11 +158,5 @@ static inline void ucb1400_adc_disable(struct snd_ac97 *ac97)
 
 unsigned int ucb1400_adc_read(struct snd_ac97 *ac97, u16 adc_channel,
 			      int adcsync);
-
-#ifdef CONFIG_GPIO_UCB1400
-void __init ucb1400_gpio_set_data(struct ucb1400_gpio_data *data);
-#else
-static inline void ucb1400_gpio_set_data(struct ucb1400_gpio_data *data) {}
-#endif
 
 #endif

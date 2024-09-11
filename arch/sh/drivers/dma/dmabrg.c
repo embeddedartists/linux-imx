@@ -1,9 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * SH7760 DMABRG IRQ handling
  *
  * (c) 2007 MSC Vertriebsges.m.b.H, Manuel Lauss <mlau@msc-ge.com>
- *  licensed under the GPLv2.
- *
  */
 
 #include <linux/interrupt.h>
@@ -154,7 +153,7 @@ static int __init dmabrg_init(void)
 	unsigned long or;
 	int ret;
 
-	dmabrg_handlers = kzalloc(10 * sizeof(struct dmabrg_handler),
+	dmabrg_handlers = kcalloc(10, sizeof(struct dmabrg_handler),
 				  GFP_KERNEL);
 	if (!dmabrg_handlers)
 		return -ENOMEM;
@@ -189,8 +188,8 @@ static int __init dmabrg_init(void)
 	if (ret == 0)
 		return ret;
 
-	free_irq(DMABRGI1, 0);
-out1:	free_irq(DMABRGI0, 0);
+	free_irq(DMABRGI1, NULL);
+out1:	free_irq(DMABRGI0, NULL);
 out0:	kfree(dmabrg_handlers);
 	return ret;
 }

@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * SDK7786 FPGA PCIe mux handling
  *
  * Copyright (C) 2010  Paul Mundt
- *
- * This file is subject to the terms and conditions of the GNU General Public
- * License.  See the file "COPYING" in the main directory of this archive
- * for more details.
  */
 #define pr_fmt(fmt) "PCI: " fmt
 
@@ -23,9 +20,9 @@
  * Misconfigurations can be detected through the FPGA via the slot
  * resistors to determine card presence. Hotplug remains unsupported.
  */
-static unsigned int slot4en __devinitdata;
+static unsigned int slot4en __initdata;
 
-char *__devinit pcibios_setup(char *str)
+char *__init pcibios_setup(char *str)
 {
 	if (strcmp(str, "slot4en") == 0) {
 		slot4en = 1;
@@ -56,7 +53,7 @@ static int __init sdk7786_pci_init(void)
 
 		/* Warn about forced rerouting if slot#3 is occupied */
 		if ((data & PCIECR_PRST3) == 0) {
-			pr_warning("Unreachable card detected in slot#3\n");
+			pr_warn("Unreachable card detected in slot#3\n");
 			return -EBUSY;
 		}
 	} else

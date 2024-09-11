@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __ASM_SH_MIGOR_H
 #define __ASM_SH_MIGOR_H
 
@@ -9,7 +10,7 @@
 
 #include <video/sh_mobile_lcdc.h>
 
-int migor_lcd_qvga_setup(void *board_data, void *sys_ops_handle,
+int migor_lcd_qvga_setup(void *sys_ops_handle,
 			 struct sh_mobile_lcdc_sys_bus_ops *sys_ops);
 
 #endif /* __ASM_SH_MIGOR_H */

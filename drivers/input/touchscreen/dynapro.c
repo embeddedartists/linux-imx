@@ -1,17 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Dynapro serial touchscreen driver
  *
  * Copyright (c) 2009 Tias Guns
  * Based on the inexio driver (c) Vojtech Pavlik and Dan Streetman and
  * Richard Lemon
- *
  */
 
-/*
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 as published by
- * the Free Software Foundation.
- */
 
 /*
  * 2009/09/19 Tias Guns <tias@ulyssis.org>
@@ -24,7 +19,6 @@
 #include <linux/slab.h>
 #include <linux/input.h>
 #include <linux/serio.h>
-#include <linux/init.h>
 
 #define DRIVER_DESC	"Dynapro serial touchscreen driver"
 
@@ -165,7 +159,7 @@ static int dynapro_connect(struct serio *serio, struct serio_driver *drv)
  * The serio driver structure.
  */
 
-static struct serio_device_id dynapro_serio_ids[] = {
+static const struct serio_device_id dynapro_serio_ids[] = {
 	{
 		.type	= SERIO_RS232,
 		.proto	= SERIO_DYNAPRO,
@@ -188,19 +182,4 @@ static struct serio_driver dynapro_drv = {
 	.disconnect	= dynapro_disconnect,
 };
 
-/*
- * The functions for inserting/removing us as a module.
- */
-
-static int __init dynapro_init(void)
-{
-	return serio_register_driver(&dynapro_drv);
-}
-
-static void __exit dynapro_exit(void)
-{
-	serio_unregister_driver(&dynapro_drv);
-}
-
-module_init(dynapro_init);
-module_exit(dynapro_exit);
+module_serio_driver(dynapro_drv);

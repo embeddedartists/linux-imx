@@ -1,5 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * drivers/net/ibm_newemac/zmii.c
+ * drivers/net/ethernet/ibm/emac/zmii.c
  *
  * Driver for PowerPC 4xx on-chip ethernet controller, ZMII bridge support.
  *
@@ -14,16 +15,11 @@
  * Based on original work by
  *      Armin Kuster <akuster@mvista.com>
  * 	Copyright 2001 MontaVista Softare Inc.
- *
- * This program is free software; you can redistribute  it and/or modify it
- * under  the terms of  the GNU General  Public License as published by the
- * Free Software Foundation;  either version 2 of the  License, or (at your
- * option) any later version.
- *
  */
 #include <linux/slab.h>
 #include <linux/kernel.h>
 #include <linux/ethtool.h>
+#include <linux/of_address.h>
 #include <asm/io.h>
 
 #include "emac.h"
@@ -48,20 +44,20 @@
  */
 static inline int zmii_valid_mode(int mode)
 {
-	return  mode == PHY_MODE_MII ||
-		mode == PHY_MODE_RMII ||
-		mode == PHY_MODE_SMII ||
-		mode == PHY_MODE_NA;
+	return  mode == PHY_INTERFACE_MODE_MII ||
+		mode == PHY_INTERFACE_MODE_RMII ||
+		mode == PHY_INTERFACE_MODE_SMII ||
+		mode == PHY_INTERFACE_MODE_NA;
 }
 
 static inline const char *zmii_mode_name(int mode)
 {
 	switch (mode) {
-	case PHY_MODE_MII:
+	case PHY_INTERFACE_MODE_MII:
 		return "MII";
-	case PHY_MODE_RMII:
+	case PHY_INTERFACE_MODE_RMII:
 		return "RMII";
-	case PHY_MODE_SMII:
+	case PHY_INTERFACE_MODE_SMII:
 		return "SMII";
 	default:
 		BUG();
@@ -71,20 +67,21 @@ static inline const char *zmii_mode_name(int mode)
 static inline u32 zmii_mode_mask(int mode, int input)
 {
 	switch (mode) {
-	case PHY_MODE_MII:
+	case PHY_INTERFACE_MODE_MII:
 		return ZMII_FER_MII(input);
-	case PHY_MODE_RMII:
+	case PHY_INTERFACE_MODE_RMII:
 		return ZMII_FER_RMII(input);
-	case PHY_MODE_SMII:
+	case PHY_INTERFACE_MODE_SMII:
 		return ZMII_FER_SMII(input);
 	default:
 		return 0;
 	}
 }
 
-int __devinit zmii_attach(struct platform_device *ofdev, int input, int *mode)
+int zmii_attach(struct platform_device *ofdev, int input,
+		phy_interface_t *mode)
 {
-	struct zmii_instance *dev = dev_get_drvdata(&ofdev->dev);
+	struct zmii_instance *dev = platform_get_drvdata(ofdev);
 	struct zmii_regs __iomem *p = dev->base;
 
 	ZMII_DBG(dev, "init(%d, %d)" NL, input, *mode);
@@ -105,30 +102,30 @@ int __devinit zmii_attach(struct platform_device *ofdev, int input, int *mode)
 	 * Please, always specify PHY mode in your board port to avoid
 	 * any surprises.
 	 */
-	if (dev->mode == PHY_MODE_NA) {
-		if (*mode == PHY_MODE_NA) {
+	if (dev->mode == PHY_INTERFACE_MODE_NA) {
+		if (*mode == PHY_INTERFACE_MODE_NA) {
 			u32 r = dev->fer_save;
 
 			ZMII_DBG(dev, "autodetecting mode, FER = 0x%08x" NL, r);
 
 			if (r & (ZMII_FER_MII(0) | ZMII_FER_MII(1)))
-				dev->mode = PHY_MODE_MII;
+				dev->mode = PHY_INTERFACE_MODE_MII;
 			else if (r & (ZMII_FER_RMII(0) | ZMII_FER_RMII(1)))
-				dev->mode = PHY_MODE_RMII;
+				dev->mode = PHY_INTERFACE_MODE_RMII;
 			else
-				dev->mode = PHY_MODE_SMII;
-		} else
+				dev->mode = PHY_INTERFACE_MODE_SMII;
+		} else {
 			dev->mode = *mode;
-
-		printk(KERN_NOTICE "%s: bridge in %s mode\n",
-		       ofdev->dev.of_node->full_name,
+		}
+		printk(KERN_NOTICE "%pOF: bridge in %s mode\n",
+		       ofdev->dev.of_node,
 		       zmii_mode_name(dev->mode));
 	} else {
 		/* All inputs must use the same mode */
-		if (*mode != PHY_MODE_NA && *mode != dev->mode) {
+		if (*mode != PHY_INTERFACE_MODE_NA && *mode != dev->mode) {
 			printk(KERN_ERR
-			       "%s: invalid mode %d specified for input %d\n",
-			       ofdev->dev.of_node->full_name, *mode, input);
+			       "%pOF: invalid mode %d specified for input %d\n",
+			       ofdev->dev.of_node, *mode, input);
 			mutex_unlock(&dev->lock);
 			return -EINVAL;
 		}
@@ -150,7 +147,7 @@ int __devinit zmii_attach(struct platform_device *ofdev, int input, int *mode)
 
 void zmii_get_mdio(struct platform_device *ofdev, int input)
 {
-	struct zmii_instance *dev = dev_get_drvdata(&ofdev->dev);
+	struct zmii_instance *dev = platform_get_drvdata(ofdev);
 	u32 fer;
 
 	ZMII_DBG2(dev, "get_mdio(%d)" NL, input);
@@ -163,7 +160,7 @@ void zmii_get_mdio(struct platform_device *ofdev, int input)
 
 void zmii_put_mdio(struct platform_device *ofdev, int input)
 {
-	struct zmii_instance *dev = dev_get_drvdata(&ofdev->dev);
+	struct zmii_instance *dev = platform_get_drvdata(ofdev);
 
 	ZMII_DBG2(dev, "put_mdio(%d)" NL, input);
 	mutex_unlock(&dev->lock);
@@ -172,7 +169,7 @@ void zmii_put_mdio(struct platform_device *ofdev, int input)
 
 void zmii_set_speed(struct platform_device *ofdev, int input, int speed)
 {
-	struct zmii_instance *dev = dev_get_drvdata(&ofdev->dev);
+	struct zmii_instance *dev = platform_get_drvdata(ofdev);
 	u32 ssr;
 
 	mutex_lock(&dev->lock);
@@ -193,7 +190,7 @@ void zmii_set_speed(struct platform_device *ofdev, int input, int speed)
 
 void zmii_detach(struct platform_device *ofdev, int input)
 {
-	struct zmii_instance *dev = dev_get_drvdata(&ofdev->dev);
+	struct zmii_instance *dev = platform_get_drvdata(ofdev);
 
 	BUG_ON(!dev || dev->users == 0);
 
@@ -218,7 +215,7 @@ int zmii_get_regs_len(struct platform_device *ofdev)
 
 void *zmii_dump_regs(struct platform_device *ofdev, void *buf)
 {
-	struct zmii_instance *dev = dev_get_drvdata(&ofdev->dev);
+	struct zmii_instance *dev = platform_get_drvdata(ofdev);
 	struct emac_ethtool_regs_subhdr *hdr = buf;
 	struct zmii_regs *regs = (struct zmii_regs *)(hdr + 1);
 
@@ -231,7 +228,7 @@ void *zmii_dump_regs(struct platform_device *ofdev, void *buf)
 	return regs + 1;
 }
 
-static int __devinit zmii_probe(struct platform_device *ofdev)
+static int zmii_probe(struct platform_device *ofdev)
 {
 	struct device_node *np = ofdev->dev.of_node;
 	struct zmii_instance *dev;
@@ -240,20 +237,16 @@ static int __devinit zmii_probe(struct platform_device *ofdev)
 
 	rc = -ENOMEM;
 	dev = kzalloc(sizeof(struct zmii_instance), GFP_KERNEL);
-	if (dev == NULL) {
-		printk(KERN_ERR "%s: could not allocate ZMII device!\n",
-		       np->full_name);
+	if (dev == NULL)
 		goto err_gone;
-	}
 
 	mutex_init(&dev->lock);
 	dev->ofdev = ofdev;
-	dev->mode = PHY_MODE_NA;
+	dev->mode = PHY_INTERFACE_MODE_NA;
 
 	rc = -ENXIO;
 	if (of_address_to_resource(np, 0, &regs)) {
-		printk(KERN_ERR "%s: Can't get registers address\n",
-		       np->full_name);
+		printk(KERN_ERR "%pOF: Can't get registers address\n", np);
 		goto err_free;
 	}
 
@@ -261,8 +254,7 @@ static int __devinit zmii_probe(struct platform_device *ofdev)
 	dev->base = (struct zmii_regs __iomem *)ioremap(regs.start,
 						sizeof(struct zmii_regs));
 	if (dev->base == NULL) {
-		printk(KERN_ERR "%s: Can't map device registers!\n",
-		       np->full_name);
+		printk(KERN_ERR "%pOF: Can't map device registers!\n", np);
 		goto err_free;
 	}
 
@@ -272,10 +264,9 @@ static int __devinit zmii_probe(struct platform_device *ofdev)
 	/* Disable all inputs by default */
 	out_be32(&dev->base->fer, 0);
 
-	printk(KERN_INFO
-	       "ZMII %s initialized\n", ofdev->dev.of_node->full_name);
+	printk(KERN_INFO "ZMII %pOF initialized\n", ofdev->dev.of_node);
 	wmb();
-	dev_set_drvdata(&ofdev->dev, dev);
+	platform_set_drvdata(ofdev, dev);
 
 	return 0;
 
@@ -285,11 +276,9 @@ static int __devinit zmii_probe(struct platform_device *ofdev)
 	return rc;
 }
 
-static int __devexit zmii_remove(struct platform_device *ofdev)
+static int zmii_remove(struct platform_device *ofdev)
 {
-	struct zmii_instance *dev = dev_get_drvdata(&ofdev->dev);
-
-	dev_set_drvdata(&ofdev->dev, NULL);
+	struct zmii_instance *dev = platform_get_drvdata(ofdev);
 
 	WARN_ON(dev->users != 0);
 
@@ -299,7 +288,7 @@ static int __devexit zmii_remove(struct platform_device *ofdev)
 	return 0;
 }
 
-static struct of_device_id zmii_match[] =
+static const struct of_device_id zmii_match[] =
 {
 	{
 		.compatible	= "ibm,zmii",
@@ -314,7 +303,6 @@ static struct of_device_id zmii_match[] =
 static struct platform_driver zmii_driver = {
 	.driver = {
 		.name = "emac-zmii",
-		.owner = THIS_MODULE,
 		.of_match_table = zmii_match,
 	},
 	.probe = zmii_probe,

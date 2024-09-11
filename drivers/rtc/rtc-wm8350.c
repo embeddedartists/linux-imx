@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *	Real Time Clock driver for Wolfson Microelectronics WM8350
  *
@@ -5,12 +6,6 @@
  *
  *  Author: Liam Girdwood
  *          linux@wolfsonmicro.com
- *
- *  This program is free software; you can redistribute  it and/or modify it
- *  under  the terms of  the GNU General  Public License as published by the
- *  Free Software Foundation;  either version 2 of the  License, or (at your
- *  option) any later version.
- *
  */
 
 #include <linux/module.h>
@@ -29,8 +24,6 @@
 #define WM8350_SET_ALM_RETRIES	5
 #define WM8350_SET_TIME_RETRIES	5
 #define WM8350_GET_TIME_RETRIES	5
-
-#define to_wm8350_from_rtc_dev(d) container_of(d, struct wm8350, rtc.pdev.dev)
 
 /*
  * Read current time and date in RTC
@@ -339,11 +332,10 @@ static const struct rtc_class_ops wm8350_rtc_ops = {
 	.alarm_irq_enable = wm8350_rtc_alarm_irq_enable,
 };
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 static int wm8350_rtc_suspend(struct device *dev)
 {
-	struct platform_device *pdev = to_platform_device(dev);
-	struct wm8350 *wm8350 = dev_get_drvdata(&pdev->dev);
+	struct wm8350 *wm8350 = dev_get_drvdata(dev);
 	int ret = 0;
 	u16 reg;
 
@@ -353,8 +345,7 @@ static int wm8350_rtc_suspend(struct device *dev)
 	    reg & WM8350_RTC_ALMSTS) {
 		ret = wm8350_rtc_stop_alarm(wm8350);
 		if (ret != 0)
-			dev_err(&pdev->dev, "Failed to stop RTC alarm: %d\n",
-				ret);
+			dev_err(dev, "Failed to stop RTC alarm: %d\n", ret);
 	}
 
 	return ret;
@@ -362,23 +353,17 @@ static int wm8350_rtc_suspend(struct device *dev)
 
 static int wm8350_rtc_resume(struct device *dev)
 {
-	struct platform_device *pdev = to_platform_device(dev);
-	struct wm8350 *wm8350 = dev_get_drvdata(&pdev->dev);
+	struct wm8350 *wm8350 = dev_get_drvdata(dev);
 	int ret;
 
 	if (wm8350->rtc.alarm_enabled) {
 		ret = wm8350_rtc_start_alarm(wm8350);
 		if (ret != 0)
-			dev_err(&pdev->dev,
-				"Failed to restart RTC alarm: %d\n", ret);
+			dev_err(dev, "Failed to restart RTC alarm: %d\n", ret);
 	}
 
 	return 0;
 }
-
-#else
-#define wm8350_rtc_suspend NULL
-#define wm8350_rtc_resume NULL
 #endif
 
 static int wm8350_rtc_probe(struct platform_device *pdev)
@@ -439,8 +424,8 @@ static int wm8350_rtc_probe(struct platform_device *pdev)
 
 	device_init_wakeup(&pdev->dev, 1);
 
-	wm_rtc->rtc = rtc_device_register("wm8350", &pdev->dev,
-					  &wm8350_rtc_ops, THIS_MODULE);
+	wm_rtc->rtc = devm_rtc_device_register(&pdev->dev, "wm8350",
+					&wm8350_rtc_ops, THIS_MODULE);
 	if (IS_ERR(wm_rtc->rtc)) {
 		ret = PTR_ERR(wm_rtc->rtc);
 		dev_err(&pdev->dev, "failed to register RTC: %d\n", ret);
@@ -459,27 +444,22 @@ static int wm8350_rtc_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int __devexit wm8350_rtc_remove(struct platform_device *pdev)
+static int wm8350_rtc_remove(struct platform_device *pdev)
 {
 	struct wm8350 *wm8350 = platform_get_drvdata(pdev);
-	struct wm8350_rtc *wm_rtc = &wm8350->rtc;
 
 	wm8350_free_irq(wm8350, WM8350_IRQ_RTC_SEC, wm8350);
 	wm8350_free_irq(wm8350, WM8350_IRQ_RTC_ALM, wm8350);
 
-	rtc_device_unregister(wm_rtc->rtc);
-
 	return 0;
 }
 
-static struct dev_pm_ops wm8350_rtc_pm_ops = {
-	.suspend = wm8350_rtc_suspend,
-	.resume = wm8350_rtc_resume,
-};
+static SIMPLE_DEV_PM_OPS(wm8350_rtc_pm_ops, wm8350_rtc_suspend,
+			wm8350_rtc_resume);
 
 static struct platform_driver wm8350_rtc_driver = {
 	.probe = wm8350_rtc_probe,
-	.remove = __devexit_p(wm8350_rtc_remove),
+	.remove = wm8350_rtc_remove,
 	.driver = {
 		.name = "wm8350-rtc",
 		.pm = &wm8350_rtc_pm_ops,

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  Copyright (C) 2004 by Jan-Benedict Glaw <jbglaw@lug-owl.de>
  */
@@ -46,26 +47,12 @@
  */
 
 /*
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/interrupt.h>
-#include <linux/init.h>
 #include <linux/input.h>
 #include <linux/serio.h>
 #include <linux/workqueue.h>
@@ -708,7 +695,7 @@ static void lkkbd_disconnect(struct serio *serio)
 	kfree(lk);
 }
 
-static struct serio_device_id lkkbd_serio_ids[] = {
+static const struct serio_device_id lkkbd_serio_ids[] = {
 	{
 		.type	= SERIO_RS232,
 		.proto	= SERIO_LKKBD,
@@ -731,19 +718,4 @@ static struct serio_driver lkkbd_drv = {
 	.interrupt	= lkkbd_interrupt,
 };
 
-/*
- * The functions for insering/removing us as a module.
- */
-static int __init lkkbd_init(void)
-{
-	return serio_register_driver(&lkkbd_drv);
-}
-
-static void __exit lkkbd_exit(void)
-{
-	serio_unregister_driver(&lkkbd_drv);
-}
-
-module_init(lkkbd_init);
-module_exit(lkkbd_exit);
-
+module_serio_driver(lkkbd_drv);

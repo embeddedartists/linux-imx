@@ -9,6 +9,8 @@
 
 #include "dm-block-manager.h"
 
+typedef void (*dm_sm_threshold_fn)(void *context);
+
 /*
  * struct dm_space_map keeps a record of how many times each block in a device
  * is referenced.  It needs to be fixed on disk as part of the transaction.
@@ -44,8 +46,8 @@ struct dm_space_map {
 
 	int (*commit)(struct dm_space_map *sm);
 
-	int (*inc_block)(struct dm_space_map *sm, dm_block_t b);
-	int (*dec_block)(struct dm_space_map *sm, dm_block_t b);
+	int (*inc_blocks)(struct dm_space_map *sm, dm_block_t b, dm_block_t e);
+	int (*dec_blocks)(struct dm_space_map *sm, dm_block_t b, dm_block_t e);
 
 	/*
 	 * new_block will increment the returned block.
@@ -59,6 +61,15 @@ struct dm_space_map {
 	 */
 	int (*root_size)(struct dm_space_map *sm, size_t *result);
 	int (*copy_root)(struct dm_space_map *sm, void *copy_to_here_le, size_t len);
+
+	/*
+	 * You can register one threshold callback which is edge-triggered
+	 * when the free space in the space map drops below the threshold.
+	 */
+	int (*register_threshold_callback)(struct dm_space_map *sm,
+					   dm_block_t threshold,
+					   dm_sm_threshold_fn fn,
+					   void *context);
 };
 
 /*----------------------------------------------------------------*/
@@ -106,14 +117,24 @@ static inline int dm_sm_commit(struct dm_space_map *sm)
 	return sm->commit(sm);
 }
 
+static inline int dm_sm_inc_blocks(struct dm_space_map *sm, dm_block_t b, dm_block_t e)
+{
+	return sm->inc_blocks(sm, b, e);
+}
+
 static inline int dm_sm_inc_block(struct dm_space_map *sm, dm_block_t b)
 {
-	return sm->inc_block(sm, b);
+	return dm_sm_inc_blocks(sm, b, b + 1);
+}
+
+static inline int dm_sm_dec_blocks(struct dm_space_map *sm, dm_block_t b, dm_block_t e)
+{
+	return sm->dec_blocks(sm, b, e);
 }
 
 static inline int dm_sm_dec_block(struct dm_space_map *sm, dm_block_t b)
 {
-	return sm->dec_block(sm, b);
+	return dm_sm_dec_blocks(sm, b, b + 1);
 }
 
 static inline int dm_sm_new_block(struct dm_space_map *sm, dm_block_t *b)
@@ -130,5 +151,17 @@ static inline int dm_sm_copy_root(struct dm_space_map *sm, void *copy_to_here_le
 {
 	return sm->copy_root(sm, copy_to_here_le, len);
 }
+
+static inline int dm_sm_register_threshold_callback(struct dm_space_map *sm,
+						    dm_block_t threshold,
+						    dm_sm_threshold_fn fn,
+						    void *context)
+{
+	if (sm->register_threshold_callback)
+		return sm->register_threshold_callback(sm, threshold, fn, context);
+
+	return -EINVAL;
+}
+
 
 #endif	/* _LINUX_DM_SPACE_MAP_H */

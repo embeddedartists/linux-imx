@@ -1,12 +1,9 @@
-/*
+/* SPDX-License-Identifier: GPL-2.0
+ *
  * arch/sh/kernel/cpu/sh3/entry.S
  *
  *  Copyright (C) 1999, 2000, 2002  Niibe Yutaka
- *  Copyright (C) 2003 - 2006  Paul Mundt
- *
- * This file is subject to the terms and conditions of the GNU General Public
- * License.  See the file "COPYING" in the main directory of this archive
- * for more details.
+ *  Copyright (C) 2003 - 2012  Paul Mundt
  */
 #include <linux/sys.h>
 #include <linux/errno.h>
@@ -114,22 +111,22 @@ ENTRY(tlb_miss_load)
 	.align	2
 ENTRY(tlb_miss_store)
 	bra	call_handle_tlbmiss
-	 mov	#1, r5
+	 mov	#FAULT_CODE_WRITE, r5
 
 	.align	2
 ENTRY(initial_page_write)
 	bra	call_handle_tlbmiss
-	 mov	#2, r5
+	 mov	#FAULT_CODE_INITIAL, r5
 
 	.align	2
 ENTRY(tlb_protection_violation_load)
 	bra	call_do_page_fault
-	 mov	#0, r5
+	 mov	#FAULT_CODE_PROT, r5
 
 	.align	2
 ENTRY(tlb_protection_violation_store)
 	bra	call_do_page_fault
-	 mov	#1, r5
+	 mov	#(FAULT_CODE_PROT | FAULT_CODE_WRITE), r5
 
 call_handle_tlbmiss:
 	mov.l	1f, r0

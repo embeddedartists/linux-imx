@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * OMAP3/4 Voltage Processor (VP) structure and macro definitions
  *
@@ -9,10 +10,6 @@
  * Copyright (C) 2008, 2011 Nokia Corporation
  * Kalle Jokiniemi
  * Paul Walmsley
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version
- * 2 as published by the Free Software Foundation.
  */
 #ifndef __ARCH_ARM_MACH_OMAP2_VP_H
 #define __ARCH_ARM_MACH_OMAP2_VP_H
@@ -20,15 +17,6 @@
 #include <linux/kernel.h>
 
 struct voltagedomain;
-
-/*
- * Voltage Processor (VP) identifiers
- */
-#define OMAP3_VP_VDD_MPU_ID 0
-#define OMAP3_VP_VDD_CORE_ID 1
-#define OMAP4_VP_VDD_CORE_ID 0
-#define OMAP4_VP_VDD_IVA_ID 1
-#define OMAP4_VP_VDD_MPU_ID 2
 
 /* XXX document */
 #define VP_IDLE_TIMEOUT		200
@@ -116,6 +104,13 @@ extern struct omap_vp_instance omap3_vp_core;
 extern struct omap_vp_instance omap4_vp_mpu;
 extern struct omap_vp_instance omap4_vp_iva;
 extern struct omap_vp_instance omap4_vp_core;
+
+extern struct omap_vp_param omap3_mpu_vp_data;
+extern struct omap_vp_param omap3_core_vp_data;
+
+extern struct omap_vp_param omap4_mpu_vp_data;
+extern struct omap_vp_param omap4_iva_vp_data;
+extern struct omap_vp_param omap4_core_vp_data;
 
 void omap_vp_init(struct voltagedomain *voltdm);
 void omap_vp_enable(struct voltagedomain *voltdm);

@@ -31,7 +31,6 @@
 #include <linux/zorro.h>
 #include <linux/jiffies.h>
 
-#include <asm/system.h>
 #include <asm/irq.h>
 #include <asm/amigaints.h>
 #include <asm/amigahw.h>
@@ -76,7 +75,7 @@ static struct card_info {
 	zorro_id id;
 	const char *name;
 	unsigned int offset;
-} cards[] __devinitdata = {
+} cards[] = {
 	{ ZORRO_PROD_VILLAGE_TRONIC_ARIADNE2, "Ariadne II", 0x0600 },
 	{ ZORRO_PROD_INDIVIDUAL_COMPUTERS_X_SURF, "X-Surf", 0x8600 },
 };
@@ -87,9 +86,9 @@ static struct card_info {
 static void zorro8390_reset_8390(struct net_device *dev)
 {
 	unsigned long reset_start_time = jiffies;
+	struct ei_device *ei_local = netdev_priv(dev);
 
-	if (ei_debug > 1)
-		netdev_dbg(dev, "resetting - t=%ld...\n", jiffies);
+	netif_dbg(ei_local, hw, dev, "resetting - t=%ld...\n", jiffies);
 
 	z_writeb(z_readb(NE_BASE + NE_RESET), NE_BASE + NE_RESET);
 
@@ -120,8 +119,9 @@ static void zorro8390_get_8390_hdr(struct net_device *dev,
 	 * If it does, it's the last thing you'll see
 	 */
 	if (ei_status.dmaing) {
-		netdev_err(dev, "%s: DMAing conflict [DMAstat:%d][irqlock:%d]\n",
-			   __func__, ei_status.dmaing, ei_status.irqlock);
+		netdev_warn(dev,
+			    "%s: DMAing conflict [DMAstat:%d][irqlock:%d]\n",
+			    __func__, ei_status.dmaing, ei_status.irqlock);
 		return;
 	}
 
@@ -231,7 +231,7 @@ static void zorro8390_block_output(struct net_device *dev, int count,
 	while ((z_readb(NE_BASE + NE_EN0_ISR) & ENISR_RDC) == 0)
 		if (time_after(jiffies, dma_start + 2 * HZ / 100)) {
 					/* 20ms */
-			netdev_err(dev, "timeout waiting for Tx RDC\n");
+			netdev_warn(dev, "timeout waiting for Tx RDC\n");
 			zorro8390_reset_8390(dev);
 			__NS8390_init(dev, 1);
 			break;
@@ -249,13 +249,14 @@ static int zorro8390_open(struct net_device *dev)
 
 static int zorro8390_close(struct net_device *dev)
 {
-	if (ei_debug > 1)
-		netdev_dbg(dev, "Shutting down ethercard\n");
+	struct ei_device *ei_local = netdev_priv(dev);
+
+	netif_dbg(ei_local, ifdown, dev, "Shutting down ethercard\n");
 	__ei_close(dev);
 	return 0;
 }
 
-static void __devexit zorro8390_remove_one(struct zorro_dev *z)
+static void zorro8390_remove_one(struct zorro_dev *z)
 {
 	struct net_device *dev = zorro_get_drvdata(z);
 
@@ -265,7 +266,7 @@ static void __devexit zorro8390_remove_one(struct zorro_dev *z)
 	free_netdev(dev);
 }
 
-static struct zorro_device_id zorro8390_zorro_tbl[] __devinitdata = {
+static struct zorro_device_id zorro8390_zorro_tbl[] = {
 	{ ZORRO_PROD_VILLAGE_TRONIC_ARIADNE2, },
 	{ ZORRO_PROD_INDIVIDUAL_COMPUTERS_X_SURF, },
 	{ 0 }
@@ -281,15 +282,13 @@ static const struct net_device_ops zorro8390_netdev_ops = {
 	.ndo_set_rx_mode	= __ei_set_multicast_list,
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_set_mac_address	= eth_mac_addr,
-	.ndo_change_mtu		= eth_change_mtu,
 #ifdef CONFIG_NET_POLL_CONTROLLER
 	.ndo_poll_controller	= __ei_poll,
 #endif
 };
 
-static int __devinit zorro8390_init(struct net_device *dev,
-				    unsigned long board, const char *name,
-				    unsigned long ioaddr)
+static int zorro8390_init(struct net_device *dev, unsigned long board,
+			  const char *name, void __iomem *ioaddr)
 {
 	int i;
 	int err;
@@ -356,7 +355,7 @@ static int __devinit zorro8390_init(struct net_device *dev,
 	start_page = NESM_START_PG;
 	stop_page = NESM_STOP_PG;
 
-	dev->base_addr = ioaddr;
+	dev->base_addr = (unsigned long)ioaddr;
 	dev->irq = IRQ_AMIGA_PORTS;
 
 	/* Install the Interrupt handler */
@@ -385,6 +384,7 @@ static int __devinit zorro8390_init(struct net_device *dev,
 
 	dev->netdev_ops = &zorro8390_netdev_ops;
 	__NS8390_init(dev, 0);
+
 	err = register_netdev(dev);
 	if (err) {
 		free_irq(IRQ_AMIGA_PORTS, dev);
@@ -397,8 +397,8 @@ static int __devinit zorro8390_init(struct net_device *dev,
 	return 0;
 }
 
-static int __devinit zorro8390_init_one(struct zorro_dev *z,
-					const struct zorro_device_id *ent)
+static int zorro8390_init_one(struct zorro_dev *z,
+			      const struct zorro_device_id *ent)
 {
 	struct net_device *dev;
 	unsigned long board, ioaddr;
@@ -433,7 +433,7 @@ static struct zorro_driver zorro8390_driver = {
 	.name		= "zorro8390",
 	.id_table	= zorro8390_zorro_tbl,
 	.probe		= zorro8390_init_one,
-	.remove		= __devexit_p(zorro8390_remove_one),
+	.remove		= zorro8390_remove_one,
 };
 
 static int __init zorro8390_init_module(void)

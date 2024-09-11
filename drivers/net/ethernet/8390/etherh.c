@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  linux/drivers/acorn/net/etherh.c
  *
  *  Copyright (C) 2000-2002 Russell King
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  *
  * NS8390 I-cubed EtherH and ANT EtherM specific driver
  * Thanks to I-Cubed for information on their cards.
@@ -45,9 +42,9 @@
 #include <linux/bitops.h>
 #include <linux/jiffies.h>
 
-#include <asm/system.h>
 #include <asm/ecard.h>
 #include <asm/io.h>
+#include <asm/system_info.h>
 
 #define EI_SHIFT(x)	(ei_local->reg_offset[x])
 
@@ -56,18 +53,13 @@
 #define ei_inb_p(_p)	 readb((void __iomem *)_p)
 #define ei_outb_p(_v,_p) writeb(_v,(void __iomem *)_p)
 
-#define NET_DEBUG  0
-#define DEBUG_INIT 2
-
 #define DRV_NAME	"etherh"
 #define DRV_VERSION	"1.11"
 
-static char version[] __initdata =
+static char version[] =
 	"EtherH/EtherM Driver (c) 2002-2004 Russell King " DRV_VERSION "\n";
 
 #include "lib8390.c"
-
-static unsigned int net_debug = NET_DEBUG;
 
 struct etherh_priv {
 	void __iomem	*ioc_fast;
@@ -317,9 +309,9 @@ etherh_block_output (struct net_device *dev, int count, const unsigned char *buf
 	void __iomem *dma_base, *addr;
 
 	if (ei_local->dmaing) {
-		printk(KERN_ERR "%s: DMAing conflict in etherh_block_input: "
-			" DMAstat %d irqlock %d\n", dev->name,
-			ei_local->dmaing, ei_local->irqlock);
+		netdev_err(dev, "DMAing conflict in etherh_block_input: "
+			   " DMAstat %d irqlock %d\n",
+			   ei_local->dmaing, ei_local->irqlock);
 		return;
 	}
 
@@ -361,8 +353,7 @@ etherh_block_output (struct net_device *dev, int count, const unsigned char *buf
 
 	while ((readb (addr + EN0_ISR) & ENISR_RDC) == 0)
 		if (time_after(jiffies, dma_start + 2*HZ/100)) { /* 20ms */
-			printk(KERN_ERR "%s: timeout waiting for TX RDC\n",
-				dev->name);
+			netdev_warn(dev, "timeout waiting for TX RDC\n");
 			etherh_reset (dev);
 			__NS8390_init (dev, 1);
 			break;
@@ -383,9 +374,9 @@ etherh_block_input (struct net_device *dev, int count, struct sk_buff *skb, int 
 	void __iomem *dma_base, *addr;
 
 	if (ei_local->dmaing) {
-		printk(KERN_ERR "%s: DMAing conflict in etherh_block_input: "
-			" DMAstat %d irqlock %d\n", dev->name,
-			ei_local->dmaing, ei_local->irqlock);
+		netdev_err(dev, "DMAing conflict in etherh_block_input: "
+			   " DMAstat %d irqlock %d\n",
+			   ei_local->dmaing, ei_local->irqlock);
 		return;
 	}
 
@@ -423,9 +414,9 @@ etherh_get_header (struct net_device *dev, struct e8390_pkt_hdr *hdr, int ring_p
 	void __iomem *dma_base, *addr;
 
 	if (ei_local->dmaing) {
-		printk(KERN_ERR "%s: DMAing conflict in etherh_get_header: "
-			" DMAstat %d irqlock %d\n", dev->name,
-			ei_local->dmaing, ei_local->irqlock);
+		netdev_err(dev, "DMAing conflict in etherh_get_header: "
+			   " DMAstat %d irqlock %d\n",
+			   ei_local->dmaing, ei_local->irqlock);
 		return;
 	}
 
@@ -462,12 +453,6 @@ static int
 etherh_open(struct net_device *dev)
 {
 	struct ei_device *ei_local = netdev_priv(dev);
-
-	if (!is_valid_ether_addr(dev->dev_addr)) {
-		printk(KERN_WARNING "%s: invalid ethernet MAC address\n",
-			dev->name);
-		return -EINVAL;
-	}
 
 	if (request_irq(dev->irq, __ei_interrupt, 0, dev->name, dev))
 		return -EAGAIN;
@@ -512,28 +497,16 @@ etherh_close(struct net_device *dev)
 }
 
 /*
- * Initialisation
- */
-
-static void __init etherh_banner(void)
-{
-	static int version_printed;
-
-	if (net_debug && version_printed++ == 0)
-		printk(KERN_INFO "%s", version);
-}
-
-/*
  * Read the ethernet address string from the on board rom.
  * This is an ascii string...
  */
-static int __devinit etherh_addr(char *addr, struct expansion_card *ec)
+static int etherh_addr(char *addr, struct expansion_card *ec)
 {
 	struct in_chunk_dir cd;
 	char *s;
 	
 	if (!ecard_readchunk(&cd, ec, 0xf5, 0)) {
-		printk(KERN_ERR "%s: unable to read podule description string\n",
+		printk(KERN_ERR "%s: unable to read module description string\n",
 		       dev_name(&ec->dev));
 		goto no_addr;
 	}
@@ -588,26 +561,29 @@ static void etherh_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *i
 		sizeof(info->bus_info));
 }
 
-static int etherh_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
+static int etherh_get_link_ksettings(struct net_device *dev,
+				     struct ethtool_link_ksettings *cmd)
 {
-	cmd->supported	= etherh_priv(dev)->supported;
-	ethtool_cmd_speed_set(cmd, SPEED_10);
-	cmd->duplex	= DUPLEX_HALF;
-	cmd->port	= dev->if_port == IF_PORT_10BASET ? PORT_TP : PORT_BNC;
-	cmd->autoneg	= (dev->flags & IFF_AUTOMEDIA ?
-			   AUTONEG_ENABLE : AUTONEG_DISABLE);
+	ethtool_convert_legacy_u32_to_link_mode(cmd->link_modes.supported,
+						etherh_priv(dev)->supported);
+	cmd->base.speed = SPEED_10;
+	cmd->base.duplex = DUPLEX_HALF;
+	cmd->base.port = dev->if_port == IF_PORT_10BASET ? PORT_TP : PORT_BNC;
+	cmd->base.autoneg = (dev->flags & IFF_AUTOMEDIA ? AUTONEG_ENABLE :
+							  AUTONEG_DISABLE);
 	return 0;
 }
 
-static int etherh_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
+static int etherh_set_link_ksettings(struct net_device *dev,
+				     const struct ethtool_link_ksettings *cmd)
 {
-	switch (cmd->autoneg) {
+	switch (cmd->base.autoneg) {
 	case AUTONEG_ENABLE:
 		dev->flags |= IFF_AUTOMEDIA;
 		break;
 
 	case AUTONEG_DISABLE:
-		switch (cmd->port) {
+		switch (cmd->base.port) {
 		case PORT_TP:
 			dev->if_port = IF_PORT_10BASET;
 			break;
@@ -631,10 +607,27 @@ static int etherh_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 	return 0;
 }
 
+static u32 etherh_get_msglevel(struct net_device *dev)
+{
+	struct ei_device *ei_local = netdev_priv(dev);
+
+	return ei_local->msg_enable;
+}
+
+static void etherh_set_msglevel(struct net_device *dev, u32 v)
+{
+	struct ei_device *ei_local = netdev_priv(dev);
+
+	ei_local->msg_enable = v;
+}
+
 static const struct ethtool_ops etherh_ethtool_ops = {
-	.get_settings	= etherh_get_settings,
-	.set_settings	= etherh_set_settings,
-	.get_drvinfo	= etherh_get_drvinfo,
+	.get_drvinfo		= etherh_get_drvinfo,
+	.get_ts_info		= ethtool_op_get_ts_info,
+	.get_msglevel		= etherh_get_msglevel,
+	.set_msglevel		= etherh_set_msglevel,
+	.get_link_ksettings	= etherh_get_link_ksettings,
+	.set_link_ksettings	= etherh_set_link_ksettings,
 };
 
 static const struct net_device_ops etherh_netdev_ops = {
@@ -647,7 +640,6 @@ static const struct net_device_ops etherh_netdev_ops = {
 	.ndo_set_rx_mode	= __ei_set_multicast_list,
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_set_mac_address	= eth_mac_addr,
-	.ndo_change_mtu		= eth_change_mtu,
 #ifdef CONFIG_NET_POLL_CONTROLLER
 	.ndo_poll_controller	= __ei_poll,
 #endif
@@ -656,7 +648,7 @@ static const struct net_device_ops etherh_netdev_ops = {
 static u32 etherh_regoffsets[16];
 static u32 etherm_regoffsets[16];
 
-static int __devinit
+static int
 etherh_probe(struct expansion_card *ec, const struct ecard_id *id)
 {
 	const struct etherh_data *data = id->data;
@@ -664,8 +656,6 @@ etherh_probe(struct expansion_card *ec, const struct ecard_id *id)
 	struct net_device *dev;
 	struct etherh_priv *eh;
 	int ret;
-
-	etherh_banner();
 
 	ret = ecard_request_resources(ec);
 	if (ret)
@@ -759,8 +749,8 @@ etherh_probe(struct expansion_card *ec, const struct ecard_id *id)
 	if (ret)
 		goto free;
 
-	printk(KERN_INFO "%s: %s in slot %d, %pM\n",
-		dev->name, data->name, ec->slot_no, dev->dev_addr);
+	netdev_info(dev, "%s in slot %d, %pM\n",
+		    data->name, ec->slot_no, dev->dev_addr);
 
 	ecard_set_drvdata(ec, dev);
 
@@ -774,7 +764,7 @@ etherh_probe(struct expansion_card *ec, const struct ecard_id *id)
 	return ret;
 }
 
-static void __devexit etherh_remove(struct expansion_card *ec)
+static void etherh_remove(struct expansion_card *ec)
 {
 	struct net_device *dev = ecard_get_drvdata(ec);
 
@@ -838,7 +828,7 @@ static const struct ecard_id etherh_ids[] = {
 
 static struct ecard_driver etherh_driver = {
 	.probe		= etherh_probe,
-	.remove		= __devexit_p(etherh_remove),
+	.remove		= etherh_remove,
 	.id_table	= etherh_ids,
 	.drv = {
 		.name	= DRV_NAME,

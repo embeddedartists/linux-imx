@@ -1,19 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Carsten Langgaard, carstenl@mips.com
  * Copyright (C) 2000 MIPS Technologies, Inc.  All rights reserved.
- *
- *  This program is free software; you can distribute it and/or modify it
- *  under the terms of the GNU General Public License (Version 2) as
- *  published by the Free Software Foundation.
- *
- *  This program is distributed in the hope it will be useful, but WITHOUT
- *  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- *  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
- *  for more details.
- *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  59 Temple Place - Suite 330, Boston MA 02111-1307, USA.
  *
  * Defines of the Malta board specific address-MAP, registers, etc.
  */
@@ -33,9 +21,9 @@
  * Malta I/O ports base address for the Galileo GT64120 and Algorithmics
  * Bonito system controllers.
  */
-#define MALTA_GT_PORT_BASE      get_gt_port_base(GT_PCI0IOLD_OFS)
-#define MALTA_BONITO_PORT_BASE  ((unsigned long)ioremap (0x1fd00000, 0x10000))
-#define MALTA_MSC_PORT_BASE     get_msc_port_base(MSC01_PCI_SC2PIOBASL)
+#define MALTA_GT_PORT_BASE	get_gt_port_base(GT_PCI0IOLD_OFS)
+#define MALTA_BONITO_PORT_BASE	((unsigned long)ioremap (0x1fd00000, 0x10000))
+#define MALTA_MSC_PORT_BASE	get_msc_port_base(MSC01_PCI_SC2PIOBASL)
 
 static inline unsigned long get_gt_port_base(unsigned long reg)
 {
@@ -64,6 +52,11 @@ static inline unsigned long get_msc_port_base(unsigned long reg)
 #define GIC_ADDRSPACE_SZ		(128 * 1024)
 
 /*
+ * CPC Specific definitions
+ */
+#define CPC_BASE_ADDR			0x1bde0000
+
+/*
  * MSC01 BIU Specific definitions
  * FIXME : These should be elsewhere ?
  */
@@ -77,8 +70,8 @@ static inline unsigned long get_msc_port_base(unsigned long reg)
 /*
  * Malta RTC-device indirect register access.
  */
-#define MALTA_RTC_ADR_REG       0x70
-#define MALTA_RTC_DAT_REG       0x71
+#define MALTA_RTC_ADR_REG	0x70
+#define MALTA_RTC_DAT_REG	0x71
 
 /*
  * Malta SMSC FDC37M817 Super I/O Controller register.
@@ -98,5 +91,7 @@ static inline unsigned long get_msc_port_base(unsigned long reg)
 #define SMSC_WRITE(x, a)     outb(x, a)
 
 #define MALTA_JMPRS_REG		0x1f000210
+
+extern void __init *malta_dt_shim(void *fdt);
 
 #endif /* __ASM_MIPS_BOARDS_MALTA_H */

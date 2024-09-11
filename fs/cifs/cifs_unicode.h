@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * cifs_unicode:  Unicode kernel case support
  *
@@ -7,28 +8,12 @@
  *
  *   Copyright (c) International Business Machines  Corp., 2000,2009
  *
- *   This program is free software;  you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation; either version 2 of the License, or
- *   (at your option) any later version.
- *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY;  without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
- *   the GNU General Public License for more details.
- *
- *   You should have received a copy of the GNU General Public License
- *   along with this program;  if not, write to the Free Software
- *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
- *
- *
  * Notes:
  *     These APIs are based on the C library functions.  The semantics
  *     should match the C functions but with expanded size operands.
  *
  *     The upper/lower functions are based on a table created by mkupr.
  *     This is a compressed table of upper and lower case conversion.
- *
  */
 #ifndef _CIFS_UNICODE_H
 #define _CIFS_UNICODE_H
@@ -52,6 +37,37 @@
 #define UNI_PIPE        (__u16) ('|' + 0xF000)
 #define UNI_SLASH       (__u16) ('\\' + 0xF000)
 
+/*
+ * Macs use an older "SFM" mapping of the symbols above. Fortunately it does
+ * not conflict (although almost does) with the mapping above.
+ */
+
+#define SFM_DOUBLEQUOTE ((__u16) 0xF020)
+#define SFM_ASTERISK    ((__u16) 0xF021)
+#define SFM_QUESTION    ((__u16) 0xF025)
+#define SFM_COLON       ((__u16) 0xF022)
+#define SFM_GRTRTHAN    ((__u16) 0xF024)
+#define SFM_LESSTHAN    ((__u16) 0xF023)
+#define SFM_PIPE        ((__u16) 0xF027)
+#define SFM_SLASH       ((__u16) 0xF026)
+#define SFM_SPACE	((__u16) 0xF028)
+#define SFM_PERIOD	((__u16) 0xF029)
+
+/*
+ * Mapping mechanism to use when one of the seven reserved characters is
+ * encountered.  We can only map using one of the mechanisms at a time
+ * since otherwise readdir could return directory entries which we would
+ * not be able to open
+ *
+ * NO_MAP_UNI_RSVD  = do not perform any remapping of the character
+ * SFM_MAP_UNI_RSVD = map reserved characters using SFM scheme (MAC compatible)
+ * SFU_MAP_UNI_RSVD = map reserved characters ala SFU ("mapchars" option)
+ *
+ */
+#define NO_MAP_UNI_RSVD		0
+#define SFM_MAP_UNI_RSVD	1
+#define SFU_MAP_UNI_RSVD	2
+
 /* Just define what we want from uniupr.h.  We don't want to define the tables
  * in each source file.
  */
@@ -74,18 +90,23 @@ extern const struct UniCaseRange CifsUniLowerRange[];
 #endif				/* UNIUPR_NOLOWER */
 
 #ifdef __KERNEL__
-int cifs_from_ucs2(char *to, const __le16 *from, int tolen, int fromlen,
-		   const struct nls_table *codepage, bool mapchar);
-int cifs_ucs2_bytes(const __le16 *from, int maxbytes,
-		    const struct nls_table *codepage);
-int cifs_strtoUCS(__le16 *, const char *, int, const struct nls_table *);
-char *cifs_strndup_from_ucs(const char *src, const int maxlen,
-			    const bool is_unicode,
-			    const struct nls_table *codepage);
-extern int cifsConvertToUCS(__le16 *target, const char *source, int maxlen,
-			const struct nls_table *cp, int mapChars);
-
+int cifs_from_utf16(char *to, const __le16 *from, int tolen, int fromlen,
+		    const struct nls_table *cp, int map_type);
+int cifs_utf16_bytes(const __le16 *from, int maxbytes,
+		     const struct nls_table *codepage);
+int cifs_strtoUTF16(__le16 *, const char *, int, const struct nls_table *);
+char *cifs_strndup_from_utf16(const char *src, const int maxlen,
+			      const bool is_unicode,
+			      const struct nls_table *codepage);
+extern int cifsConvertToUTF16(__le16 *target, const char *source, int maxlen,
+			      const struct nls_table *cp, int mapChars);
+extern int cifs_remap(struct cifs_sb_info *cifs_sb);
+extern __le16 *cifs_strndup_to_utf16(const char *src, const int maxlen,
+				     int *utf16_len, const struct nls_table *cp,
+				     int remap);
 #endif
+
+wchar_t cifs_toupper(wchar_t in);
 
 /*
  * UniStrcat:  Concatenate the second string to the first
@@ -93,10 +114,10 @@ extern int cifsConvertToUCS(__le16 *target, const char *source, int maxlen,
  * Returns:
  *     Address of the first string
  */
-static inline wchar_t *
-UniStrcat(wchar_t *ucs1, const wchar_t *ucs2)
+static inline __le16 *
+UniStrcat(__le16 *ucs1, const __le16 *ucs2)
 {
-	wchar_t *anchor = ucs1;	/* save a pointer to start of ucs1 */
+	__le16 *anchor = ucs1;	/* save a pointer to start of ucs1 */
 
 	while (*ucs1++) ;	/* To end of first string */
 	ucs1--;			/* Return to the null */
@@ -323,14 +344,14 @@ UniToupper(register wchar_t uc)
 /*
  * UniStrupr:  Upper case a unicode string
  */
-static inline wchar_t *
-UniStrupr(register wchar_t *upin)
+static inline __le16 *
+UniStrupr(register __le16 *upin)
 {
-	register wchar_t *up;
+	register __le16 *up;
 
 	up = upin;
 	while (*up) {		/* For all characters */
-		*up = UniToupper(*up);
+		*up = cpu_to_le16(UniToupper(le16_to_cpu(*up)));
 		up++;
 	}
 	return upin;		/* Return input pointer */

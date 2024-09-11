@@ -19,21 +19,31 @@
  *
  */
 
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 #include <errno.h>
+#include <linux/bitmap.h>
+#include <linux/time64.h>
 
-#include "../../perf.h"
-#include "../util.h"
+#include <stdbool.h>
+/* perl needs the following define, right after including stdbool.h */
+#define HAS_BOOL
+#include <EXTERN.h>
+#include <perl.h>
+
+#include "../callchain.h"
+#include "../dso.h"
+#include "../machine.h"
+#include "../map.h"
+#include "../symbol.h"
 #include "../thread.h"
 #include "../event.h"
 #include "../trace-event.h"
 #include "../evsel.h"
-
-#include <EXTERN.h>
-#include <perl.h>
+#include "../debug.h"
 
 void boot_Perf__Trace__Context(pTHX_ CV *cv);
 void boot_DynaLoader(pTHX_ CV *cv);
@@ -53,10 +63,10 @@ void xs_init(pTHX)
 
 INTERP my_perl;
 
-#define FTRACE_MAX_EVENT				\
+#define TRACE_EVENT_TYPE_MAX				\
 	((1 << (sizeof(unsigned short) * 8)) - 1)
 
-struct event *events[FTRACE_MAX_EVENT];
+static DECLARE_BITMAP(events_defined, TRACE_EVENT_TYPE_MAX);
 
 extern struct scripting_context *scripting_context;
 
@@ -91,7 +101,7 @@ static void define_symbolic_value(const char *ev_name,
 	LEAVE;
 }
 
-static void define_symbolic_values(struct print_flag_sym *field,
+static void define_symbolic_values(struct tep_print_flag_sym *field,
 				   const char *ev_name,
 				   const char *field_name)
 {
@@ -149,7 +159,7 @@ static void define_flag_value(const char *ev_name,
 	LEAVE;
 }
 
-static void define_flag_values(struct print_flag_sym *field,
+static void define_flag_values(struct tep_print_flag_sym *field,
 			       const char *ev_name,
 			       const char *field_name)
 {
@@ -181,46 +191,64 @@ static void define_flag_field(const char *ev_name,
 	LEAVE;
 }
 
-static void define_event_symbols(struct event *event,
+static void define_event_symbols(struct tep_event *event,
 				 const char *ev_name,
-				 struct print_arg *args)
+				 struct tep_print_arg *args)
 {
+	if (args == NULL)
+		return;
+
 	switch (args->type) {
-	case PRINT_NULL:
+	case TEP_PRINT_NULL:
 		break;
-	case PRINT_ATOM:
+	case TEP_PRINT_ATOM:
 		define_flag_value(ev_name, cur_field_name, "0",
 				  args->atom.atom);
 		zero_flag_atom = 0;
 		break;
-	case PRINT_FIELD:
-		if (cur_field_name)
-			free(cur_field_name);
+	case TEP_PRINT_FIELD:
+		free(cur_field_name);
 		cur_field_name = strdup(args->field.name);
 		break;
-	case PRINT_FLAGS:
+	case TEP_PRINT_FLAGS:
 		define_event_symbols(event, ev_name, args->flags.field);
 		define_flag_field(ev_name, cur_field_name, args->flags.delim);
 		define_flag_values(args->flags.flags, ev_name, cur_field_name);
 		break;
-	case PRINT_SYMBOL:
+	case TEP_PRINT_SYMBOL:
 		define_event_symbols(event, ev_name, args->symbol.field);
 		define_symbolic_field(ev_name, cur_field_name);
 		define_symbolic_values(args->symbol.symbols, ev_name,
 				       cur_field_name);
 		break;
-	case PRINT_STRING:
+	case TEP_PRINT_HEX:
+	case TEP_PRINT_HEX_STR:
+		define_event_symbols(event, ev_name, args->hex.field);
+		define_event_symbols(event, ev_name, args->hex.size);
 		break;
-	case PRINT_TYPE:
+	case TEP_PRINT_INT_ARRAY:
+		define_event_symbols(event, ev_name, args->int_array.field);
+		define_event_symbols(event, ev_name, args->int_array.count);
+		define_event_symbols(event, ev_name, args->int_array.el_size);
+		break;
+	case TEP_PRINT_BSTRING:
+	case TEP_PRINT_DYNAMIC_ARRAY:
+	case TEP_PRINT_DYNAMIC_ARRAY_LEN:
+	case TEP_PRINT_STRING:
+	case TEP_PRINT_BITMASK:
+		break;
+	case TEP_PRINT_TYPE:
 		define_event_symbols(event, ev_name, args->typecast.item);
 		break;
-	case PRINT_OP:
+	case TEP_PRINT_OP:
 		if (strcmp(args->op.op, ":") == 0)
 			zero_flag_atom = 1;
 		define_event_symbols(event, ev_name, args->op.left);
 		define_event_symbols(event, ev_name, args->op.right);
 		break;
+	case TEP_PRINT_FUNC:
 	default:
+		pr_err("Unsupported print arg type\n");
 		/* we should warn... */
 		return;
 	}
@@ -229,62 +257,119 @@ static void define_event_symbols(struct event *event,
 		define_event_symbols(event, ev_name, args->next);
 }
 
-static inline struct event *find_cache_event(int type)
+static SV *perl_process_callchain(struct perf_sample *sample,
+				  struct evsel *evsel,
+				  struct addr_location *al)
 {
-	static char ev_name[256];
-	struct event *event;
+	AV *list;
 
-	if (events[type])
-		return events[type];
+	list = newAV();
+	if (!list)
+		goto exit;
 
-	events[type] = event = trace_find_event(type);
-	if (!event)
-		return NULL;
+	if (!symbol_conf.use_callchain || !sample->callchain)
+		goto exit;
 
-	sprintf(ev_name, "%s::%s", event->system, event->name);
+	if (thread__resolve_callchain(al->thread, &callchain_cursor, evsel,
+				      sample, NULL, NULL, scripting_max_stack) != 0) {
+		pr_err("Failed to resolve callchain. Skipping\n");
+		goto exit;
+	}
+	callchain_cursor_commit(&callchain_cursor);
 
-	define_event_symbols(event, ev_name, event->print_fmt.args);
 
-	return event;
+	while (1) {
+		HV *elem;
+		struct callchain_cursor_node *node;
+		node = callchain_cursor_current(&callchain_cursor);
+		if (!node)
+			break;
+
+		elem = newHV();
+		if (!elem)
+			goto exit;
+
+		if (!hv_stores(elem, "ip", newSVuv(node->ip))) {
+			hv_undef(elem);
+			goto exit;
+		}
+
+		if (node->ms.sym) {
+			HV *sym = newHV();
+			if (!sym) {
+				hv_undef(elem);
+				goto exit;
+			}
+			if (!hv_stores(sym, "start",   newSVuv(node->ms.sym->start)) ||
+			    !hv_stores(sym, "end",     newSVuv(node->ms.sym->end)) ||
+			    !hv_stores(sym, "binding", newSVuv(node->ms.sym->binding)) ||
+			    !hv_stores(sym, "name",    newSVpvn(node->ms.sym->name,
+								node->ms.sym->namelen)) ||
+			    !hv_stores(elem, "sym",    newRV_noinc((SV*)sym))) {
+				hv_undef(sym);
+				hv_undef(elem);
+				goto exit;
+			}
+		}
+
+		if (node->ms.map) {
+			struct map *map = node->ms.map;
+			const char *dsoname = "[unknown]";
+			if (map && map->dso) {
+				if (symbol_conf.show_kernel_path && map->dso->long_name)
+					dsoname = map->dso->long_name;
+				else
+					dsoname = map->dso->name;
+			}
+			if (!hv_stores(elem, "dso", newSVpv(dsoname,0))) {
+				hv_undef(elem);
+				goto exit;
+			}
+		}
+
+		callchain_cursor_advance(&callchain_cursor);
+		av_push(list, newRV_noinc((SV*)elem));
+	}
+
+exit:
+	return newRV_noinc((SV*)list);
 }
 
-static void perl_process_tracepoint(union perf_event *pevent __unused,
-				    struct perf_sample *sample,
-				    struct perf_evsel *evsel,
-				    struct machine *machine __unused,
-				    struct thread *thread)
+static void perl_process_tracepoint(struct perf_sample *sample,
+				    struct evsel *evsel,
+				    struct addr_location *al)
 {
-	struct format_field *field;
+	struct thread *thread = al->thread;
+	struct tep_event *event = evsel->tp_format;
+	struct tep_format_field *field;
 	static char handler[256];
 	unsigned long long val;
 	unsigned long s, ns;
-	struct event *event;
-	int type;
 	int pid;
 	int cpu = sample->cpu;
 	void *data = sample->raw_data;
 	unsigned long long nsecs = sample->time;
-	char *comm = thread->comm;
+	const char *comm = thread__comm_str(thread);
 
 	dSP;
 
-	if (evsel->attr.type != PERF_TYPE_TRACEPOINT)
+	if (evsel->core.attr.type != PERF_TYPE_TRACEPOINT)
 		return;
 
-	type = trace_parse_common_type(data);
+	if (!event) {
+		pr_debug("ug! no event found for type %" PRIu64, (u64)evsel->core.attr.config);
+		return;
+	}
 
-	event = find_cache_event(type);
-	if (!event)
-		die("ug! no event found for type %d", type);
-
-	pid = trace_parse_common_pid(data);
+	pid = raw_field_value(event, "common_pid", data);
 
 	sprintf(handler, "%s::%s", event->system, event->name);
 
-	s = nsecs / NSECS_PER_SEC;
-	ns = nsecs - s * NSECS_PER_SEC;
+	if (!test_and_set_bit(event->id, events_defined))
+		define_event_symbols(event, handler, event->print_fmt.args);
 
-	scripting_context->event_data = data;
+	s = nsecs / NSEC_PER_SEC;
+	ns = nsecs - s * NSEC_PER_SEC;
 
 	ENTER;
 	SAVETMPS;
@@ -297,21 +382,23 @@ static void perl_process_tracepoint(union perf_event *pevent __unused,
 	XPUSHs(sv_2mortal(newSVuv(ns)));
 	XPUSHs(sv_2mortal(newSViv(pid)));
 	XPUSHs(sv_2mortal(newSVpv(comm, 0)));
+	XPUSHs(sv_2mortal(perl_process_callchain(sample, evsel, al)));
 
 	/* common fields other than pid can be accessed via xsub fns */
 
 	for (field = event->format.fields; field; field = field->next) {
-		if (field->flags & FIELD_IS_STRING) {
+		if (field->flags & TEP_FIELD_IS_STRING) {
 			int offset;
-			if (field->flags & FIELD_IS_DYNAMIC) {
+			if (field->flags & TEP_FIELD_IS_DYNAMIC) {
 				offset = *(int *)(data + field->offset);
 				offset &= 0xffff;
 			} else
 				offset = field->offset;
 			XPUSHs(sv_2mortal(newSVpv((char *)data + offset, 0)));
 		} else { /* FIELD_IS_NUMERIC */
-			val = read_size(data + field->offset, field->size);
-			if (field->flags & FIELD_IS_SIGNED) {
+			val = read_size(event, data + field->offset,
+					field->size);
+			if (field->flags & TEP_FIELD_IS_SIGNED) {
 				XPUSHs(sv_2mortal(newSViv(val)));
 			} else {
 				XPUSHs(sv_2mortal(newSVuv(val)));
@@ -330,6 +417,7 @@ static void perl_process_tracepoint(union perf_event *pevent __unused,
 		XPUSHs(sv_2mortal(newSVuv(nsecs)));
 		XPUSHs(sv_2mortal(newSViv(pid)));
 		XPUSHs(sv_2mortal(newSVpv(comm, 0)));
+		XPUSHs(sv_2mortal(perl_process_callchain(sample, evsel, al)));
 		call_pv("main::trace_unhandled", G_SCALAR);
 	}
 	SPAGAIN;
@@ -338,11 +426,9 @@ static void perl_process_tracepoint(union perf_event *pevent __unused,
 	LEAVE;
 }
 
-static void perl_process_event_generic(union perf_event *pevent __unused,
+static void perl_process_event_generic(union perf_event *event,
 				       struct perf_sample *sample,
-				       struct perf_evsel *evsel __unused,
-				       struct machine *machine __unused,
-				       struct thread *thread __unused)
+				       struct evsel *evsel)
 {
 	dSP;
 
@@ -352,8 +438,8 @@ static void perl_process_event_generic(union perf_event *pevent __unused,
 	ENTER;
 	SAVETMPS;
 	PUSHMARK(SP);
-	XPUSHs(sv_2mortal(newSVpvn((const char *)pevent, pevent->header.size)));
-	XPUSHs(sv_2mortal(newSVpvn((const char *)&evsel->attr, sizeof(evsel->attr))));
+	XPUSHs(sv_2mortal(newSVpvn((const char *)event, event->header.size)));
+	XPUSHs(sv_2mortal(newSVpvn((const char *)&evsel->core.attr, sizeof(evsel->core.attr))));
 	XPUSHs(sv_2mortal(newSVpvn((const char *)sample, sizeof(*sample))));
 	XPUSHs(sv_2mortal(newSVpvn((const char *)sample->raw_data, sample->raw_size)));
 	PUTBACK;
@@ -364,14 +450,15 @@ static void perl_process_event_generic(union perf_event *pevent __unused,
 	LEAVE;
 }
 
-static void perl_process_event(union perf_event *pevent,
+static void perl_process_event(union perf_event *event,
 			       struct perf_sample *sample,
-			       struct perf_evsel *evsel,
-			       struct machine *machine,
-			       struct thread *thread)
+			       struct evsel *evsel,
+			       struct addr_location *al,
+			       struct addr_location *addr_al)
 {
-	perl_process_tracepoint(pevent, sample, evsel, machine, thread);
-	perl_process_event_generic(pevent, sample, evsel, machine, thread);
+	scripting_context__update(scripting_context, event, sample, evsel, al, addr_al);
+	perl_process_tracepoint(sample, evsel, al);
+	perl_process_event_generic(event, sample, evsel);
 }
 
 static void run_start_sub(void)
@@ -386,10 +473,13 @@ static void run_start_sub(void)
 /*
  * Start trace script
  */
-static int perl_start_script(const char *script, int argc, const char **argv)
+static int perl_start_script(const char *script, int argc, const char **argv,
+			     struct perf_session *session)
 {
 	const char **command_line;
 	int i, err = 0;
+
+	scripting_context->session = session;
 
 	command_line = malloc((argc + 2) * sizeof(const char *));
 	command_line[0] = "";
@@ -427,6 +517,11 @@ error:
 	return err;
 }
 
+static int perl_flush_script(void)
+{
+	return 0;
+}
+
 /*
  * Stop trace script
  */
@@ -444,12 +539,13 @@ static int perl_stop_script(void)
 	return 0;
 }
 
-static int perl_generate_script(const char *outfile)
+static int perl_generate_script(struct tep_handle *pevent, const char *outfile)
 {
-	struct event *event = NULL;
-	struct format_field *f;
+	int i, not_first, count, nr_events;
+	struct tep_event **all_events;
+	struct tep_event *event = NULL;
+	struct tep_format_field *f;
 	char fname[PATH_MAX];
-	int not_first, count;
 	FILE *ofp;
 
 	sprintf(fname, "%s.pl", outfile);
@@ -489,9 +585,32 @@ static int perl_generate_script(const char *outfile)
 	fprintf(ofp, "use Perf::Trace::Util;\n\n");
 
 	fprintf(ofp, "sub trace_begin\n{\n\t# optional\n}\n\n");
-	fprintf(ofp, "sub trace_end\n{\n\t# optional\n}\n\n");
+	fprintf(ofp, "sub trace_end\n{\n\t# optional\n}\n");
 
-	while ((event = trace_find_next_event(event))) {
+
+	fprintf(ofp, "\n\
+sub print_backtrace\n\
+{\n\
+	my $callchain = shift;\n\
+	for my $node (@$callchain)\n\
+	{\n\
+		if(exists $node->{sym})\n\
+		{\n\
+			printf( \"\\t[\\%%x] \\%%s\\n\", $node->{ip}, $node->{sym}{name});\n\
+		}\n\
+		else\n\
+		{\n\
+			printf( \"\\t[\\%%x]\\n\", $node{ip});\n\
+		}\n\
+	}\n\
+}\n\n\
+");
+
+	nr_events = tep_get_events_count(pevent);
+	all_events = tep_list_events(pevent, TEP_EVENT_SORT_ID);
+
+	for (i = 0; all_events && i < nr_events; i++) {
+		event = all_events[i];
 		fprintf(ofp, "sub %s::%s\n{\n", event->system, event->name);
 		fprintf(ofp, "\tmy (");
 
@@ -501,7 +620,8 @@ static int perl_generate_script(const char *outfile)
 		fprintf(ofp, "$common_secs, ");
 		fprintf(ofp, "$common_nsecs,\n");
 		fprintf(ofp, "\t    $common_pid, ");
-		fprintf(ofp, "$common_comm,\n\t    ");
+		fprintf(ofp, "$common_comm, ");
+		fprintf(ofp, "$common_callchain,\n\t    ");
 
 		not_first = 0;
 		count = 0;
@@ -518,7 +638,7 @@ static int perl_generate_script(const char *outfile)
 
 		fprintf(ofp, "\tprint_header($event_name, $common_cpu, "
 			"$common_secs, $common_nsecs,\n\t             "
-			"$common_pid, $common_comm);\n\n");
+			"$common_pid, $common_comm, $common_callchain);\n\n");
 
 		fprintf(ofp, "\tprintf(\"");
 
@@ -534,11 +654,11 @@ static int perl_generate_script(const char *outfile)
 			count++;
 
 			fprintf(ofp, "%s=", f->name);
-			if (f->flags & FIELD_IS_STRING ||
-			    f->flags & FIELD_IS_FLAG ||
-			    f->flags & FIELD_IS_SYMBOLIC)
+			if (f->flags & TEP_FIELD_IS_STRING ||
+			    f->flags & TEP_FIELD_IS_FLAG ||
+			    f->flags & TEP_FIELD_IS_SYMBOLIC)
 				fprintf(ofp, "%%s");
-			else if (f->flags & FIELD_IS_SIGNED)
+			else if (f->flags & TEP_FIELD_IS_SIGNED)
 				fprintf(ofp, "%%d");
 			else
 				fprintf(ofp, "%%u");
@@ -556,7 +676,7 @@ static int perl_generate_script(const char *outfile)
 			if (++count % 5 == 0)
 				fprintf(ofp, "\n\t       ");
 
-			if (f->flags & FIELD_IS_FLAG) {
+			if (f->flags & TEP_FIELD_IS_FLAG) {
 				if ((count - 1) % 5 != 0) {
 					fprintf(ofp, "\n\t       ");
 					count = 4;
@@ -566,7 +686,7 @@ static int perl_generate_script(const char *outfile)
 					event->name);
 				fprintf(ofp, "\"%s\", $%s)", f->name,
 					f->name);
-			} else if (f->flags & FIELD_IS_SYMBOLIC) {
+			} else if (f->flags & TEP_FIELD_IS_SYMBOLIC) {
 				if ((count - 1) % 5 != 0) {
 					fprintf(ofp, "\n\t       ");
 					count = 4;
@@ -580,17 +700,22 @@ static int perl_generate_script(const char *outfile)
 				fprintf(ofp, "$%s", f->name);
 		}
 
-		fprintf(ofp, ");\n");
+		fprintf(ofp, ");\n\n");
+
+		fprintf(ofp, "\tprint_backtrace($common_callchain);\n");
+
 		fprintf(ofp, "}\n\n");
 	}
 
 	fprintf(ofp, "sub trace_unhandled\n{\n\tmy ($event_name, $context, "
 		"$common_cpu, $common_secs, $common_nsecs,\n\t    "
-		"$common_pid, $common_comm) = @_;\n\n");
+		"$common_pid, $common_comm, $common_callchain) = @_;\n\n");
 
 	fprintf(ofp, "\tprint_header($event_name, $common_cpu, "
 		"$common_secs, $common_nsecs,\n\t             $common_pid, "
-		"$common_comm);\n}\n\n");
+		"$common_comm, $common_callchain);\n");
+	fprintf(ofp, "\tprint_backtrace($common_callchain);\n");
+	fprintf(ofp, "}\n\n");
 
 	fprintf(ofp, "sub print_header\n{\n"
 		"\tmy ($event_name, $cpu, $secs, $nsecs, $pid, $comm) = @_;\n\n"
@@ -627,7 +752,9 @@ static int perl_generate_script(const char *outfile)
 
 struct scripting_ops perl_scripting_ops = {
 	.name = "Perl",
+	.dirname = "perl",
 	.start_script = perl_start_script,
+	.flush_script = perl_flush_script,
 	.stop_script = perl_stop_script,
 	.process_event = perl_process_event,
 	.generate_script = perl_generate_script,

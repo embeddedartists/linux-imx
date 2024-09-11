@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Dallas DS1216 RTC driver
  *
@@ -10,8 +11,6 @@
 #include <linux/platform_device.h>
 #include <linux/bcd.h>
 #include <linux/slab.h>
-
-#define DRV_VERSION "0.2"
 
 struct ds1216_regs {
 	u8 tsec;
@@ -30,8 +29,6 @@ struct ds1216_regs {
 struct ds1216_priv {
 	struct rtc_device *rtc;
 	void __iomem *ioaddr;
-	size_t size;
-	unsigned long baseaddr;
 };
 
 static const u8 magic[] = {
@@ -80,8 +77,7 @@ static void ds1216_switch_ds_to_clock(u8 __iomem *ioaddr)
 
 static int ds1216_rtc_read_time(struct device *dev, struct rtc_time *tm)
 {
-	struct platform_device *pdev = to_platform_device(dev);
-	struct ds1216_priv *priv = platform_get_drvdata(pdev);
+	struct ds1216_priv *priv = dev_get_drvdata(dev);
 	struct ds1216_regs regs;
 
 	ds1216_switch_ds_to_clock(priv->ioaddr);
@@ -103,13 +99,12 @@ static int ds1216_rtc_read_time(struct device *dev, struct rtc_time *tm)
 	if (tm->tm_year < 70)
 		tm->tm_year += 100;
 
-	return rtc_valid_tm(tm);
+	return 0;
 }
 
 static int ds1216_rtc_set_time(struct device *dev, struct rtc_time *tm)
 {
-	struct platform_device *pdev = to_platform_device(dev);
-	struct ds1216_priv *priv = platform_get_drvdata(pdev);
+	struct ds1216_priv *priv = dev_get_drvdata(dev);
 	struct ds1216_regs regs;
 
 	ds1216_switch_ds_to_clock(priv->ioaddr);
@@ -142,85 +137,38 @@ static const struct rtc_class_ops ds1216_rtc_ops = {
 
 static int __init ds1216_rtc_probe(struct platform_device *pdev)
 {
-	struct resource *res;
 	struct ds1216_priv *priv;
-	int ret = 0;
 	u8 dummy[8];
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!res)
-		return -ENODEV;
-	priv = kzalloc(sizeof *priv, GFP_KERNEL);
+	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv)
 		return -ENOMEM;
 
 	platform_set_drvdata(pdev, priv);
 
-	priv->size = resource_size(res);
-	if (!request_mem_region(res->start, priv->size, pdev->name)) {
-		ret = -EBUSY;
-		goto out;
-	}
-	priv->baseaddr = res->start;
-	priv->ioaddr = ioremap(priv->baseaddr, priv->size);
-	if (!priv->ioaddr) {
-		ret = -ENOMEM;
-		goto out;
-	}
-	priv->rtc = rtc_device_register("ds1216", &pdev->dev,
-				  &ds1216_rtc_ops, THIS_MODULE);
-	if (IS_ERR(priv->rtc)) {
-		ret = PTR_ERR(priv->rtc);
-		goto out;
-	}
+	priv->ioaddr = devm_platform_ioremap_resource(pdev, 0);
+	if (IS_ERR(priv->ioaddr))
+		return PTR_ERR(priv->ioaddr);
+
+	priv->rtc = devm_rtc_device_register(&pdev->dev, "ds1216",
+					&ds1216_rtc_ops, THIS_MODULE);
+	if (IS_ERR(priv->rtc))
+		return PTR_ERR(priv->rtc);
 
 	/* dummy read to get clock into a known state */
 	ds1216_read(priv->ioaddr, dummy);
-	return 0;
-
-out:
-	if (priv->ioaddr)
-		iounmap(priv->ioaddr);
-	if (priv->baseaddr)
-		release_mem_region(priv->baseaddr, priv->size);
-	kfree(priv);
-	return ret;
-}
-
-static int __exit ds1216_rtc_remove(struct platform_device *pdev)
-{
-	struct ds1216_priv *priv = platform_get_drvdata(pdev);
-
-	rtc_device_unregister(priv->rtc);
-	iounmap(priv->ioaddr);
-	release_mem_region(priv->baseaddr, priv->size);
-	kfree(priv);
 	return 0;
 }
 
 static struct platform_driver ds1216_rtc_platform_driver = {
 	.driver		= {
 		.name	= "rtc-ds1216",
-		.owner	= THIS_MODULE,
 	},
-	.remove		= __exit_p(ds1216_rtc_remove),
 };
 
-static int __init ds1216_rtc_init(void)
-{
-	return platform_driver_probe(&ds1216_rtc_platform_driver, ds1216_rtc_probe);
-}
-
-static void __exit ds1216_rtc_exit(void)
-{
-	platform_driver_unregister(&ds1216_rtc_platform_driver);
-}
+module_platform_driver_probe(ds1216_rtc_platform_driver, ds1216_rtc_probe);
 
 MODULE_AUTHOR("Thomas Bogendoerfer <tsbogend@alpha.franken.de>");
 MODULE_DESCRIPTION("DS1216 RTC driver");
 MODULE_LICENSE("GPL");
-MODULE_VERSION(DRV_VERSION);
 MODULE_ALIAS("platform:rtc-ds1216");
-
-module_init(ds1216_rtc_init);
-module_exit(ds1216_rtc_exit);

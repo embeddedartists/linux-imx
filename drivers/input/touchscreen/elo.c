@@ -1,14 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Elo serial touchscreen driver
  *
  * Copyright (c) 2004 Vojtech Pavlik
  */
 
-/*
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 as published by
- * the Free Software Foundation.
- */
 
 /*
  * This driver can handle serial Elo touchscreens using either the Elo standard
@@ -22,7 +18,6 @@
 #include <linux/slab.h>
 #include <linux/input.h>
 #include <linux/serio.h>
-#include <linux/init.h>
 #include <linux/ctype.h>
 
 #define DRIVER_DESC	"Elo serial touchscreen driver"
@@ -346,13 +341,16 @@ static int elo_connect(struct serio *serio, struct serio_driver *drv)
 	switch (elo->id) {
 
 	case 0: /* 10-byte protocol */
-		if (elo_setup_10(elo))
+		if (elo_setup_10(elo)) {
+			err = -EIO;
 			goto fail3;
+		}
 
 		break;
 
 	case 1: /* 6-byte protocol */
 		input_set_abs_params(input_dev, ABS_PRESSURE, 0, 15, 0, 0);
+		fallthrough;
 
 	case 2: /* 4-byte protocol */
 		input_set_abs_params(input_dev, ABS_X, 96, 4000, 0, 0);
@@ -382,7 +380,7 @@ static int elo_connect(struct serio *serio, struct serio_driver *drv)
  * The serio driver structure.
  */
 
-static struct serio_device_id elo_serio_ids[] = {
+static const struct serio_device_id elo_serio_ids[] = {
 	{
 		.type	= SERIO_RS232,
 		.proto	= SERIO_ELO,
@@ -405,19 +403,4 @@ static struct serio_driver elo_drv = {
 	.disconnect	= elo_disconnect,
 };
 
-/*
- * The functions for inserting/removing us as a module.
- */
-
-static int __init elo_init(void)
-{
-	return serio_register_driver(&elo_drv);
-}
-
-static void __exit elo_exit(void)
-{
-	serio_unregister_driver(&elo_drv);
-}
-
-module_init(elo_init);
-module_exit(elo_exit);
+module_serio_driver(elo_drv);

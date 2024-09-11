@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Au1000/Au1500/Au1100 I2S controller driver for ASoC
  *
@@ -209,7 +210,7 @@ static const struct snd_soc_dai_ops au1xi2s_dai_ops = {
 };
 
 static struct snd_soc_dai_driver au1xi2s_dai_driver = {
-	.symmetric_rates	= 1,
+	.symmetric_rate		= 1,
 	.playback = {
 		.rates		= AU1XI2SC_RATES,
 		.formats	= AU1XI2SC_FMTS,
@@ -225,7 +226,11 @@ static struct snd_soc_dai_driver au1xi2s_dai_driver = {
 	.ops = &au1xi2s_dai_ops,
 };
 
-static int __devinit au1xi2s_drvprobe(struct platform_device *pdev)
+static const struct snd_soc_component_driver au1xi2s_component = {
+	.name		= "au1xi2s",
+};
+
+static int au1xi2s_drvprobe(struct platform_device *pdev)
 {
 	struct resource *iores, *dmares;
 	struct au1xpsc_audio_data *ctx;
@@ -243,7 +248,7 @@ static int __devinit au1xi2s_drvprobe(struct platform_device *pdev)
 				     pdev->name))
 		return -EBUSY;
 
-	ctx->mmio = devm_ioremap_nocache(&pdev->dev, iores->start,
+	ctx->mmio = devm_ioremap(&pdev->dev, iores->start,
 					 resource_size(iores));
 	if (!ctx->mmio)
 		return -EBUSY;
@@ -260,14 +265,15 @@ static int __devinit au1xi2s_drvprobe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, ctx);
 
-	return snd_soc_register_dai(&pdev->dev, &au1xi2s_dai_driver);
+	return snd_soc_register_component(&pdev->dev, &au1xi2s_component,
+					  &au1xi2s_dai_driver, 1);
 }
 
-static int __devexit au1xi2s_drvremove(struct platform_device *pdev)
+static int au1xi2s_drvremove(struct platform_device *pdev)
 {
 	struct au1xpsc_audio_data *ctx = platform_get_drvdata(pdev);
 
-	snd_soc_unregister_dai(&pdev->dev);
+	snd_soc_unregister_component(&pdev->dev);
 
 	WR(ctx, I2S_ENABLE, EN_D);	/* clock off, disable */
 
@@ -305,11 +311,10 @@ static const struct dev_pm_ops au1xi2sc_pmops = {
 static struct platform_driver au1xi2s_driver = {
 	.driver	= {
 		.name	= "alchemy-i2sc",
-		.owner	= THIS_MODULE,
 		.pm	= AU1XI2SC_PMOPS,
 	},
 	.probe		= au1xi2s_drvprobe,
-	.remove		= __devexit_p(au1xi2s_drvremove),
+	.remove		= au1xi2s_drvremove,
 };
 
 module_platform_driver(au1xi2s_driver);

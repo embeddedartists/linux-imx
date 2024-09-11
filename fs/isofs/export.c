@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * fs/isofs/export.c
  *
@@ -9,7 +10,7 @@
  *
  * The following files are helpful:
  *
- *     Documentation/filesystems/nfs/Exporting
+ *     Documentation/filesystems/nfs/exporting.rst
  *     fs/exportfs/expfs.c.
  */
 
@@ -44,7 +45,7 @@ static struct dentry *isofs_export_get_parent(struct dentry *child)
 {
 	unsigned long parent_block = 0;
 	unsigned long parent_offset = 0;
-	struct inode *child_inode = child->d_inode;
+	struct inode *child_inode = d_inode(child);
 	struct iso_inode_info *e_child_inode = ISOFS_I(child_inode);
 	struct iso_directory_record *de = NULL;
 	struct buffer_head * bh = NULL;
@@ -107,12 +108,11 @@ static struct dentry *isofs_export_get_parent(struct dentry *child)
 }
 
 static int
-isofs_export_encode_fh(struct dentry *dentry,
+isofs_export_encode_fh(struct inode *inode,
 		       __u32 *fh32,
 		       int *max_len,
-		       int connectable)
+		       struct inode *parent)
 {
-	struct inode * inode = dentry->d_inode;
 	struct iso_inode_info * ei = ISOFS_I(inode);
 	int len = *max_len;
 	int type = 1;
@@ -124,28 +124,25 @@ isofs_export_encode_fh(struct dentry *dentry,
 	 * offset of the inode and the upper 16 bits of fh32[1] to
 	 * hold the offset of the parent.
 	 */
-	if (connectable && (len < 5)) {
+	if (parent && (len < 5)) {
 		*max_len = 5;
-		return 255;
+		return FILEID_INVALID;
 	} else if (len < 3) {
 		*max_len = 3;
-		return 255;
+		return FILEID_INVALID;
 	}
 
 	len = 3;
 	fh32[0] = ei->i_iget5_block;
  	fh16[2] = (__u16)ei->i_iget5_offset;  /* fh16 [sic] */
+	fh16[3] = 0;  /* avoid leaking uninitialized data */
 	fh32[2] = inode->i_generation;
-	if (connectable && !S_ISDIR(inode->i_mode)) {
-		struct inode *parent;
+	if (parent) {
 		struct iso_inode_info *eparent;
-		spin_lock(&dentry->d_lock);
-		parent = dentry->d_parent->d_inode;
 		eparent = ISOFS_I(parent);
 		fh32[3] = eparent->i_iget5_block;
 		fh16[3] = (__u16)eparent->i_iget5_offset;  /* fh16 [sic] */
 		fh32[4] = parent->i_generation;
-		spin_unlock(&dentry->d_lock);
 		len = 5;
 		type = 2;
 	}
@@ -179,7 +176,7 @@ static struct dentry *isofs_fh_to_parent(struct super_block *sb,
 {
 	struct isofs_fid *ifid = (struct isofs_fid *)fid;
 
-	if (fh_type != 2)
+	if (fh_len < 2 || fh_type != 2)
 		return NULL;
 
 	return isofs_export_iget(sb,

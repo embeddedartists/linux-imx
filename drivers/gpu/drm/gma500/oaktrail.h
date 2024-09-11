@@ -1,31 +1,13 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /**************************************************************************
  * Copyright (c) 2007-2011, Intel Corporation.
  * All Rights Reserved.
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
- *
  **************************************************************************/
 
-/* MID device specific descriptors */
+struct psb_intel_mode_device;
 
-struct oaktrail_vbt {
-	s8 signature[4];	/*4 bytes,"$GCT" */
-	u8 revision;
-	u8 size;
-	u8 checksum;
-	void *oaktrail_gct;
-} __packed;
+/* MID device specific descriptors */
 
 struct oaktrail_timing_info {
 	u16 pixel_clock;
@@ -161,7 +143,7 @@ union oaktrail_panel_rx {
 	u16 panel_receiver;
 } __packed;
 
-struct oaktrail_gct_v1 {
+struct gct_r0 {
 	union { /*8 bits,Defined as follows: */
 		struct {
 			u8 PanelType:4; /*4 bits, Bit field for panels*/
@@ -178,7 +160,7 @@ struct oaktrail_gct_v1 {
 	union oaktrail_panel_rx panelrx[4]; /* panel receivers*/
 } __packed;
 
-struct oaktrail_gct_v2 {
+struct gct_r1 {
 	union { /*8 bits,Defined as follows: */
 		struct {
 			u8 PanelType:4; /*4 bits, Bit field for panels*/
@@ -193,6 +175,16 @@ struct oaktrail_gct_v2 {
 	};
 	struct oaktrail_panel_descriptor_v2 panel[4];/*panel descrs,38 bytes each*/
 	union oaktrail_panel_rx panelrx[4]; /* panel receivers*/
+} __packed;
+
+struct gct_r10 {
+	struct gct_r10_timing_info DTD;
+	u16 Panel_MIPI_Display_Descriptor;
+	u16 Panel_MIPI_Receiver_Descriptor;
+	u16 Panel_Backlight_Inverter_Descriptor;
+	u8 Panel_Initial_Brightness;
+	u32 MIPI_Ctlr_Init_ptr;
+	u32 MIPI_Panel_Init_ptr;
 } __packed;
 
 struct oaktrail_gct_data {
@@ -212,9 +204,6 @@ struct oaktrail_gct_data {
 #define MODE_SETTING_ON_GOING		0x3
 #define MODE_SETTING_IN_DSR		0x4
 #define MODE_SETTING_ENCODER_DONE	0x8
-
-#define GCT_R10_HEADER_SIZE		16
-#define GCT_R10_DISPLAY_DESC_SIZE	28
 
 /*
  *	Moorestown HDMI interfaces
@@ -250,3 +239,9 @@ extern void oaktrail_hdmi_i2c_exit(struct pci_dev *dev);
 extern void oaktrail_hdmi_save(struct drm_device *dev);
 extern void oaktrail_hdmi_restore(struct drm_device *dev);
 extern void oaktrail_hdmi_init(struct drm_device *dev, struct psb_intel_mode_device *mode_dev);
+extern int oaktrail_crtc_hdmi_mode_set(struct drm_crtc *crtc, struct drm_display_mode *mode,
+						struct drm_display_mode *adjusted_mode, int x, int y,
+						struct drm_framebuffer *old_fb);
+extern void oaktrail_crtc_hdmi_dpms(struct drm_crtc *crtc, int mode);
+
+

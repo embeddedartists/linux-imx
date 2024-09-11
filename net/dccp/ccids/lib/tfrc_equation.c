@@ -1,13 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  Copyright (c) 2005 The University of Waikato, Hamilton, New Zealand.
  *  Copyright (c) 2005 Ian McDonald <ian.mcdonald@jandi.co.nz>
  *  Copyright (c) 2005 Arnaldo Carvalho de Melo <acme@conectiva.com.br>
  *  Copyright (c) 2003 Nils-Erik Mattsson, Joacim Haggmark, Magnus Erixzon
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
  */
 
 #include <linux/module.h>
@@ -611,6 +607,7 @@ static inline u32 tfrc_binsearch(u32 fval, u8 small)
  * @s: packet size          in bytes
  * @R: RTT                  scaled by 1000000   (i.e., microseconds)
  * @p: loss ratio estimate  scaled by 1000000
+ *
  * Returns X_calc           in bytes per second (not scaled).
  */
 u32 tfrc_calc_x(u16 s, u32 R, u32 p)
@@ -659,6 +656,7 @@ u32 tfrc_calc_x(u16 s, u32 R, u32 p)
 /**
  *  tfrc_calc_x_reverse_lookup  -  try to find p given f(p)
  *  @fvalue: function value to match, scaled by 1000000
+ *
  *  Returns closest match for p, also scaled by 1000000
  */
 u32 tfrc_calc_x_reverse_lookup(u32 fvalue)
@@ -690,6 +688,7 @@ u32 tfrc_calc_x_reverse_lookup(u32 fvalue)
 
 /**
  * tfrc_invert_loss_event_rate  -  Compute p so that 10^6 corresponds to 100%
+ * @loss_event_rate: loss event rate to invert
  * When @loss_event_rate is large, there is a chance that p is truncated to 0.
  * To avoid re-entering slow-start in that case, we set p = TFRC_SMALLEST_P > 0.
  */

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *	SBC EPX C3 0.1	A Hardware Watchdog Device for the Winsystems EPX-C3
  *	single board computer
@@ -5,13 +6,10 @@
  *	(c) Copyright 2006 Calin A. Culianu <calin@ajvar.org>, All Rights
  *	Reserved.
  *
- *	This program is free software; you can redistribute it and/or
- *	modify it under the terms of the GNU General Public License
- *	as published by the Free Software Foundation; either version
- *	2 of the License, or (at your option) any later version.
- *
  *	based on softdog.c by Alan Cox <alan@lxorguk.ukuu.org.uk>
  */
+
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -28,13 +26,12 @@
 #include <linux/uaccess.h>
 #include <linux/io.h>
 
-#define PFX "epx_c3: "
 static int epx_c3_alive;
 
 #define WATCHDOG_TIMEOUT 1		/* 1 sec default timeout */
 
-static int nowayout = WATCHDOG_NOWAYOUT;
-module_param(nowayout, int, 0);
+static bool nowayout = WATCHDOG_NOWAYOUT;
+module_param(nowayout, bool, 0);
 MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default="
 					__MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
 
@@ -51,7 +48,7 @@ static void epx_c3_stop(void)
 
 	outb(0, EPXC3_WATCHDOG_CTL_REG);
 
-	printk(KERN_INFO PFX "Stopped watchdog timer.\n");
+	pr_info("Stopped watchdog timer\n");
 }
 
 static void epx_c3_pet(void)
@@ -75,9 +72,9 @@ static int epx_c3_open(struct inode *inode, struct file *file)
 	epx_c3_pet();
 
 	epx_c3_alive = 1;
-	printk(KERN_INFO "Started watchdog timer.\n");
+	pr_info("Started watchdog timer\n");
 
-	return nonseekable_open(inode, file);
+	return stream_open(inode, file);
 }
 
 static int epx_c3_release(struct inode *inode, struct file *file)
@@ -159,6 +156,7 @@ static const struct file_operations epx_c3_fops = {
 	.llseek		= no_llseek,
 	.write		= epx_c3_write,
 	.unlocked_ioctl	= epx_c3_ioctl,
+	.compat_ioctl	= compat_ptr_ioctl,
 	.open		= epx_c3_open,
 	.release	= epx_c3_release,
 };
@@ -173,9 +171,6 @@ static struct notifier_block epx_c3_notifier = {
 	.notifier_call = epx_c3_notify_sys,
 };
 
-static const char banner[] __initconst = KERN_INFO PFX
-	"Hardware Watchdog Timer for Winsystems EPX-C3 SBC: 0.1\n";
-
 static int __init watchdog_init(void)
 {
 	int ret;
@@ -185,20 +180,19 @@ static int __init watchdog_init(void)
 
 	ret = register_reboot_notifier(&epx_c3_notifier);
 	if (ret) {
-		printk(KERN_ERR PFX "cannot register reboot notifier "
-			"(err=%d)\n", ret);
+		pr_err("cannot register reboot notifier (err=%d)\n", ret);
 		goto out;
 	}
 
 	ret = misc_register(&epx_c3_miscdev);
 	if (ret) {
-		printk(KERN_ERR PFX "cannot register miscdev on minor=%d "
-			"(err=%d)\n", WATCHDOG_MINOR, ret);
+		pr_err("cannot register miscdev on minor=%d (err=%d)\n",
+		       WATCHDOG_MINOR, ret);
 		unregister_reboot_notifier(&epx_c3_notifier);
 		goto out;
 	}
 
-	printk(banner);
+	pr_info("Hardware Watchdog Timer for Winsystems EPX-C3 SBC: 0.1\n");
 
 	return 0;
 
@@ -223,4 +217,3 @@ MODULE_DESCRIPTION("Hardware Watchdog Device for Winsystems EPX-C3 SBC.  "
 	"so only use it if you are *sure* you are running on this specific "
 	"SBC system from Winsystems!  It writes to IO ports 0x1ee and 0x1ef!");
 MODULE_LICENSE("GPL");
-MODULE_ALIAS_MISCDEV(WATCHDOG_MINOR);

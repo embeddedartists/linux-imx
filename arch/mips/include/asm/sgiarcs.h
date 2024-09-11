@@ -12,37 +12,39 @@
 #ifndef _ASM_SGIARCS_H
 #define _ASM_SGIARCS_H
 
+#include <linux/kernel.h>
+
 #include <asm/types.h>
 #include <asm/fw/arc/types.h>
 
 /* Various ARCS error codes. */
-#define PROM_ESUCCESS                   0x00
-#define PROM_E2BIG                      0x01
-#define PROM_EACCESS                    0x02
-#define PROM_EAGAIN                     0x03
-#define PROM_EBADF                      0x04
-#define PROM_EBUSY                      0x05
-#define PROM_EFAULT                     0x06
-#define PROM_EINVAL                     0x07
-#define PROM_EIO                        0x08
-#define PROM_EISDIR                     0x09
-#define PROM_EMFILE                     0x0a
-#define PROM_EMLINK                     0x0b
-#define PROM_ENAMETOOLONG               0x0c
-#define PROM_ENODEV                     0x0d
-#define PROM_ENOENT                     0x0e
-#define PROM_ENOEXEC                    0x0f
-#define PROM_ENOMEM                     0x10
-#define PROM_ENOSPC                     0x11
-#define PROM_ENOTDIR                    0x12
-#define PROM_ENOTTY                     0x13
-#define PROM_ENXIO                      0x14
-#define PROM_EROFS                      0x15
+#define PROM_ESUCCESS			0x00
+#define PROM_E2BIG			0x01
+#define PROM_EACCESS			0x02
+#define PROM_EAGAIN			0x03
+#define PROM_EBADF			0x04
+#define PROM_EBUSY			0x05
+#define PROM_EFAULT			0x06
+#define PROM_EINVAL			0x07
+#define PROM_EIO			0x08
+#define PROM_EISDIR			0x09
+#define PROM_EMFILE			0x0a
+#define PROM_EMLINK			0x0b
+#define PROM_ENAMETOOLONG		0x0c
+#define PROM_ENODEV			0x0d
+#define PROM_ENOENT			0x0e
+#define PROM_ENOEXEC			0x0f
+#define PROM_ENOMEM			0x10
+#define PROM_ENOSPC			0x11
+#define PROM_ENOTDIR			0x12
+#define PROM_ENOTTY			0x13
+#define PROM_ENXIO			0x14
+#define PROM_EROFS			0x15
 /* SGI ARCS specific errno's. */
-#define PROM_EADDRNOTAVAIL              0x1f
-#define PROM_ETIMEDOUT                  0x20
-#define PROM_ECONNABORTED               0x21
-#define PROM_ENOCONNECT                 0x22
+#define PROM_EADDRNOTAVAIL		0x1f
+#define PROM_ETIMEDOUT			0x20
+#define PROM_ECONNABORTED		0x21
+#define PROM_ENOCONNECT			0x22
 
 /* Device classes, types, and identifiers for prom
  * device inventory queries.
@@ -77,14 +79,14 @@ enum linux_identifier {
 
 /* A prom device tree component. */
 struct linux_component {
-	enum linux_devclass     class;	/* node class */
-	enum linux_devtypes     type;	/* node type */
-	enum linux_identifier   iflags;	/* node flags */
-	USHORT 			vers;	/* node version */
-	USHORT 			rev;	/* node revision */
-	ULONG 			key;	/* completely magic */
-	ULONG 			amask;	/* XXX affinity mask??? */
-	ULONG			cdsize;	/* size of configuration data */
+	enum linux_devclass	class;	/* node class */
+	enum linux_devtypes	type;	/* node type */
+	enum linux_identifier	iflags; /* node flags */
+	USHORT			vers;	/* node version */
+	USHORT			rev;	/* node revision */
+	ULONG			key;	/* completely magic */
+	ULONG			amask;	/* XXX affinity mask??? */
+	ULONG			cdsize; /* size of configuration data */
 	ULONG			ilen;	/* length of string identifier */
 	_PULONG			iname;	/* string identifier */
 };
@@ -144,7 +146,7 @@ struct linux_tinfo {
 struct linux_vdirent {
 	ULONG namelen;
 	unsigned char attr;
-	char fname[32]; /* XXX imperical, should be a define */
+	char fname[32]; /* XXX empirical, should be a define */
 };
 
 /* Other stuff for files. */
@@ -177,13 +179,13 @@ struct linux_finfo {
 	struct linux_bigint   end;
 	struct linux_bigint   cur;
 	enum linux_devtypes   dtype;
-	unsigned long         namelen;
-	unsigned char         attr;
-	char                  name[32]; /* XXX imperical, should be define */
+	unsigned long	      namelen;
+	unsigned char	      attr;
+	char		      name[32]; /* XXX empirical, should be define */
 };
 
 /* This describes the vector containing function pointers to the ARC
-   firmware functions.  */
+   firmware functions.	*/
 struct linux_romvec {
 	LONG	load;			/* Load an executable image. */
 	LONG	invoke;			/* Invoke a standalong image. */
@@ -244,7 +246,7 @@ struct linux_romvec {
  */
 typedef struct _SYSTEM_PARAMETER_BLOCK {
 	ULONG			magic;		/* magic cookie */
-#define PROMBLOCK_MAGIC      0x53435241
+#define PROMBLOCK_MAGIC	     0x53435241
 
 	ULONG			len;		/* length of parm block */
 	USHORT			ver;		/* ARCS firmware version */
@@ -294,16 +296,16 @@ struct linux_cdata {
 };
 
 /* Common SGI ARCS firmware file descriptors. */
-#define SGIPROM_STDIN     0
-#define SGIPROM_STDOUT    1
+#define SGIPROM_STDIN	  0
+#define SGIPROM_STDOUT	  1
 
 /* Common SGI ARCS firmware file types. */
-#define SGIPROM_ROFILE    0x01  /* read-only file */
-#define SGIPROM_HFILE     0x02  /* hidden file */
-#define SGIPROM_SFILE     0x04  /* System file */
-#define SGIPROM_AFILE     0x08  /* Archive file */
-#define SGIPROM_DFILE     0x10  /* Directory file */
-#define SGIPROM_DELFILE   0x20  /* Deleted file */
+#define SGIPROM_ROFILE	  0x01	/* read-only file */
+#define SGIPROM_HFILE	  0x02	/* hidden file */
+#define SGIPROM_SFILE	  0x04	/* System file */
+#define SGIPROM_AFILE	  0x08	/* Archive file */
+#define SGIPROM_DFILE	  0x10	/* Directory file */
+#define SGIPROM_DELFILE	  0x20	/* Deleted file */
 
 /* SGI ARCS boot record information. */
 struct sgi_partition {
@@ -318,7 +320,7 @@ struct sgi_partition {
 	unsigned char tsect0, tsect1, tsect2, tsect3;
 };
 
-#define SGIBBLOCK_MAGIC   0xaa55
+#define SGIBBLOCK_MAGIC	  0xaa55
 #define SGIBBLOCK_MAXPART 0x0004
 
 struct sgi_bootblock {
@@ -332,153 +334,108 @@ struct sgi_bparm_block {
 	unsigned short bytes_sect;    /* bytes per sector */
 	unsigned char  sect_clust;    /* sectors per cluster */
 	unsigned short sect_resv;     /* reserved sectors */
-	unsigned char  nfats;         /* # of allocation tables */
+	unsigned char  nfats;	      /* # of allocation tables */
 	unsigned short nroot_dirents; /* # of root directory entries */
 	unsigned short sect_volume;   /* sectors in volume */
 	unsigned char  media_type;    /* media descriptor */
 	unsigned short sect_fat;      /* sectors per allocation table */
 	unsigned short sect_track;    /* sectors per track */
-	unsigned short nheads;        /* # of heads */
-	unsigned short nhsects;       /* # of hidden sectors */
+	unsigned short nheads;	      /* # of heads */
+	unsigned short nhsects;	      /* # of hidden sectors */
 };
 
 struct sgi_bsector {
-	unsigned char   jmpinfo[3];
-	unsigned char   manuf_name[8];
+	unsigned char	jmpinfo[3];
+	unsigned char	manuf_name[8];
 	struct sgi_bparm_block info;
 };
 
 /* Debugging block used with SGI symmon symbolic debugger. */
-#define SMB_DEBUG_MAGIC   0xfeeddead
+#define SMB_DEBUG_MAGIC	  0xfeeddead
 struct linux_smonblock {
-	unsigned long   magic;
-	void            (*handler)(void);  /* Breakpoint routine. */
-	unsigned long   dtable_base;       /* Base addr of dbg table. */
-	int             (*printf)(const char *fmt, ...);
-	unsigned long   btable_base;       /* Breakpoint table. */
-	unsigned long   mpflushreqs;       /* SMP cache flush request list. */
-	unsigned long   ntab;              /* Name table. */
-	unsigned long   stab;              /* Symbol table. */
-	int             smax;              /* Max # of symbols. */
+	unsigned long	magic;
+	void		(*handler)(void);  /* Breakpoint routine. */
+	unsigned long	dtable_base;	   /* Base addr of dbg table. */
+	int		(*printf)(const char *fmt, ...);
+	unsigned long	btable_base;	   /* Breakpoint table. */
+	unsigned long	mpflushreqs;	   /* SMP cache flush request list. */
+	unsigned long	ntab;		   /* Name table. */
+	unsigned long	stab;		   /* Symbol table. */
+	int		smax;		   /* Max # of symbols. */
 };
 
 /*
  * Macros for calling a 32-bit ARC implementation from 64-bit code
  */
 
-#if defined(CONFIG_64BIT) && defined(CONFIG_ARC32)
+#if defined(CONFIG_64BIT) && defined(CONFIG_FW_ARC32)
 
-#define __arc_clobbers							\
-	"$2", "$3" /* ... */, "$8", "$9", "$10", "$11", 			\
-	"$12", "$13", "$14", "$15", "$16", "$24", "$25", "$31"
+extern long call_o32(long vec, void *stack, ...);
+
+extern u64 o32_stk[4096];
+#define O32_STK	(&o32_stk[ARRAY_SIZE(o32_stk)])
 
 #define ARC_CALL0(dest)							\
 ({	long __res;							\
 	long __vec = (long) romvec->dest;				\
-	__asm__ __volatile__(						\
-	"dsubu\t$29, 32\n\t"						\
-	"jalr\t%1\n\t"							\
-	"daddu\t$29, 32\n\t"						\
-	"move\t%0, $2"							\
-	: "=r" (__res), "=r" (__vec)					\
-	: "1" (__vec)							\
-	: __arc_clobbers, "$4", "$5", "$6", "$7");			\
-	(unsigned long) __res;						\
+	__res = call_o32(__vec, O32_STK);				\
+	__res;								\
 })
 
 #define ARC_CALL1(dest, a1)						\
 ({	long __res;							\
-	register signed int __a1 __asm__("$4") = (int) (long) (a1);	\
+	int  __a1 = (int) (long) (a1);					\
 	long __vec = (long) romvec->dest;				\
-	__asm__ __volatile__(						\
-	"dsubu\t$29, 32\n\t"						\
-	"jalr\t%1\n\t"							\
-	"daddu\t$29, 32\n\t"						\
-	"move\t%0, $2"							\
-	: "=r" (__res), "=r" (__vec)					\
-	: "1" (__vec), "r" (__a1)					\
-	: __arc_clobbers, "$5", "$6", "$7");				\
-	(unsigned long) __res;						\
+	__res = call_o32(__vec, O32_STK, __a1);				\
+	__res;								\
 })
 
 #define ARC_CALL2(dest, a1, a2)						\
 ({	long __res;							\
-	register signed int __a1 __asm__("$4") = (int) (long) (a1);	\
-	register signed int __a2 __asm__("$5") = (int) (long) (a2);	\
+	int  __a1 = (int) (long) (a1);					\
+	int  __a2 = (int) (long) (a2);					\
 	long __vec = (long) romvec->dest;				\
-	__asm__ __volatile__(						\
-	"dsubu\t$29, 32\n\t"						\
-	"jalr\t%1\n\t"							\
-	"daddu\t$29, 32\n\t"						\
-	"move\t%0, $2"							\
-	: "=r" (__res), "=r" (__vec)					\
-	: "1" (__vec), "r" (__a1), "r" (__a2)				\
-	: __arc_clobbers, "$6", "$7");					\
+	__res = call_o32(__vec, O32_STK, __a1, __a2);			\
 	__res;								\
 })
 
 #define ARC_CALL3(dest, a1, a2, a3)					\
 ({	long __res;							\
-	register signed int __a1 __asm__("$4") = (int) (long) (a1);	\
-	register signed int __a2 __asm__("$5") = (int) (long) (a2);	\
-	register signed int __a3 __asm__("$6") = (int) (long) (a3);	\
+	int  __a1 = (int) (long) (a1);					\
+	int  __a2 = (int) (long) (a2);					\
+	int  __a3 = (int) (long) (a3);					\
 	long __vec = (long) romvec->dest;				\
-	__asm__ __volatile__(						\
-	"dsubu\t$29, 32\n\t"						\
-	"jalr\t%1\n\t"							\
-	"daddu\t$29, 32\n\t"						\
-	"move\t%0, $2"							\
-	: "=r" (__res), "=r" (__vec)					\
-	: "1" (__vec), "r" (__a1), "r" (__a2), "r" (__a3)		\
-	: __arc_clobbers, "$7");					\
+	__res = call_o32(__vec, O32_STK, __a1, __a2, __a3);		\
 	__res;								\
 })
 
 #define ARC_CALL4(dest, a1, a2, a3, a4)					\
 ({	long __res;							\
-	register signed int __a1 __asm__("$4") = (int) (long) (a1);	\
-	register signed int __a2 __asm__("$5") = (int) (long) (a2);	\
-	register signed int __a3 __asm__("$6") = (int) (long) (a3);	\
-	register signed int __a4 __asm__("$7") = (int) (long) (a4);	\
+	int  __a1 = (int) (long) (a1);					\
+	int  __a2 = (int) (long) (a2);					\
+	int  __a3 = (int) (long) (a3);					\
+	int  __a4 = (int) (long) (a4);					\
 	long __vec = (long) romvec->dest;				\
-	__asm__ __volatile__(						\
-	"dsubu\t$29, 32\n\t"						\
-	"jalr\t%1\n\t"							\
-	"daddu\t$29, 32\n\t"						\
-	"move\t%0, $2"							\
-	: "=r" (__res), "=r" (__vec)					\
-	: "1" (__vec), "r" (__a1), "r" (__a2), "r" (__a3), 		\
-	  "r" (__a4)							\
-	: __arc_clobbers);						\
+	__res = call_o32(__vec, O32_STK, __a1, __a2, __a3, __a4);	\
 	__res;								\
 })
 
-#define ARC_CALL5(dest, a1, a2, a3, a4, a5)					\
+#define ARC_CALL5(dest, a1, a2, a3, a4, a5)				\
 ({	long __res;							\
-	register signed int __a1 __asm__("$4") = (int) (long) (a1);	\
-	register signed int __a2 __asm__("$5") = (int) (long) (a2);	\
-	register signed int __a3 __asm__("$6") = (int) (long) (a3);	\
-	register signed int __a4 __asm__("$7") = (int) (long) (a4);	\
-	register signed int __a5 = (int) (long) (a5);			\
+	int  __a1 = (int) (long) (a1);					\
+	int  __a2 = (int) (long) (a2);					\
+	int  __a3 = (int) (long) (a3);					\
+	int  __a4 = (int) (long) (a4);					\
+	int  __a5 = (int) (long) (a5);					\
 	long __vec = (long) romvec->dest;				\
-	__asm__ __volatile__(						\
-	"dsubu\t$29, 32\n\t"						\
-	"sw\t%7, 16($29)\n\t"						\
-	"jalr\t%1\n\t"							\
-	"daddu\t$29, 32\n\t"						\
-	"move\t%0, $2"							\
-	: "=r" (__res), "=r" (__vec)					\
-	: "1" (__vec), 							\
-	  "r" (__a1), "r" (__a2), "r" (__a3), "r" (__a4), 		\
-	  "r" (__a5)							\
-	: __arc_clobbers);						\
+	__res = call_o32(__vec, O32_STK, __a1, __a2, __a3, __a4, __a5);	\
 	__res;								\
 })
 
-#endif /* defined(CONFIG_64BIT) && defined(CONFIG_ARC32) */
+#endif /* defined(CONFIG_64BIT) && defined(CONFIG_FW_ARC32) */
 
-#if (defined(CONFIG_32BIT) && defined(CONFIG_ARC32)) ||		\
-    (defined(CONFIG_64BIT) && defined(CONFIG_ARC64))
+#if (defined(CONFIG_32BIT) && defined(CONFIG_FW_ARC32)) ||		\
+    (defined(CONFIG_64BIT) && defined(CONFIG_FW_ARC64))
 
 #define ARC_CALL0(dest)							\
 ({	long __res;							\
@@ -512,7 +469,7 @@ struct linux_smonblock {
 	long __a1 = (long) (a1);					\
 	long __a2 = (long) (a2);					\
 	long __a3 = (long) (a3);					\
-	long (*__vec)(long, long, long)	= (void *) romvec->dest;	\
+	long (*__vec)(long, long, long) = (void *) romvec->dest;	\
 									\
 	__res = __vec(__a1, __a2, __a3);				\
 	__res;								\

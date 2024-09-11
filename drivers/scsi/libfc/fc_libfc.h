@@ -1,18 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright(c) 2009 Intel Corporation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
  *
  * Maintained at www.Open-FCoE.org
  */
@@ -41,25 +29,25 @@ extern unsigned int fc_debug_logging;
 
 #define FC_LIBFC_DBG(fmt, args...)					\
 	FC_CHECK_LOGGING(FC_LIBFC_LOGGING,				\
-			 printk(KERN_INFO "libfc: " fmt, ##args))
+			 pr_info("libfc: " fmt, ##args))
 
 #define FC_LPORT_DBG(lport, fmt, args...)				\
 	FC_CHECK_LOGGING(FC_LPORT_LOGGING,				\
-			 printk(KERN_INFO "host%u: lport %6.6x: " fmt,	\
-				(lport)->host->host_no,			\
-				(lport)->port_id, ##args))
+			 pr_info("host%u: lport %6.6x: " fmt,		\
+				 (lport)->host->host_no,		\
+				 (lport)->port_id, ##args))
 
-#define FC_DISC_DBG(disc, fmt, args...)				\
-	FC_CHECK_LOGGING(FC_DISC_LOGGING,			\
-			 printk(KERN_INFO "host%u: disc: " fmt,	\
-				fc_disc_lport(disc)->host->host_no,	\
-				##args))
+#define FC_DISC_DBG(disc, fmt, args...)					\
+	FC_CHECK_LOGGING(FC_DISC_LOGGING,				\
+			 pr_info("host%u: disc: " fmt,			\
+				 fc_disc_lport(disc)->host->host_no,	\
+				 ##args))
 
 #define FC_RPORT_ID_DBG(lport, port_id, fmt, args...)			\
 	FC_CHECK_LOGGING(FC_RPORT_LOGGING,				\
-			 printk(KERN_INFO "host%u: rport %6.6x: " fmt,	\
-				(lport)->host->host_no,			\
-				(port_id), ##args))
+			 pr_info("host%u: rport %6.6x: " fmt,		\
+				 (lport)->host->host_no,		\
+				 (port_id), ##args))
 
 #define FC_RPORT_DBG(rdata, fmt, args...)				\
 	FC_RPORT_ID_DBG((rdata)->local_port, (rdata)->ids.port_id, fmt, ##args)
@@ -70,13 +58,13 @@ extern unsigned int fc_debug_logging;
 		if ((pkt)->seq_ptr) {					\
 			struct fc_exch *_ep = NULL;			\
 			_ep = fc_seq_exch((pkt)->seq_ptr);		\
-			printk(KERN_INFO "host%u: fcp: %6.6x: "		\
+			pr_info("host%u: fcp: %6.6x: "			\
 				"xid %04x-%04x: " fmt,			\
 				(pkt)->lp->host->host_no,		\
 				(pkt)->rport->port_id,			\
 				(_ep)->oxid, (_ep)->rxid, ##args);	\
 		} else {						\
-			printk(KERN_INFO "host%u: fcp: %6.6x: " fmt,	\
+			pr_info("host%u: fcp: %6.6x: " fmt,		\
 				(pkt)->lp->host->host_no,		\
 				(pkt)->rport->port_id, ##args);		\
 		}							\
@@ -84,14 +72,14 @@ extern unsigned int fc_debug_logging;
 
 #define FC_EXCH_DBG(exch, fmt, args...)					\
 	FC_CHECK_LOGGING(FC_EXCH_LOGGING,				\
-			 printk(KERN_INFO "host%u: xid %4x: " fmt,	\
-				(exch)->lp->host->host_no,		\
-				exch->xid, ##args))
+			 pr_info("host%u: xid %4x: " fmt,		\
+				 (exch)->lp->host->host_no,		\
+				 exch->xid, ##args))
 
 #define FC_SCSI_DBG(lport, fmt, args...)				\
 	FC_CHECK_LOGGING(FC_SCSI_LOGGING,				\
-			 printk(KERN_INFO "host%u: scsi: " fmt,		\
-				(lport)->host->host_no,	##args))
+			 pr_info("host%u: scsi: " fmt,			\
+				 (lport)->host->host_no, ##args))
 
 /*
  * FC-4 Providers.
@@ -134,6 +122,6 @@ extern void fc_fc4_conf_lport_params(struct fc_lport *, enum fc_fh_type);
 u32 fc_copy_buffer_to_sglist(void *buf, size_t len,
 			     struct scatterlist *sg,
 			     u32 *nents, size_t *offset,
-			     enum km_type km_type, u32 *crc);
+			     u32 *crc);
 
 #endif /* _FC_LIBFC_H_ */

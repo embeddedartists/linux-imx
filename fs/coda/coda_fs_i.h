@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  *  coda_fs_i.h
  *
@@ -25,7 +26,7 @@ struct coda_inode_info {
 	u_short	           c_flags;     /* flags (see below) */
 	unsigned int	   c_mapcount;  /* nr of times this inode is mapped */
 	unsigned int	   c_cached_epoch; /* epoch for cached permissions */
-	vuid_t		   c_uid;	/* fsuid for cached permissions */
+	kuid_t		   c_uid;	/* fsuid for cached permissions */
 	unsigned int       c_cached_perm; /* cached access permissions */
 	spinlock_t	   c_lock;
 	struct inode	   vfs_inode;
@@ -39,9 +40,8 @@ struct coda_file_info {
 	int		   cfi_magic;	  /* magic number */
 	struct file	  *cfi_container; /* container file for this cnode */
 	unsigned int	   cfi_mapcount;  /* nr of times this file is mapped */
+	bool		   cfi_access_intent; /* is access intent supported */
 };
-
-#define CODA_FTOC(file) ((struct coda_file_info *)((file)->private_data))
 
 /* flags */
 #define C_VATTR       0x1   /* Validity of vattr in inode */
@@ -53,6 +53,7 @@ struct inode *coda_cnode_make(struct CodaFid *, struct super_block *);
 struct inode *coda_iget(struct super_block *sb, struct CodaFid *fid, struct coda_vattr *attr);
 struct inode *coda_cnode_makectl(struct super_block *sb);
 struct inode *coda_fid_to_inode(struct CodaFid *fid, struct super_block *sb);
+struct coda_file_info *coda_ftoc(struct file *file);
 void coda_replace_fid(struct inode *, struct CodaFid *, struct CodaFid *);
 
 #endif

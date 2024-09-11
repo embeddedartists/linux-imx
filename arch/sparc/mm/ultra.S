@@ -1,11 +1,12 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * ultra.S: Don't expand these all over the place...
  *
  * Copyright (C) 1997, 2000, 2008 David S. Miller (davem@davemloft.net)
  */
 
+#include <linux/pgtable.h>
 #include <asm/asi.h>
-#include <asm/pgtable.h>
 #include <asm/page.h>
 #include <asm/spitfire.h>
 #include <asm/mmu_context.h>
@@ -30,7 +31,7 @@
 	.text
 	.align		32
 	.globl		__flush_tlb_mm
-__flush_tlb_mm:		/* 18 insns */
+__flush_tlb_mm:		/* 19 insns */
 	/* %o0=(ctx & TAG_CONTEXT_BITS), %o1=SECONDARY_CONTEXT */
 	ldxa		[%o1] ASI_DMMU, %g2
 	cmp		%g2, %o0
@@ -53,8 +54,35 @@ __flush_tlb_mm:		/* 18 insns */
 	nop
 
 	.align		32
+	.globl		__flush_tlb_page
+__flush_tlb_page:	/* 22 insns */
+	/* %o0 = context, %o1 = vaddr */
+	rdpr		%pstate, %g7
+	andn		%g7, PSTATE_IE, %g2
+	wrpr		%g2, %pstate
+	mov		SECONDARY_CONTEXT, %o4
+	ldxa		[%o4] ASI_DMMU, %g2
+	stxa		%o0, [%o4] ASI_DMMU
+	andcc		%o1, 1, %g0
+	andn		%o1, 1, %o3
+	be,pn		%icc, 1f
+	 or		%o3, 0x10, %o3
+	stxa		%g0, [%o3] ASI_IMMU_DEMAP
+1:	stxa		%g0, [%o3] ASI_DMMU_DEMAP
+	membar		#Sync
+	stxa		%g2, [%o4] ASI_DMMU
+	sethi		%hi(KERNBASE), %o4
+	flush		%o4
+	retl
+	 wrpr		%g7, 0x0, %pstate
+	nop
+	nop
+	nop
+	nop
+
+	.align		32
 	.globl		__flush_tlb_pending
-__flush_tlb_pending:	/* 26 insns */
+__flush_tlb_pending:	/* 27 insns */
 	/* %o0 = context, %o1 = nr, %o2 = vaddrs[] */
 	rdpr		%pstate, %g7
 	sllx		%o1, 3, %o1
@@ -86,12 +114,14 @@ __flush_tlb_pending:	/* 26 insns */
 
 	.align		32
 	.globl		__flush_tlb_kernel_range
-__flush_tlb_kernel_range:	/* 16 insns */
+__flush_tlb_kernel_range:	/* 31 insns */
 	/* %o0=start, %o1=end */
 	cmp		%o0, %o1
 	be,pn		%xcc, 2f
+	 sub		%o1, %o0, %o3
+	srlx		%o3, 18, %o4
+	brnz,pn		%o4, __spitfire_flush_tlb_kernel_range_slow
 	 sethi		%hi(PAGE_SIZE), %o4
-	sub		%o1, %o0, %o3
 	sub		%o3, %o4, %o3
 	or		%o0, 0x20, %o0		! Nucleus
 1:	stxa		%g0, [%o0 + %o3] ASI_DMMU_DEMAP
@@ -104,6 +134,41 @@ __flush_tlb_kernel_range:	/* 16 insns */
 	retl
 	 nop
 	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+
+__spitfire_flush_tlb_kernel_range_slow:
+	mov		63 * 8, %o4
+1:	ldxa		[%o4] ASI_ITLB_DATA_ACCESS, %o3
+	andcc		%o3, 0x40, %g0			/* _PAGE_L_4U */
+	bne,pn		%xcc, 2f
+	 mov		TLB_TAG_ACCESS, %o3
+	stxa		%g0, [%o3] ASI_IMMU
+	stxa		%g0, [%o4] ASI_ITLB_DATA_ACCESS
+	membar		#Sync
+2:	ldxa		[%o4] ASI_DTLB_DATA_ACCESS, %o3
+	andcc		%o3, 0x40, %g0
+	bne,pn		%xcc, 2f
+	 mov		TLB_TAG_ACCESS, %o3
+	stxa		%g0, [%o3] ASI_DMMU
+	stxa		%g0, [%o4] ASI_DTLB_DATA_ACCESS
+	membar		#Sync
+2:	sub		%o4, 8, %o4
+	brgez,pt	%o4, 1b
+	 nop
+	retl
+	 nop
 
 __spitfire_flush_tlb_mm_slow:
 	rdpr		%pstate, %g1
@@ -126,10 +191,10 @@ __spitfire_flush_tlb_mm_slow:
 	.globl		__flush_icache_page
 __flush_icache_page:	/* %o0 = phys_page */
 	srlx		%o0, PAGE_SHIFT, %o0
-	sethi		%uhi(PAGE_OFFSET), %g1
+	sethi		%hi(PAGE_OFFSET), %g1
 	sllx		%o0, PAGE_SHIFT, %o0
 	sethi		%hi(PAGE_SIZE), %g2
-	sllx		%g1, 32, %g1
+	ldx		[%g1 + %lo(PAGE_OFFSET)], %g1
 	add		%o0, %g1, %o0
 1:	subcc		%g2, 32, %g2
 	bne,pt		%icc, 1b
@@ -151,8 +216,8 @@ __flush_icache_page:	/* %o0 = phys_page */
 	.align		64
 	.globl		__flush_dcache_page
 __flush_dcache_page:	/* %o0=kaddr, %o1=flush_icache */
-	sethi		%uhi(PAGE_OFFSET), %g1
-	sllx		%g1, 32, %g1
+	sethi		%hi(PAGE_OFFSET), %g1
+	ldx		[%g1 + %lo(PAGE_OFFSET)], %g1
 	sub		%o0, %g1, %o0			! physical address
 	srlx		%o0, 11, %o0			! make D-cache TAG
 	sethi		%hi(1 << 14), %o2		! D-cache size
@@ -203,6 +268,31 @@ __cheetah_flush_tlb_mm: /* 19 insns */
 	retl
 	 wrpr		%g7, 0x0, %pstate
 
+__cheetah_flush_tlb_page:	/* 22 insns */
+	/* %o0 = context, %o1 = vaddr */
+	rdpr		%pstate, %g7
+	andn		%g7, PSTATE_IE, %g2
+	wrpr		%g2, 0x0, %pstate
+	wrpr		%g0, 1, %tl
+	mov		PRIMARY_CONTEXT, %o4
+	ldxa		[%o4] ASI_DMMU, %g2
+	srlx		%g2, CTX_PGSZ1_NUC_SHIFT, %o3
+	sllx		%o3, CTX_PGSZ1_NUC_SHIFT, %o3
+	or		%o0, %o3, %o0	/* Preserve nucleus page size fields */
+	stxa		%o0, [%o4] ASI_DMMU
+	andcc		%o1, 1, %g0
+	be,pn		%icc, 1f
+	 andn		%o1, 1, %o3
+	stxa		%g0, [%o3] ASI_IMMU_DEMAP
+1:	stxa		%g0, [%o3] ASI_DMMU_DEMAP	
+	membar		#Sync
+	stxa		%g2, [%o4] ASI_DMMU
+	sethi		%hi(KERNBASE), %o4
+	flush		%o4
+	wrpr		%g0, 0, %tl
+	retl
+	 wrpr		%g7, 0x0, %pstate
+
 __cheetah_flush_tlb_pending:	/* 27 insns */
 	/* %o0 = context, %o1 = nr, %o2 = vaddrs[] */
 	rdpr		%pstate, %g7
@@ -233,10 +323,44 @@ __cheetah_flush_tlb_pending:	/* 27 insns */
 	retl
 	 wrpr		%g7, 0x0, %pstate
 
+__cheetah_flush_tlb_kernel_range:	/* 31 insns */
+	/* %o0=start, %o1=end */
+	cmp		%o0, %o1
+	be,pn		%xcc, 2f
+	 sub		%o1, %o0, %o3
+	srlx		%o3, 18, %o4
+	brnz,pn		%o4, 3f
+	 sethi		%hi(PAGE_SIZE), %o4
+	sub		%o3, %o4, %o3
+	or		%o0, 0x20, %o0		! Nucleus
+1:	stxa		%g0, [%o0 + %o3] ASI_DMMU_DEMAP
+	stxa		%g0, [%o0 + %o3] ASI_IMMU_DEMAP
+	membar		#Sync
+	brnz,pt		%o3, 1b
+	 sub		%o3, %o4, %o3
+2:	sethi		%hi(KERNBASE), %o3
+	flush		%o3
+	retl
+	 nop
+3:	mov		0x80, %o4
+	stxa		%g0, [%o4] ASI_DMMU_DEMAP
+	membar		#Sync
+	stxa		%g0, [%o4] ASI_IMMU_DEMAP
+	membar		#Sync
+	retl
+	 nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+
 #ifdef DCACHE_ALIASING_POSSIBLE
 __cheetah_flush_dcache_page: /* 11 insns */
-	sethi		%uhi(PAGE_OFFSET), %g1
-	sllx		%g1, 32, %g1
+	sethi		%hi(PAGE_OFFSET), %g1
+	ldx		[%g1 + %lo(PAGE_OFFSET)], %g1
 	sub		%o0, %g1, %o0
 	sethi		%hi(PAGE_SIZE), %o4
 1:	subcc		%o4, (1 << 5), %o4
@@ -257,19 +381,53 @@ __hypervisor_tlb_tl0_error:
 	ret
 	 restore
 
-__hypervisor_flush_tlb_mm: /* 10 insns */
+__hypervisor_flush_tlb_mm: /* 19 insns */
 	mov		%o0, %o2	/* ARG2: mmu context */
 	mov		0, %o0		/* ARG0: CPU lists unimplemented */
 	mov		0, %o1		/* ARG1: CPU lists unimplemented */
 	mov		HV_MMU_ALL, %o3	/* ARG3: flags */
 	mov		HV_FAST_MMU_DEMAP_CTX, %o5
 	ta		HV_FAST_TRAP
-	brnz,pn		%o0, __hypervisor_tlb_tl0_error
+	brnz,pn		%o0, 1f
 	 mov		HV_FAST_MMU_DEMAP_CTX, %o1
 	retl
 	 nop
+1:	sethi		%hi(__hypervisor_tlb_tl0_error), %o5
+	jmpl		%o5 + %lo(__hypervisor_tlb_tl0_error), %g0
+	 nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
 
-__hypervisor_flush_tlb_pending: /* 16 insns */
+__hypervisor_flush_tlb_page: /* 22 insns */
+	/* %o0 = context, %o1 = vaddr */
+	mov		%o0, %g2
+	mov		%o1, %o0              /* ARG0: vaddr + IMMU-bit */
+	mov		%g2, %o1	      /* ARG1: mmu context */
+	mov		HV_MMU_ALL, %o2	      /* ARG2: flags */
+	srlx		%o0, PAGE_SHIFT, %o0
+	sllx		%o0, PAGE_SHIFT, %o0
+	ta		HV_MMU_UNMAP_ADDR_TRAP
+	brnz,pn		%o0, 1f
+	 mov		HV_MMU_UNMAP_ADDR_TRAP, %o1
+	retl
+	 nop
+1:	sethi		%hi(__hypervisor_tlb_tl0_error), %o2
+	jmpl		%o2 + %lo(__hypervisor_tlb_tl0_error), %g0
+	 nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+
+__hypervisor_flush_tlb_pending: /* 27 insns */
 	/* %o0 = context, %o1 = nr, %o2 = vaddrs[] */
 	sllx		%o1, 3, %g1
 	mov		%o2, %g2
@@ -281,30 +439,56 @@ __hypervisor_flush_tlb_pending: /* 16 insns */
 	srlx		%o0, PAGE_SHIFT, %o0
 	sllx		%o0, PAGE_SHIFT, %o0
 	ta		HV_MMU_UNMAP_ADDR_TRAP
-	brnz,pn		%o0, __hypervisor_tlb_tl0_error
+	brnz,pn		%o0, 1f
 	 mov		HV_MMU_UNMAP_ADDR_TRAP, %o1
 	brnz,pt		%g1, 1b
 	 nop
 	retl
 	 nop
+1:	sethi		%hi(__hypervisor_tlb_tl0_error), %o2
+	jmpl		%o2 + %lo(__hypervisor_tlb_tl0_error), %g0
+	 nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
 
-__hypervisor_flush_tlb_kernel_range: /* 16 insns */
+__hypervisor_flush_tlb_kernel_range: /* 31 insns */
 	/* %o0=start, %o1=end */
 	cmp		%o0, %o1
 	be,pn		%xcc, 2f
-	 sethi		%hi(PAGE_SIZE), %g3
-	mov		%o0, %g1
-	sub		%o1, %g1, %g2
+	 sub		%o1, %o0, %g2
+	srlx		%g2, 18, %g3
+	brnz,pn		%g3, 4f
+	 mov		%o0, %g1
+	sethi		%hi(PAGE_SIZE), %g3
 	sub		%g2, %g3, %g2
 1:	add		%g1, %g2, %o0	/* ARG0: virtual address */
 	mov		0, %o1		/* ARG1: mmu context */
 	mov		HV_MMU_ALL, %o2	/* ARG2: flags */
 	ta		HV_MMU_UNMAP_ADDR_TRAP
-	brnz,pn		%o0, __hypervisor_tlb_tl0_error
+	brnz,pn		%o0, 3f
 	 mov		HV_MMU_UNMAP_ADDR_TRAP, %o1
 	brnz,pt		%g2, 1b
 	 sub		%g2, %g3, %g2
 2:	retl
+	 nop
+3:	sethi		%hi(__hypervisor_tlb_tl0_error), %o2
+	jmpl		%o2 + %lo(__hypervisor_tlb_tl0_error), %g0
+	 nop
+4:	mov		0, %o0		/* ARG0: CPU lists unimplemented */
+	mov		0, %o1		/* ARG1: CPU lists unimplemented */
+	mov		0, %o2		/* ARG2: mmu context == nucleus */
+	mov		HV_MMU_ALL, %o3	/* ARG3: flags */
+	mov		HV_FAST_MMU_DEMAP_CTX, %o5
+	ta		HV_FAST_TRAP
+	brnz,pn		%o0, 3b
+	 mov		HV_FAST_MMU_DEMAP_CTX, %o1
+	retl
 	 nop
 
 #ifdef DCACHE_ALIASING_POSSIBLE
@@ -328,36 +512,6 @@ tlb_patch_one:
 	retl
 	 nop
 
-	.globl		cheetah_patch_cachetlbops
-cheetah_patch_cachetlbops:
-	save		%sp, -128, %sp
-
-	sethi		%hi(__flush_tlb_mm), %o0
-	or		%o0, %lo(__flush_tlb_mm), %o0
-	sethi		%hi(__cheetah_flush_tlb_mm), %o1
-	or		%o1, %lo(__cheetah_flush_tlb_mm), %o1
-	call		tlb_patch_one
-	 mov		19, %o2
-
-	sethi		%hi(__flush_tlb_pending), %o0
-	or		%o0, %lo(__flush_tlb_pending), %o0
-	sethi		%hi(__cheetah_flush_tlb_pending), %o1
-	or		%o1, %lo(__cheetah_flush_tlb_pending), %o1
-	call		tlb_patch_one
-	 mov		27, %o2
-
-#ifdef DCACHE_ALIASING_POSSIBLE
-	sethi		%hi(__flush_dcache_page), %o0
-	or		%o0, %lo(__flush_dcache_page), %o0
-	sethi		%hi(__cheetah_flush_dcache_page), %o1
-	or		%o1, %lo(__cheetah_flush_dcache_page), %o1
-	call		tlb_patch_one
-	 mov		11, %o2
-#endif /* DCACHE_ALIASING_POSSIBLE */
-
-	ret
-	 restore
-
 #ifdef CONFIG_SMP
 	/* These are all called by the slaves of a cross call, at
 	 * trap level 1, with interrupts fully disabled.
@@ -374,7 +528,7 @@ cheetah_patch_cachetlbops:
 	 */
 	.align		32
 	.globl		xcall_flush_tlb_mm
-xcall_flush_tlb_mm:	/* 21 insns */
+xcall_flush_tlb_mm:	/* 24 insns */
 	mov		PRIMARY_CONTEXT, %g2
 	ldxa		[%g2] ASI_DMMU, %g3
 	srlx		%g3, CTX_PGSZ1_NUC_SHIFT, %g4
@@ -396,11 +550,13 @@ xcall_flush_tlb_mm:	/* 21 insns */
 	nop
 	nop
 	nop
+	nop
+	nop
+	nop
 
-	.globl		xcall_flush_tlb_pending
-xcall_flush_tlb_pending:	/* 21 insns */
-	/* %g5=context, %g1=nr, %g7=vaddrs[] */
-	sllx		%g1, 3, %g1
+	.globl		xcall_flush_tlb_page
+xcall_flush_tlb_page:	/* 20 insns */
+	/* %g5=context, %g1=vaddr */
 	mov		PRIMARY_CONTEXT, %g4
 	ldxa		[%g4] ASI_DMMU, %g2
 	srlx		%g2, CTX_PGSZ1_NUC_SHIFT, %g4
@@ -408,29 +564,30 @@ xcall_flush_tlb_pending:	/* 21 insns */
 	or		%g5, %g4, %g5
 	mov		PRIMARY_CONTEXT, %g4
 	stxa		%g5, [%g4] ASI_DMMU
-1:	sub		%g1, (1 << 3), %g1
-	ldx		[%g7 + %g1], %g5
-	andcc		%g5, 0x1, %g0
+	andcc		%g1, 0x1, %g0
 	be,pn		%icc, 2f
-
-	 andn		%g5, 0x1, %g5
+	 andn		%g1, 0x1, %g5
 	stxa		%g0, [%g5] ASI_IMMU_DEMAP
 2:	stxa		%g0, [%g5] ASI_DMMU_DEMAP
 	membar		#Sync
-	brnz,pt		%g1, 1b
-	 nop
 	stxa		%g2, [%g4] ASI_DMMU
 	retry
 	nop
+	nop
+	nop
+	nop
+	nop
 
 	.globl		xcall_flush_tlb_kernel_range
-xcall_flush_tlb_kernel_range:	/* 25 insns */
+xcall_flush_tlb_kernel_range:	/* 44 insns */
 	sethi		%hi(PAGE_SIZE - 1), %g2
 	or		%g2, %lo(PAGE_SIZE - 1), %g2
 	andn		%g1, %g2, %g1
 	andn		%g7, %g2, %g7
 	sub		%g7, %g1, %g3
-	add		%g2, 1, %g2
+	srlx		%g3, 18, %g2
+	brnz,pn		%g2, 2f
+	 sethi		%hi(PAGE_SIZE), %g2
 	sub		%g3, %g2, %g3
 	or		%g1, 0x20, %g1		! Nucleus
 1:	stxa		%g0, [%g1 + %g3] ASI_DMMU_DEMAP
@@ -439,8 +596,25 @@ xcall_flush_tlb_kernel_range:	/* 25 insns */
 	brnz,pt		%g3, 1b
 	 sub		%g3, %g2, %g3
 	retry
-	nop
-	nop
+2:	mov		63 * 8, %g1
+1:	ldxa		[%g1] ASI_ITLB_DATA_ACCESS, %g2
+	andcc		%g2, 0x40, %g0			/* _PAGE_L_4U */
+	bne,pn		%xcc, 2f
+	 mov		TLB_TAG_ACCESS, %g2
+	stxa		%g0, [%g2] ASI_IMMU
+	stxa		%g0, [%g1] ASI_ITLB_DATA_ACCESS
+	membar		#Sync
+2:	ldxa		[%g1] ASI_DTLB_DATA_ACCESS, %g2
+	andcc		%g2, 0x40, %g0
+	bne,pn		%xcc, 2f
+	 mov		TLB_TAG_ACCESS, %g2
+	stxa		%g0, [%g2] ASI_DMMU
+	stxa		%g0, [%g1] ASI_DTLB_DATA_ACCESS
+	membar		#Sync
+2:	sub		%g1, 8, %g1
+	brgez,pt	%g1, 1b
+	 nop
+	retry
 	nop
 	nop
 	nop
@@ -481,8 +655,8 @@ xcall_sync_tick:
 
 	.globl		xcall_fetch_glob_regs
 xcall_fetch_glob_regs:
-	sethi		%hi(global_reg_snapshot), %g1
-	or		%g1, %lo(global_reg_snapshot), %g1
+	sethi		%hi(global_cpu_snapshot), %g1
+	or		%g1, %lo(global_cpu_snapshot), %g1
 	__GET_CPUID(%g2)
 	sllx		%g2, 6, %g3
 	add		%g1, %g3, %g1
@@ -495,11 +669,11 @@ xcall_fetch_glob_regs:
 	stx		%o7, [%g1 + GR_SNAP_O7]
 	stx		%i7, [%g1 + GR_SNAP_I7]
 	/* Don't try this at home kids... */
-	rdpr		%cwp, %g2
-	sub		%g2, 1, %g7
+	rdpr		%cwp, %g3
+	sub		%g3, 1, %g7
 	wrpr		%g7, %cwp
 	mov		%i7, %g7
-	wrpr		%g2, %cwp
+	wrpr		%g3, %cwp
 	stx		%g7, [%g1 + GR_SNAP_RPC]
 	sethi		%hi(trap_block), %g7
 	or		%g7, %lo(trap_block), %g7
@@ -508,6 +682,112 @@ xcall_fetch_glob_regs:
 	ldx		[%g7 + TRAP_PER_CPU_THREAD], %g3
 	stx		%g3, [%g1 + GR_SNAP_THREAD]
 	retry
+
+	.globl		xcall_fetch_glob_pmu
+xcall_fetch_glob_pmu:
+	sethi		%hi(global_cpu_snapshot), %g1
+	or		%g1, %lo(global_cpu_snapshot), %g1
+	__GET_CPUID(%g2)
+	sllx		%g2, 6, %g3
+	add		%g1, %g3, %g1
+	rd		%pic, %g7
+	stx		%g7, [%g1 + (4 * 8)]
+	rd		%pcr, %g7
+	stx		%g7, [%g1 + (0 * 8)]
+	retry
+
+	.globl		xcall_fetch_glob_pmu_n4
+xcall_fetch_glob_pmu_n4:
+	sethi		%hi(global_cpu_snapshot), %g1
+	or		%g1, %lo(global_cpu_snapshot), %g1
+	__GET_CPUID(%g2)
+	sllx		%g2, 6, %g3
+	add		%g1, %g3, %g1
+
+	ldxa		[%g0] ASI_PIC, %g7
+	stx		%g7, [%g1 + (4 * 8)]
+	mov		0x08, %g3
+	ldxa		[%g3] ASI_PIC, %g7
+	stx		%g7, [%g1 + (5 * 8)]
+	mov		0x10, %g3
+	ldxa		[%g3] ASI_PIC, %g7
+	stx		%g7, [%g1 + (6 * 8)]
+	mov		0x18, %g3
+	ldxa		[%g3] ASI_PIC, %g7
+	stx		%g7, [%g1 + (7 * 8)]
+
+	mov		%o0, %g2
+	mov		%o1, %g3
+	mov		%o5, %g7
+
+	mov		HV_FAST_VT_GET_PERFREG, %o5
+	mov		3, %o0
+	ta		HV_FAST_TRAP
+	stx		%o1, [%g1 + (3 * 8)]
+	mov		HV_FAST_VT_GET_PERFREG, %o5
+	mov		2, %o0
+	ta		HV_FAST_TRAP
+	stx		%o1, [%g1 + (2 * 8)]
+	mov		HV_FAST_VT_GET_PERFREG, %o5
+	mov		1, %o0
+	ta		HV_FAST_TRAP
+	stx		%o1, [%g1 + (1 * 8)]
+	mov		HV_FAST_VT_GET_PERFREG, %o5
+	mov		0, %o0
+	ta		HV_FAST_TRAP
+	stx		%o1, [%g1 + (0 * 8)]
+
+	mov		%g2, %o0
+	mov		%g3, %o1
+	mov		%g7, %o5
+
+	retry
+
+__cheetah_xcall_flush_tlb_kernel_range:	/* 44 insns */
+	sethi		%hi(PAGE_SIZE - 1), %g2
+	or		%g2, %lo(PAGE_SIZE - 1), %g2
+	andn		%g1, %g2, %g1
+	andn		%g7, %g2, %g7
+	sub		%g7, %g1, %g3
+	srlx		%g3, 18, %g2
+	brnz,pn		%g2, 2f
+	 sethi		%hi(PAGE_SIZE), %g2
+	sub		%g3, %g2, %g3
+	or		%g1, 0x20, %g1		! Nucleus
+1:	stxa		%g0, [%g1 + %g3] ASI_DMMU_DEMAP
+	stxa		%g0, [%g1 + %g3] ASI_IMMU_DEMAP
+	membar		#Sync
+	brnz,pt		%g3, 1b
+	 sub		%g3, %g2, %g3
+	retry
+2:	mov		0x80, %g2
+	stxa		%g0, [%g2] ASI_DMMU_DEMAP
+	membar		#Sync
+	stxa		%g0, [%g2] ASI_IMMU_DEMAP
+	membar		#Sync
+	retry
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
 
 #ifdef DCACHE_ALIASING_POSSIBLE
 	.align		32
@@ -572,7 +852,7 @@ __hypervisor_tlb_xcall_error:
 	ba,a,pt	%xcc, rtrap
 
 	.globl		__hypervisor_xcall_flush_tlb_mm
-__hypervisor_xcall_flush_tlb_mm: /* 21 insns */
+__hypervisor_xcall_flush_tlb_mm: /* 24 insns */
 	/* %g5=ctx, g1,g2,g3,g4,g7=scratch, %g6=unusable */
 	mov		%o0, %g2
 	mov		%o1, %g3
@@ -586,7 +866,7 @@ __hypervisor_xcall_flush_tlb_mm: /* 21 insns */
 	mov		HV_FAST_MMU_DEMAP_CTX, %o5
 	ta		HV_FAST_TRAP
 	mov		HV_FAST_MMU_DEMAP_CTX, %g6
-	brnz,pn		%o0, __hypervisor_tlb_xcall_error
+	brnz,pn		%o0, 1f
 	 mov		%o0, %g5
 	mov		%g2, %o0
 	mov		%g3, %o1
@@ -595,60 +875,81 @@ __hypervisor_xcall_flush_tlb_mm: /* 21 insns */
 	mov		%g7, %o5
 	membar		#Sync
 	retry
+1:	sethi		%hi(__hypervisor_tlb_xcall_error), %g4
+	jmpl		%g4 + %lo(__hypervisor_tlb_xcall_error), %g0
+	 nop
 
-	.globl		__hypervisor_xcall_flush_tlb_pending
-__hypervisor_xcall_flush_tlb_pending: /* 21 insns */
-	/* %g5=ctx, %g1=nr, %g7=vaddrs[], %g2,%g3,%g4,g6=scratch */
-	sllx		%g1, 3, %g1
+	.globl		__hypervisor_xcall_flush_tlb_page
+__hypervisor_xcall_flush_tlb_page: /* 20 insns */
+	/* %g5=ctx, %g1=vaddr */
 	mov		%o0, %g2
 	mov		%o1, %g3
 	mov		%o2, %g4
-1:	sub		%g1, (1 << 3), %g1
-	ldx		[%g7 + %g1], %o0	/* ARG0: virtual address */
+	mov		%g1, %o0	        /* ARG0: virtual address */
 	mov		%g5, %o1		/* ARG1: mmu context */
 	mov		HV_MMU_ALL, %o2		/* ARG2: flags */
 	srlx		%o0, PAGE_SHIFT, %o0
 	sllx		%o0, PAGE_SHIFT, %o0
 	ta		HV_MMU_UNMAP_ADDR_TRAP
 	mov		HV_MMU_UNMAP_ADDR_TRAP, %g6
-	brnz,a,pn	%o0, __hypervisor_tlb_xcall_error
+	brnz,a,pn	%o0, 1f
 	 mov		%o0, %g5
-	brnz,pt		%g1, 1b
-	 nop
 	mov		%g2, %o0
 	mov		%g3, %o1
 	mov		%g4, %o2
 	membar		#Sync
 	retry
+1:	sethi		%hi(__hypervisor_tlb_xcall_error), %g4
+	jmpl		%g4 + %lo(__hypervisor_tlb_xcall_error), %g0
+	 nop
 
 	.globl		__hypervisor_xcall_flush_tlb_kernel_range
-__hypervisor_xcall_flush_tlb_kernel_range: /* 25 insns */
+__hypervisor_xcall_flush_tlb_kernel_range: /* 44 insns */
 	/* %g1=start, %g7=end, g2,g3,g4,g5,g6=scratch */
 	sethi		%hi(PAGE_SIZE - 1), %g2
 	or		%g2, %lo(PAGE_SIZE - 1), %g2
 	andn		%g1, %g2, %g1
 	andn		%g7, %g2, %g7
 	sub		%g7, %g1, %g3
+	srlx		%g3, 18, %g7
 	add		%g2, 1, %g2
 	sub		%g3, %g2, %g3
 	mov		%o0, %g2
 	mov		%o1, %g4
-	mov		%o2, %g7
+	brnz,pn		%g7, 2f
+	 mov		%o2, %g7
 1:	add		%g1, %g3, %o0	/* ARG0: virtual address */
 	mov		0, %o1		/* ARG1: mmu context */
 	mov		HV_MMU_ALL, %o2	/* ARG2: flags */
 	ta		HV_MMU_UNMAP_ADDR_TRAP
 	mov		HV_MMU_UNMAP_ADDR_TRAP, %g6
-	brnz,pn		%o0, __hypervisor_tlb_xcall_error
+	brnz,pn		%o0, 1f
 	 mov		%o0, %g5
 	sethi		%hi(PAGE_SIZE), %o2
 	brnz,pt		%g3, 1b
 	 sub		%g3, %o2, %g3
-	mov		%g2, %o0
+5:	mov		%g2, %o0
 	mov		%g4, %o1
 	mov		%g7, %o2
 	membar		#Sync
 	retry
+1:	sethi		%hi(__hypervisor_tlb_xcall_error), %g4
+	jmpl		%g4 + %lo(__hypervisor_tlb_xcall_error), %g0
+	 nop
+2:	mov		%o3, %g1
+	mov		%o5, %g3
+	mov		0, %o0		/* ARG0: CPU lists unimplemented */
+	mov		0, %o1		/* ARG1: CPU lists unimplemented */
+	mov		0, %o2		/* ARG2: mmu context == nucleus */
+	mov		HV_MMU_ALL, %o3	/* ARG3: flags */
+	mov		HV_FAST_MMU_DEMAP_CTX, %o5
+	ta		HV_FAST_TRAP
+	mov		%g1, %o3
+	brz,pt		%o0, 5b
+	 mov		%g3, %o5
+	mov		HV_FAST_MMU_DEMAP_CTX, %g6
+	ba,pt		%xcc, 1b
+	 clr		%g5
 
 	/* These just get rescheduled to PIL vectors. */
 	.globl		xcall_call_function
@@ -671,11 +972,6 @@ xcall_capture:
 	wr		%g0, (1 << PIL_SMP_CAPTURE), %set_softint
 	retry
 
-	.globl		xcall_new_mmu_context_version
-xcall_new_mmu_context_version:
-	wr		%g0, (1 << PIL_SMP_CTX_NEW_VERSION), %set_softint
-	retry
-
 #ifdef CONFIG_KGDB
 	.globl		xcall_kgdb_capture
 xcall_kgdb_capture:
@@ -685,6 +981,58 @@ xcall_kgdb_capture:
 
 #endif /* CONFIG_SMP */
 
+	.globl		cheetah_patch_cachetlbops
+cheetah_patch_cachetlbops:
+	save		%sp, -128, %sp
+
+	sethi		%hi(__flush_tlb_mm), %o0
+	or		%o0, %lo(__flush_tlb_mm), %o0
+	sethi		%hi(__cheetah_flush_tlb_mm), %o1
+	or		%o1, %lo(__cheetah_flush_tlb_mm), %o1
+	call		tlb_patch_one
+	 mov		19, %o2
+
+	sethi		%hi(__flush_tlb_page), %o0
+	or		%o0, %lo(__flush_tlb_page), %o0
+	sethi		%hi(__cheetah_flush_tlb_page), %o1
+	or		%o1, %lo(__cheetah_flush_tlb_page), %o1
+	call		tlb_patch_one
+	 mov		22, %o2
+
+	sethi		%hi(__flush_tlb_pending), %o0
+	or		%o0, %lo(__flush_tlb_pending), %o0
+	sethi		%hi(__cheetah_flush_tlb_pending), %o1
+	or		%o1, %lo(__cheetah_flush_tlb_pending), %o1
+	call		tlb_patch_one
+	 mov		27, %o2
+
+	sethi		%hi(__flush_tlb_kernel_range), %o0
+	or		%o0, %lo(__flush_tlb_kernel_range), %o0
+	sethi		%hi(__cheetah_flush_tlb_kernel_range), %o1
+	or		%o1, %lo(__cheetah_flush_tlb_kernel_range), %o1
+	call		tlb_patch_one
+	 mov		31, %o2
+
+#ifdef DCACHE_ALIASING_POSSIBLE
+	sethi		%hi(__flush_dcache_page), %o0
+	or		%o0, %lo(__flush_dcache_page), %o0
+	sethi		%hi(__cheetah_flush_dcache_page), %o1
+	or		%o1, %lo(__cheetah_flush_dcache_page), %o1
+	call		tlb_patch_one
+	 mov		11, %o2
+#endif /* DCACHE_ALIASING_POSSIBLE */
+
+#ifdef CONFIG_SMP
+	sethi		%hi(xcall_flush_tlb_kernel_range), %o0
+	or		%o0, %lo(xcall_flush_tlb_kernel_range), %o0
+	sethi		%hi(__cheetah_xcall_flush_tlb_kernel_range), %o1
+	or		%o1, %lo(__cheetah_xcall_flush_tlb_kernel_range), %o1
+	call		tlb_patch_one
+	 mov		44, %o2
+#endif /* CONFIG_SMP */
+
+	ret
+	 restore
 
 	.globl		hypervisor_patch_cachetlbops
 hypervisor_patch_cachetlbops:
@@ -695,21 +1043,28 @@ hypervisor_patch_cachetlbops:
 	sethi		%hi(__hypervisor_flush_tlb_mm), %o1
 	or		%o1, %lo(__hypervisor_flush_tlb_mm), %o1
 	call		tlb_patch_one
-	 mov		10, %o2
+	 mov		19, %o2
+
+	sethi		%hi(__flush_tlb_page), %o0
+	or		%o0, %lo(__flush_tlb_page), %o0
+	sethi		%hi(__hypervisor_flush_tlb_page), %o1
+	or		%o1, %lo(__hypervisor_flush_tlb_page), %o1
+	call		tlb_patch_one
+	 mov		22, %o2
 
 	sethi		%hi(__flush_tlb_pending), %o0
 	or		%o0, %lo(__flush_tlb_pending), %o0
 	sethi		%hi(__hypervisor_flush_tlb_pending), %o1
 	or		%o1, %lo(__hypervisor_flush_tlb_pending), %o1
 	call		tlb_patch_one
-	 mov		16, %o2
+	 mov		27, %o2
 
 	sethi		%hi(__flush_tlb_kernel_range), %o0
 	or		%o0, %lo(__flush_tlb_kernel_range), %o0
 	sethi		%hi(__hypervisor_flush_tlb_kernel_range), %o1
 	or		%o1, %lo(__hypervisor_flush_tlb_kernel_range), %o1
 	call		tlb_patch_one
-	 mov		16, %o2
+	 mov		31, %o2
 
 #ifdef DCACHE_ALIASING_POSSIBLE
 	sethi		%hi(__flush_dcache_page), %o0
@@ -726,21 +1081,21 @@ hypervisor_patch_cachetlbops:
 	sethi		%hi(__hypervisor_xcall_flush_tlb_mm), %o1
 	or		%o1, %lo(__hypervisor_xcall_flush_tlb_mm), %o1
 	call		tlb_patch_one
-	 mov		21, %o2
+	 mov		24, %o2
 
-	sethi		%hi(xcall_flush_tlb_pending), %o0
-	or		%o0, %lo(xcall_flush_tlb_pending), %o0
-	sethi		%hi(__hypervisor_xcall_flush_tlb_pending), %o1
-	or		%o1, %lo(__hypervisor_xcall_flush_tlb_pending), %o1
+	sethi		%hi(xcall_flush_tlb_page), %o0
+	or		%o0, %lo(xcall_flush_tlb_page), %o0
+	sethi		%hi(__hypervisor_xcall_flush_tlb_page), %o1
+	or		%o1, %lo(__hypervisor_xcall_flush_tlb_page), %o1
 	call		tlb_patch_one
-	 mov		21, %o2
+	 mov		20, %o2
 
 	sethi		%hi(xcall_flush_tlb_kernel_range), %o0
 	or		%o0, %lo(xcall_flush_tlb_kernel_range), %o0
 	sethi		%hi(__hypervisor_xcall_flush_tlb_kernel_range), %o1
 	or		%o1, %lo(__hypervisor_xcall_flush_tlb_kernel_range), %o1
 	call		tlb_patch_one
-	 mov		25, %o2
+	 mov		44, %o2
 #endif /* CONFIG_SMP */
 
 	ret

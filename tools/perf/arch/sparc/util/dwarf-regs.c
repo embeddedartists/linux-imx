@@ -1,15 +1,11 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Mapping of DWARF debug register numbers into register names.
  *
  * Copyright (C) 2010 David S. Miller <davem@davemloft.net>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version
- * 2 of the License, or (at your option) any later version.
  */
 
-#include <libio.h>
+#include <stddef.h>
 #include <dwarf-regs.h>
 
 #define SPARC_MAX_REGS	96
@@ -39,5 +35,5 @@ const char *sparc_regs_table[SPARC_MAX_REGS] = {
  */
 const char *get_arch_regstr(unsigned int n)
 {
-	return (n <= SPARC_MAX_REGS) ? sparc_regs_table[n] : NULL;
+	return (n < SPARC_MAX_REGS) ? sparc_regs_table[n] : NULL;
 }

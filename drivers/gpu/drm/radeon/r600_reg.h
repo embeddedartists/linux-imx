@@ -31,6 +31,12 @@
 #define R600_PCIE_PORT_INDEX                0x0038
 #define R600_PCIE_PORT_DATA                 0x003c
 
+#define R600_RCU_INDEX                      0x0100
+#define R600_RCU_DATA                       0x0104
+
+#define R600_UVD_CTX_INDEX                  0xf4a0
+#define R600_UVD_CTX_DATA                   0xf4a4
+
 #define R600_MC_VM_FB_LOCATION			0x2180
 #define		R600_MC_FB_BASE_MASK			0x0000FFFF
 #define		R600_MC_FB_BASE_SHIFT			0
@@ -81,11 +87,32 @@
 #define R600_MEDIUM_VID_LOWER_GPIO_CNTL                            0x720
 #define R600_LOW_VID_LOWER_GPIO_CNTL                               0x724
 
-#define R600_D1GRPH_SWAP_CONTROL                               0x610C
-#       define R600_D1GRPH_SWAP_ENDIAN_NONE                    (0 << 0)
-#       define R600_D1GRPH_SWAP_ENDIAN_16BIT                   (1 << 0)
-#       define R600_D1GRPH_SWAP_ENDIAN_32BIT                   (2 << 0)
-#       define R600_D1GRPH_SWAP_ENDIAN_64BIT                   (3 << 0)
+#define R600_D1GRPH_SWAP_CONTROL                     0x610C
+#       define R600_D1GRPH_ENDIAN_SWAP(x)            (((x) & 0x3) << 0)
+#       define R600_D1GRPH_SWAP_ENDIAN_NONE          0
+#       define R600_D1GRPH_SWAP_ENDIAN_16BIT         1
+#       define R600_D1GRPH_SWAP_ENDIAN_32BIT         2
+#       define R600_D1GRPH_SWAP_ENDIAN_64BIT         3
+#       define R600_D1GRPH_RED_CROSSBAR(x)           (((x) & 0x3) << 4)
+#       define R600_D1GRPH_RED_SEL_R                 0
+#       define R600_D1GRPH_RED_SEL_G                 1
+#       define R600_D1GRPH_RED_SEL_B                 2
+#       define R600_D1GRPH_RED_SEL_A                 3
+#       define R600_D1GRPH_GREEN_CROSSBAR(x)         (((x) & 0x3) << 6)
+#       define R600_D1GRPH_GREEN_SEL_G               0
+#       define R600_D1GRPH_GREEN_SEL_B               1
+#       define R600_D1GRPH_GREEN_SEL_A               2
+#       define R600_D1GRPH_GREEN_SEL_R               3
+#       define R600_D1GRPH_BLUE_CROSSBAR(x)          (((x) & 0x3) << 8)
+#       define R600_D1GRPH_BLUE_SEL_B                0
+#       define R600_D1GRPH_BLUE_SEL_A                1
+#       define R600_D1GRPH_BLUE_SEL_R                2
+#       define R600_D1GRPH_BLUE_SEL_G                3
+#       define R600_D1GRPH_ALPHA_CROSSBAR(x)         (((x) & 0x3) << 10)
+#       define R600_D1GRPH_ALPHA_SEL_A               0
+#       define R600_D1GRPH_ALPHA_SEL_R               1
+#       define R600_D1GRPH_ALPHA_SEL_G               2
+#       define R600_D1GRPH_ALPHA_SEL_B               3
 
 #define R600_HDP_NONSURFACE_BASE                                0x2c04
 
@@ -95,6 +122,15 @@
 #define R600_CONFIG_MEMSIZE                                     0x5428
 #define R600_CONFIG_F0_BASE                                     0x542C
 #define R600_CONFIG_APER_SIZE                                   0x5430
+
+#define	R600_BIF_FB_EN						0x5490
+#define		R600_FB_READ_EN					(1 << 0)
+#define		R600_FB_WRITE_EN				(1 << 1)
+
+#define R600_CITF_CNTL           				0x200c
+#define		R600_BLACKOUT_MASK				0x00000003
+
+#define R700_MC_CITF_CNTL           				0x25c0
 
 #define R600_ROM_CNTL                              0x1600
 #       define R600_SCK_OVERWRITE                  (1 << 1)
@@ -156,45 +192,10 @@
 #define R600_AUDIO_PIN_WIDGET_CNTL        0x73d4
 #define R600_AUDIO_STATUS_BITS            0x73d8
 
-/* HDMI base register addresses */
-#define R600_HDMI_BLOCK1                  0x7400
-#define R600_HDMI_BLOCK2                  0x7700
-#define R600_HDMI_BLOCK3                  0x7800
-
-/* HDMI registers */
-#define R600_HDMI_ENABLE                0x00
-#define R600_HDMI_STATUS                0x04
-#       define R600_HDMI_INT_PENDING    (1 << 29)
-#define R600_HDMI_CNTL                  0x08
-#       define R600_HDMI_INT_EN         (1 << 28)
-#       define R600_HDMI_INT_ACK        (1 << 29)
-#define R600_HDMI_UNKNOWN_0             0x0C
-#define R600_HDMI_AUDIOCNTL             0x10
-#define R600_HDMI_VIDEOCNTL             0x14
-#define R600_HDMI_VERSION               0x18
-#define R600_HDMI_UNKNOWN_1             0x28
-#define R600_HDMI_VIDEOINFOFRAME_0      0x54
-#define R600_HDMI_VIDEOINFOFRAME_1      0x58
-#define R600_HDMI_VIDEOINFOFRAME_2      0x5c
-#define R600_HDMI_VIDEOINFOFRAME_3      0x60
-#define R600_HDMI_32kHz_CTS             0xac
-#define R600_HDMI_32kHz_N               0xb0
-#define R600_HDMI_44_1kHz_CTS           0xb4
-#define R600_HDMI_44_1kHz_N             0xb8
-#define R600_HDMI_48kHz_CTS             0xbc
-#define R600_HDMI_48kHz_N               0xc0
-#define R600_HDMI_AUDIOINFOFRAME_0      0xcc
-#define R600_HDMI_AUDIOINFOFRAME_1      0xd0
-#define R600_HDMI_IEC60958_1            0xd4
-#define R600_HDMI_IEC60958_2            0xd8
-#define R600_HDMI_UNKNOWN_2             0xdc
-#define R600_HDMI_AUDIO_DEBUG_0         0xe0
-#define R600_HDMI_AUDIO_DEBUG_1         0xe4
-#define R600_HDMI_AUDIO_DEBUG_2         0xe8
-#define R600_HDMI_AUDIO_DEBUG_3         0xec
-
-/* HDMI additional config base register addresses */
-#define R600_HDMI_CONFIG1                 0x7600
-#define R600_HDMI_CONFIG2                 0x7a00
+#define DCE2_HDMI_OFFSET0		(0x7400 - 0x7400)
+#define DCE2_HDMI_OFFSET1		(0x7700 - 0x7400)
+/* DCE3.2 second instance starts at 0x7800 */
+#define DCE3_HDMI_OFFSET0		(0x7400 - 0x7400)
+#define DCE3_HDMI_OFFSET1		(0x7800 - 0x7400)
 
 #endif

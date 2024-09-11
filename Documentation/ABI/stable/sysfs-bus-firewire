@@ -39,6 +39,18 @@ Users:		udev rules to set ownership and access permissions or ACLs of
 		/dev/fw[0-9]+ character device files
 
 
+What:		/sys/bus/firewire/devices/fw[0-9]+/is_local
+Date:		July 2012
+KernelVersion:	3.6
+Contact:	linux1394-devel@lists.sourceforge.net
+Description:
+		IEEE 1394 node device attribute.
+		Read-only and immutable.
+Values:		1: The sysfs entry represents a local node (a controller card).
+
+		0: The sysfs entry represents a remote node.
+
+
 What:		/sys/bus/firewire/devices/fw[0-9]+[.][0-9]+/
 Date:		May 2007
 KernelVersion:	2.6.22
@@ -114,7 +126,9 @@ Description:
 		Read-only attribute, immutable during the target's lifetime.
 		Format, as exposed by firewire-sbp2 since 2.6.22, May 2007:
 		Colon-separated hexadecimal string representations of
+
 			u64 EUI-64 : u24 directory_ID : u16 LUN
+
 		without 0x prefixes, without whitespace.  The former sbp2 driver
 		(removed in 2.6.37 after being superseded by firewire-sbp2) used
 		a somewhat shorter format which was not as close to SAM.

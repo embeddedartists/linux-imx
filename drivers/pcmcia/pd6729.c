@@ -19,7 +19,6 @@
 
 #include <pcmcia/ss.h>
 
-#include <asm/system.h>
 
 #include "pd6729.h"
 #include "i82365.h"
@@ -235,9 +234,9 @@ static irqreturn_t pd6729_interrupt(int irq, void *dev)
 
 /* socket functions */
 
-static void pd6729_interrupt_wrapper(unsigned long data)
+static void pd6729_interrupt_wrapper(struct timer_list *t)
 {
-	struct pd6729_socket *socket = (struct pd6729_socket *) data;
+	struct pd6729_socket *socket = from_timer(socket, t, poll_timer);
 
 	pd6729_interrupt(0, (void *)socket);
 	mod_timer(&socket->poll_timer, jiffies + HZ);
@@ -590,7 +589,7 @@ static int pd6729_check_irq(int irq)
 	return 0;
 }
 
-static u_int __devinit pd6729_isa_scan(void)
+static u_int pd6729_isa_scan(void)
 {
 	u_int mask0, mask = 0;
 	int i;
@@ -621,7 +620,7 @@ static u_int __devinit pd6729_isa_scan(void)
 	return mask;
 }
 
-static int __devinit pd6729_pci_probe(struct pci_dev *dev,
+static int pd6729_pci_probe(struct pci_dev *dev,
 				      const struct pci_device_id *id)
 {
 	int i, j, ret;
@@ -629,7 +628,7 @@ static int __devinit pd6729_pci_probe(struct pci_dev *dev,
 	char configbyte;
 	struct pd6729_socket *socket;
 
-	socket = kzalloc(sizeof(struct pd6729_socket) * MAX_SOCKETS,
+	socket = kcalloc(MAX_SOCKETS, sizeof(struct pd6729_socket),
 			 GFP_KERNEL);
 	if (!socket) {
 		dev_warn(&dev->dev, "failed to kzalloc socket.\n");
@@ -645,6 +644,7 @@ static int __devinit pd6729_pci_probe(struct pci_dev *dev,
 	if (!pci_resource_start(dev, 0)) {
 		dev_warn(&dev->dev, "refusing to load the driver as the "
 			"io_base is NULL.\n");
+		ret = -ENOMEM;
 		goto err_out_disable;
 	}
 
@@ -674,6 +674,7 @@ static int __devinit pd6729_pci_probe(struct pci_dev *dev,
 	mask = pd6729_isa_scan();
 	if (irq_mode == 0 && mask == 0) {
 		dev_warn(&dev->dev, "no ISA interrupt is available.\n");
+		ret = -ENODEV;
 		goto err_out_free_res;
 	}
 
@@ -706,11 +707,8 @@ static int __devinit pd6729_pci_probe(struct pci_dev *dev,
 		}
 	} else {
 		/* poll Card status change */
-		init_timer(&socket->poll_timer);
-		socket->poll_timer.function = pd6729_interrupt_wrapper;
-		socket->poll_timer.data = (unsigned long)socket;
-		socket->poll_timer.expires = jiffies + HZ;
-		add_timer(&socket->poll_timer);
+		timer_setup(&socket->poll_timer, pd6729_interrupt_wrapper, 0);
+		mod_timer(&socket->poll_timer, jiffies + HZ);
 	}
 
 	for (i = 0; i < MAX_SOCKETS; i++) {
@@ -740,7 +738,7 @@ err_out_free_mem:
 	return ret;
 }
 
-static void __devexit pd6729_pci_remove(struct pci_dev *dev)
+static void pd6729_pci_remove(struct pci_dev *dev)
 {
 	int i;
 	struct pd6729_socket *socket = pci_get_drvdata(dev);
@@ -763,13 +761,8 @@ static void __devexit pd6729_pci_remove(struct pci_dev *dev)
 	kfree(socket);
 }
 
-static struct pci_device_id pd6729_pci_ids[] = {
-	{
-		.vendor		= PCI_VENDOR_ID_CIRRUS,
-		.device		= PCI_DEVICE_ID_CIRRUS_6729,
-		.subvendor	= PCI_ANY_ID,
-		.subdevice	= PCI_ANY_ID,
-	},
+static const struct pci_device_id pd6729_pci_ids[] = {
+	{ PCI_DEVICE(PCI_VENDOR_ID_CIRRUS, PCI_DEVICE_ID_CIRRUS_6729) },
 	{ }
 };
 MODULE_DEVICE_TABLE(pci, pd6729_pci_ids);
@@ -778,18 +771,7 @@ static struct pci_driver pd6729_pci_driver = {
 	.name		= "pd6729",
 	.id_table	= pd6729_pci_ids,
 	.probe		= pd6729_pci_probe,
-	.remove		= __devexit_p(pd6729_pci_remove),
+	.remove		= pd6729_pci_remove,
 };
 
-static int pd6729_module_init(void)
-{
-	return pci_register_driver(&pd6729_pci_driver);
-}
-
-static void pd6729_module_exit(void)
-{
-	pci_unregister_driver(&pd6729_pci_driver);
-}
-
-module_init(pd6729_module_init);
-module_exit(pd6729_module_exit);
+module_pci_driver(pd6729_pci_driver);

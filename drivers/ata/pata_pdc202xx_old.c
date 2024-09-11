@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * pata_pdc202xx_old.c 	- Promise PDC202xx PATA for new ATA layer
  *			  (C) 2005 Red Hat Inc
@@ -15,7 +16,6 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/pci.h>
-#include <linux/init.h>
 #include <linux/blkdev.h>
 #include <linux/delay.h>
 #include <scsi/scsi_host.h>
@@ -115,7 +115,7 @@ static void pdc202xx_set_piomode(struct ata_port *ap, struct ata_device *adev)
 }
 
 /**
- *	pdc202xx_configure_dmamode	-	set DMA mode in chip
+ *	pdc202xx_set_dmamode	-	set DMA mode in chip
  *	@ap: ATA interface
  *	@adev: ATA device
  *
@@ -214,7 +214,7 @@ static void pdc2026x_bmdma_start(struct ata_queued_cmd *qc)
 }
 
 /**
- *	pdc2026x_bmdma_end		-	DMA engine stop
+ *	pdc2026x_bmdma_stop		-	DMA engine stop
  *	@qc: ATA command
  *
  *	After a DMA completes we need to put the clock back to 33MHz for
@@ -378,27 +378,16 @@ static struct pci_driver pdc202xx_pci_driver = {
 	.id_table	= pdc202xx,
 	.probe 		= pdc202xx_init_one,
 	.remove		= ata_pci_remove_one,
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 	.suspend	= ata_pci_device_suspend,
 	.resume		= ata_pci_device_resume,
 #endif
 };
 
-static int __init pdc202xx_init(void)
-{
-	return pci_register_driver(&pdc202xx_pci_driver);
-}
-
-static void __exit pdc202xx_exit(void)
-{
-	pci_unregister_driver(&pdc202xx_pci_driver);
-}
+module_pci_driver(pdc202xx_pci_driver);
 
 MODULE_AUTHOR("Alan Cox");
 MODULE_DESCRIPTION("low-level driver for Promise 2024x and 20262-20267");
 MODULE_LICENSE("GPL");
 MODULE_DEVICE_TABLE(pci, pdc202xx);
 MODULE_VERSION(DRV_VERSION);
-
-module_init(pdc202xx_init);
-module_exit(pdc202xx_exit);

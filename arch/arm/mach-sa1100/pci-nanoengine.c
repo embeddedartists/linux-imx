@@ -1,28 +1,14 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * linux/arch/arm/mach-sa1100/pci-nanoengine.c
  *
  * PCI functions for BSE nanoEngine PCI
  *
  * Copyright (C) 2010 Marcelo Roberto Jimenez <mroberto@cpti.cetuc.puc-rio.br>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 #include <linux/kernel.h>
 #include <linux/irq.h>
 #include <linux/pci.h>
-#include <linux/spinlock.h>
 
 #include <asm/mach/pci.h>
 #include <asm/mach-types.h>
@@ -30,97 +16,20 @@
 #include <mach/nanoengine.h>
 #include <mach/hardware.h>
 
-static DEFINE_SPINLOCK(nano_lock);
-
-static int nanoengine_get_pci_address(struct pci_bus *bus,
-	unsigned int devfn, int where, unsigned long *address)
+static void __iomem *nanoengine_pci_map_bus(struct pci_bus *bus,
+					    unsigned int devfn, int where)
 {
-	int ret = PCIBIOS_DEVICE_NOT_FOUND;
-	unsigned int busnr = bus->number;
+	if (bus->number != 0 || (devfn >> 3) != 0)
+		return NULL;
 
-	*address = NANO_PCI_CONFIG_SPACE_VIRT +
+	return (void __iomem *)NANO_PCI_CONFIG_SPACE_VIRT +
 		((bus->number << 16) | (devfn << 8) | (where & ~3));
-
-	ret = (busnr > 255 || devfn > 255 || where > 255) ?
-		PCIBIOS_DEVICE_NOT_FOUND : PCIBIOS_SUCCESSFUL;
-
-	return ret;
-}
-
-static int nanoengine_read_config(struct pci_bus *bus, unsigned int devfn, int where,
-	int size, u32 *val)
-{
-	int ret;
-	unsigned long address;
-	unsigned long flags;
-	u32 v;
-
-	/* nanoEngine PCI bridge does not return -1 for a non-existing
-	 * device. We must fake the answer. We know that the only valid
-	 * device is device zero at bus 0, which is the network chip. */
-	if (bus->number != 0 || (devfn >> 3) != 0) {
-		v = -1;
-		nanoengine_get_pci_address(bus, devfn, where, &address);
-		goto exit_function;
-	}
-
-	spin_lock_irqsave(&nano_lock, flags);
-
-	ret = nanoengine_get_pci_address(bus, devfn, where, &address);
-	if (ret != PCIBIOS_SUCCESSFUL)
-		return ret;
-	v = __raw_readl(address);
-
-	spin_unlock_irqrestore(&nano_lock, flags);
-
-	v >>= ((where & 3) * 8);
-	v &= (unsigned long)(-1) >> ((4 - size) * 8);
-
-exit_function:
-	*val = v;
-	return PCIBIOS_SUCCESSFUL;
-}
-
-static int nanoengine_write_config(struct pci_bus *bus, unsigned int devfn, int where,
-	int size, u32 val)
-{
-	int ret;
-	unsigned long address;
-	unsigned long flags;
-	unsigned shift;
-	u32 v;
-
-	shift = (where & 3) * 8;
-
-	spin_lock_irqsave(&nano_lock, flags);
-
-	ret = nanoengine_get_pci_address(bus, devfn, where, &address);
-	if (ret != PCIBIOS_SUCCESSFUL)
-		return ret;
-	v = __raw_readl(address);
-	switch (size) {
-	case 1:
-		v &= ~(0xFF << shift);
-		v |= val << shift;
-		break;
-	case 2:
-		v &= ~(0xFFFF << shift);
-		v |= val << shift;
-		break;
-	case 4:
-		v = val;
-		break;
-	}
-	__raw_writel(v, address);
-
-	spin_unlock_irqrestore(&nano_lock, flags);
-
-	return PCIBIOS_SUCCESSFUL;
 }
 
 static struct pci_ops pci_nano_ops = {
-	.read	= nanoengine_read_config,
-	.write	= nanoengine_write_config,
+	.map_bus = nanoengine_pci_map_bus,
+	.read	= pci_generic_config_read32,
+	.write	= pci_generic_config_write32,
 };
 
 static int __init pci_nanoengine_map_irq(const struct pci_dev *dev, u8 slot,
@@ -129,18 +38,8 @@ static int __init pci_nanoengine_map_irq(const struct pci_dev *dev, u8 slot,
 	return NANOENGINE_IRQ_GPIO_PCI;
 }
 
-struct pci_bus * __init pci_nanoengine_scan_bus(int nr, struct pci_sys_data *sys)
-{
-	return pci_scan_root_bus(NULL, sys->busnr, &pci_nano_ops, sys,
-				 &sys->resources);
-}
-
-static struct resource pci_io_ports = {
-	.name	= "PCI IO",
-	.start	= 0x400,
-	.end	= 0x7FF,
-	.flags	= IORESOURCE_IO,
-};
+static struct resource pci_io_ports =
+	DEFINE_RES_IO_NAMED(0x400, 0x400, "PCI IO");
 
 static struct resource pci_non_prefetchable_memory = {
 	.name	= "PCI non-prefetchable",
@@ -244,9 +143,11 @@ static int __init pci_nanoengine_setup_resources(struct pci_sys_data *sys)
 		printk(KERN_ERR "PCI: unable to allocate prefetchable\n");
 		return -EBUSY;
 	}
-	pci_add_resource(&sys->resources, &pci_io_ports);
-	pci_add_resource(&sys->resources, &pci_non_prefetchable_memory);
-	pci_add_resource(&sys->resources, &pci_prefetchable_memory);
+	pci_add_resource_offset(&sys->resources, &pci_io_ports, sys->io_offset);
+	pci_add_resource_offset(&sys->resources,
+				&pci_non_prefetchable_memory, sys->mem_offset);
+	pci_add_resource_offset(&sys->resources,
+				&pci_prefetchable_memory, sys->mem_offset);
 
 	return 1;
 }
@@ -276,7 +177,7 @@ int __init pci_nanoengine_setup(int nr, struct pci_sys_data *sys)
 static struct hw_pci nanoengine_pci __initdata = {
 	.map_irq		= pci_nanoengine_map_irq,
 	.nr_controllers		= 1,
-	.scan			= pci_nanoengine_scan_bus,
+	.ops			= &pci_nano_ops,
 	.setup			= pci_nanoengine_setup,
 };
 

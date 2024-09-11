@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _ASM_IA64_ELF_H
 #define _ASM_IA64_ELF_H
 
@@ -178,8 +179,6 @@ extern void ia64_init_addr_space (void);
 #define ELF_AR_SSD_OFFSET  (56 * sizeof(elf_greg_t))
 #define ELF_AR_END_OFFSET  (57 * sizeof(elf_greg_t))
 
-typedef unsigned long elf_fpxregset_t;
-
 typedef unsigned long elf_greg_t;
 typedef elf_greg_t elf_gregset_t[ELF_NGREG];
 
@@ -200,9 +199,6 @@ extern void ia64_elf_core_copy_regs (struct pt_regs *src, elf_gregset_t dst);
    implementation specific libraries for optimization.  Not terribly
    relevant until we have real hardware to play with... */
 #define ELF_PLATFORM	NULL
-
-#define SET_PERSONALITY(ex)	\
-	set_personality((current->personality & ~PER_MASK) | PER_LINUX)
 
 #define elf_read_implies_exec(ex, executable_stack)					\
 	((executable_stack!=EXSTACK_DISABLE_X) && ((ex).e_flags & EF_IA_64_LINUX_EXECUTABLE_STACK) != 0)

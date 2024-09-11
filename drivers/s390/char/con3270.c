@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * IBM/3270 Driver - console view.
  *
@@ -7,10 +8,12 @@
  *     Copyright IBM Corp. 2003, 2009
  */
 
+#include <linux/module.h>
 #include <linux/console.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/list.h>
+#include <linux/panic_notifier.h>
 #include <linux/types.h>
 #include <linux/slab.h>
 #include <linux/err.h>
@@ -30,12 +33,14 @@
 
 static struct raw3270_fn con3270_fn;
 
+static bool auto_update = true;
+module_param(auto_update, bool, 0);
+
 /*
  * Main 3270 console view data structure.
  */
 struct con3270 {
 	struct raw3270_view view;
-	spinlock_t lock;
 	struct list_head freemem;	/* list of free memory for strings. */
 
 	/* Output stuff. */
@@ -65,7 +70,7 @@ static struct con3270 *condev;
 #define CON_UPDATE_STATUS	4	/* Update status line. */
 #define CON_UPDATE_ALL		8	/* Recreate screen. */
 
-static void con3270_update(struct con3270 *);
+static void con3270_update(struct timer_list *);
 
 /*
  * Setup timeout for a device. On timeout trigger an update.
@@ -121,7 +126,12 @@ con3270_create_status(struct con3270 *cp)
 static void
 con3270_update_string(struct con3270 *cp, struct string *s, int nr)
 {
-	if (s->len >= cp->view.cols - 5)
+	if (s->len < 4) {
+		/* This indicates a bug, but printing a warning would
+		 * cause a deadlock. */
+		return;
+	}
+	if (s->string[s->len - 4] != TO_RA)
 		return;
 	raw3270_buffer_address(cp->view.dev, s->string + s->len - 3,
 			       cp->view.cols * (nr + 1));
@@ -196,8 +206,9 @@ con3270_write_callback(struct raw3270_request *rq, void *data)
  * Update console display.
  */
 static void
-con3270_update(struct con3270 *cp)
+con3270_update(struct timer_list *t)
 {
+	struct con3270 *cp = from_timer(cp, t, timer);
 	struct raw3270_request *wrq;
 	char wcc, prolog[6];
 	unsigned long flags;
@@ -205,6 +216,8 @@ con3270_update(struct con3270 *cp)
 	struct string *s, *n;
 	int rc;
 
+	if (!auto_update && !raw3270_view_active(&cp->view))
+		return;
 	if (cp->view.dev)
 		raw3270_activate_view(&cp->view);
 
@@ -279,13 +292,15 @@ con3270_update(struct con3270 *cp)
  * Read tasklet.
  */
 static void
-con3270_read_tasklet(struct raw3270_request *rrq)
+con3270_read_tasklet(unsigned long data)
 {
 	static char kreset_data = TW_KR;
+	struct raw3270_request *rrq;
 	struct con3270 *cp;
 	unsigned long flags;
 	int nr_up, deactivate;
 
+	rrq = (struct raw3270_request *)data;
 	cp = (struct con3270 *) rrq->view;
 	spin_lock_irqsave(&cp->view.lock, flags);
 	nr_up = cp->nr_up;
@@ -395,7 +410,7 @@ con3270_deactivate(struct raw3270_view *view)
 	del_timer(&cp->timer);
 }
 
-static int
+static void
 con3270_irq(struct con3270 *cp, struct raw3270_request *rq, struct irb *irb)
 {
 	/* Handle ATTN. Schedule tasklet to read aid. */
@@ -408,8 +423,11 @@ con3270_irq(struct con3270 *cp, struct raw3270_request *rq, struct irb *irb)
 		else
 			/* Normal end. Copy residual count. */
 			rq->rescnt = irb->scsw.cmd.count;
+	} else if (irb->scsw.cmd.dstat & DEV_STAT_DEV_END) {
+		/* Interrupt without an outstanding request -> update all */
+		cp->update_flags = CON_UPDATE_ALL;
+		con3270_set_timer(cp, 1);
 	}
-	return RAW3270_IO_DONE;
 }
 
 /* Console view to a 3270 device. */
@@ -452,11 +470,11 @@ con3270_cline_end(struct con3270 *cp)
 		cp->cline->len + 4 : cp->view.cols;
 	s = con3270_alloc_string(cp, size);
 	memcpy(s->string, cp->cline->string, cp->cline->len);
-	if (s->len < cp->view.cols - 5) {
+	if (cp->cline->len < cp->view.cols - 5) {
 		s->string[s->len - 4] = TO_RA;
 		s->string[s->len - 1] = 0;
 	} else {
-		while (--size > cp->cline->len)
+		while (--size >= cp->cline->len)
 			s->string[size] = cp->view.ascebc[' '];
 	}
 	/* Replace cline with allocated line s and reset cline. */
@@ -529,7 +547,7 @@ con3270_flush(void)
 	cp = condev;
 	if (!cp->view.dev)
 		return;
-	raw3270_pm_unfreeze(&cp->view);
+	raw3270_activate_view(&cp->view);
 	spin_lock_irqsave(&cp->view.lock, flags);
 	con3270_wait_write(cp);
 	cp->nr_up = 0;
@@ -537,7 +555,7 @@ con3270_flush(void)
 	con3270_update_status(cp);
 	while (cp->update_flags != 0) {
 		spin_unlock_irqrestore(&cp->view.lock, flags);
-		con3270_update(cp);
+		con3270_update(&cp->timer);
 		spin_lock_irqsave(&cp->view.lock, flags);
 		con3270_wait_write(cp);
 	}
@@ -577,7 +595,6 @@ static struct console con3270 = {
 static int __init
 con3270_init(void)
 {
-	struct ccw_device *cdev;
 	struct raw3270 *rp;
 	void *cbuf;
 	int i;
@@ -592,14 +609,13 @@ con3270_init(void)
 		cpcmd("TERM AUTOCR OFF", NULL, 0, NULL);
 	}
 
-	cdev = ccw_device_probe_console();
-	if (IS_ERR(cdev))
-		return -ENODEV;
-	rp = raw3270_setup_console(cdev);
+	rp = raw3270_setup_console();
 	if (IS_ERR(rp))
 		return PTR_ERR(rp);
 
 	condev = kzalloc(sizeof(struct con3270), GFP_KERNEL | GFP_DMA);
+	if (!condev)
+		return -ENOMEM;
 	condev->view.dev = rp;
 
 	condev->read = raw3270_request_alloc(0);
@@ -610,13 +626,11 @@ con3270_init(void)
 
 	INIT_LIST_HEAD(&condev->lines);
 	INIT_LIST_HEAD(&condev->update);
-	setup_timer(&condev->timer, (void (*)(unsigned long)) con3270_update,
-		    (unsigned long) condev);
-	tasklet_init(&condev->readlet, 
-		     (void (*)(unsigned long)) con3270_read_tasklet,
+	timer_setup(&condev->timer, con3270_update, 0);
+	tasklet_init(&condev->readlet, con3270_read_tasklet,
 		     (unsigned long) condev->read);
 
-	raw3270_add_view(&condev->view, &con3270_fn, 1);
+	raw3270_add_view(&condev->view, &con3270_fn, 1, RAW3270_VIEW_LOCK_IRQ);
 
 	INIT_LIST_HEAD(&condev->freemem);
 	for (i = 0; i < CON3270_STRING_PAGES; i++) {

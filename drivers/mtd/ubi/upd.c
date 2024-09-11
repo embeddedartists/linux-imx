@@ -1,20 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (c) International Business Machines Corp., 2006
  * Copyright (c) Nokia Corporation, 2006
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See
- * the GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  *
  * Author: Artem Bityutskiy (Битюцкий Артём)
  *
@@ -64,8 +51,7 @@ static int set_update_marker(struct ubi_device *ubi, struct ubi_volume *vol)
 		return 0;
 	}
 
-	memcpy(&vtbl_rec, &ubi->vtbl[vol->vol_id],
-	       sizeof(struct ubi_vtbl_record));
+	vtbl_rec = ubi->vtbl[vol->vol_id];
 	vtbl_rec.upd_marker = 1;
 
 	mutex_lock(&ubi->device_mutex);
@@ -93,8 +79,7 @@ static int clear_update_marker(struct ubi_device *ubi, struct ubi_volume *vol,
 
 	dbg_gen("clear update marker for volume %d", vol->vol_id);
 
-	memcpy(&vtbl_rec, &ubi->vtbl[vol->vol_id],
-	       sizeof(struct ubi_vtbl_record));
+	vtbl_rec = ubi->vtbl[vol->vol_id];
 	ubi_assert(vol->upd_marker && vtbl_rec.upd_marker);
 	vtbl_rec.upd_marker = 0;
 
@@ -135,6 +120,10 @@ int ubi_start_update(struct ubi_device *ubi, struct ubi_volume *vol,
 	ubi_assert(!vol->updating && !vol->changing_leb);
 	vol->updating = 1;
 
+	vol->upd_buf = vmalloc(ubi->leb_size);
+	if (!vol->upd_buf)
+		return -ENOMEM;
+
 	err = set_update_marker(ubi, vol);
 	if (err)
 		return err;
@@ -146,21 +135,19 @@ int ubi_start_update(struct ubi_device *ubi, struct ubi_volume *vol,
 			return err;
 	}
 
-	if (bytes == 0) {
-		err = ubi_wl_flush(ubi);
-		if (err)
-			return err;
+	err = ubi_wl_flush(ubi, UBI_ALL, UBI_ALL);
+	if (err)
+		return err;
 
+	if (bytes == 0) {
 		err = clear_update_marker(ubi, vol, 0);
 		if (err)
 			return err;
+
+		vfree(vol->upd_buf);
 		vol->updating = 0;
 		return 0;
 	}
-
-	vol->upd_buf = vmalloc(ubi->leb_size);
-	if (!vol->upd_buf)
-		return -ENOMEM;
 
 	vol->upd_ebs = div_u64(bytes + vol->usable_leb_size - 1,
 			       vol->usable_leb_size);
@@ -186,16 +173,14 @@ int ubi_start_leb_change(struct ubi_device *ubi, struct ubi_volume *vol,
 	dbg_gen("start changing LEB %d:%d, %u bytes",
 		vol->vol_id, req->lnum, req->bytes);
 	if (req->bytes == 0)
-		return ubi_eba_atomic_leb_change(ubi, vol, req->lnum, NULL, 0,
-						 req->dtype);
+		return ubi_eba_atomic_leb_change(ubi, vol, req->lnum, NULL, 0);
 
 	vol->upd_bytes = req->bytes;
 	vol->upd_received = 0;
 	vol->changing_leb = 1;
 	vol->ch_lnum = req->lnum;
-	vol->ch_dtype = req->dtype;
 
-	vol->upd_buf = vmalloc(req->bytes);
+	vol->upd_buf = vmalloc(ALIGN((int)req->bytes, ubi->min_io_size));
 	if (!vol->upd_buf)
 		return -ENOMEM;
 
@@ -246,8 +231,7 @@ static int write_leb(struct ubi_device *ubi, struct ubi_volume *vol, int lnum,
 			return 0;
 		}
 
-		err = ubi_eba_write_leb(ubi, vol, lnum, buf, 0, len,
-					UBI_UNKNOWN);
+		err = ubi_eba_write_leb(ubi, vol, lnum, buf, 0, len);
 	} else {
 		/*
 		 * When writing static volume, and this is the last logical
@@ -259,8 +243,7 @@ static int write_leb(struct ubi_device *ubi, struct ubi_volume *vol, int lnum,
 		 * contain zeros, not random trash.
 		 */
 		memset(buf + len, 0, vol->usable_leb_size - len);
-		err = ubi_eba_write_leb_st(ubi, vol, lnum, buf, len,
-					   UBI_UNKNOWN, used_ebs);
+		err = ubi_eba_write_leb_st(ubi, vol, lnum, buf, len, used_ebs);
 	}
 
 	return err;
@@ -365,7 +348,7 @@ int ubi_more_update_data(struct ubi_device *ubi, struct ubi_volume *vol,
 
 	ubi_assert(vol->upd_received <= vol->upd_bytes);
 	if (vol->upd_received == vol->upd_bytes) {
-		err = ubi_wl_flush(ubi);
+		err = ubi_wl_flush(ubi, UBI_ALL, UBI_ALL);
 		if (err)
 			return err;
 		/* The update is finished, clear the update marker */
@@ -421,7 +404,7 @@ int ubi_more_leb_change_data(struct ubi_device *ubi, struct ubi_volume *vol,
 		       len - vol->upd_bytes);
 		len = ubi_calc_data_len(ubi, vol->upd_buf, len);
 		err = ubi_eba_atomic_leb_change(ubi, vol, vol->ch_lnum,
-						vol->upd_buf, len, UBI_UNKNOWN);
+						vol->upd_buf, len);
 		if (err)
 			return err;
 	}

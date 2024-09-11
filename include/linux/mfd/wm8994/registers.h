@@ -1,15 +1,10 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * include/linux/mfd/wm8994/registers.h -- Register definitions for WM8994
  *
  * Copyright 2009 Wolfson Microelectronics PLC.
  *
  * Author: Mark Brown <broonie@opensource.wolfsonmicro.com>
- *
- *  This program is free software; you can redistribute  it and/or modify it
- *  under  the terms of  the GNU General  Public License as published by the
- *  Free Software Foundation;  either version 2 of the  License, or (at your
- *  option) any later version.
- *
  */
 
 #ifndef __MFD_WM8994_REGISTERS_H__
@@ -2212,6 +2207,9 @@
 /*
  * R256 (0x100) - Chip Revision
  */
+#define WM8994_CUST_ID_MASK                     0xFF00  /* CUST_ID - [15:8] */
+#define WM8994_CUST_ID_SHIFT                         8  /* CUST_ID - [15:8] */
+#define WM8994_CUST_ID_WIDTH                         8  /* CUST_ID - [15:8] */
 #define WM8994_CHIP_REV_MASK                    0x000F  /* CHIP_REV - [3:0] */
 #define WM8994_CHIP_REV_SHIFT                        0  /* CHIP_REV - [3:0] */
 #define WM8994_CHIP_REV_WIDTH                        4  /* CHIP_REV - [3:0] */
@@ -2665,6 +2663,10 @@
 /*
  * R772 (0x304) - AIF1ADC LRCLK
  */
+#define WM8958_AIF1_LRCLK_INV                   0x1000  /* AIF1_LRCLK_INV */
+#define WM8958_AIF1_LRCLK_INV_MASK              0x1000  /* AIF1_LRCLK_INV */
+#define WM8958_AIF1_LRCLK_INV_SHIFT                 12  /* AIF1_LRCLK_INV */
+#define WM8958_AIF1_LRCLK_INV_WIDTH                  1  /* AIF1_LRCLK_INV */
 #define WM8994_AIF1ADC_LRCLK_DIR                0x0800  /* AIF1ADC_LRCLK_DIR */
 #define WM8994_AIF1ADC_LRCLK_DIR_MASK           0x0800  /* AIF1ADC_LRCLK_DIR */
 #define WM8994_AIF1ADC_LRCLK_DIR_SHIFT              11  /* AIF1ADC_LRCLK_DIR */
@@ -2676,6 +2678,10 @@
 /*
  * R773 (0x305) - AIF1DAC LRCLK
  */
+#define WM8958_AIF1_LRCLK_INV                   0x1000  /* AIF1_LRCLK_INV */
+#define WM8958_AIF1_LRCLK_INV_MASK              0x1000  /* AIF1_LRCLK_INV */
+#define WM8958_AIF1_LRCLK_INV_SHIFT                 12  /* AIF1_LRCLK_INV */
+#define WM8958_AIF1_LRCLK_INV_WIDTH                  1  /* AIF1_LRCLK_INV */
 #define WM8994_AIF1DAC_LRCLK_DIR                0x0800  /* AIF1DAC_LRCLK_DIR */
 #define WM8994_AIF1DAC_LRCLK_DIR_MASK           0x0800  /* AIF1DAC_LRCLK_DIR */
 #define WM8994_AIF1DAC_LRCLK_DIR_SHIFT              11  /* AIF1DAC_LRCLK_DIR */

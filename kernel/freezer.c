@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * kernel/freezer.c - Function to freeze a process
  *
@@ -15,7 +16,9 @@
 atomic_t system_freezing_cnt = ATOMIC_INIT(0);
 EXPORT_SYMBOL(system_freezing_cnt);
 
-/* indicate whether PM freezing is in effect, protected by pm_mutex */
+/* indicate whether PM freezing is in effect, protected by
+ * system_transition_mutex
+ */
 bool pm_freezing;
 bool pm_nosig_freezing;
 
@@ -33,7 +36,10 @@ static DEFINE_SPINLOCK(freezer_lock);
  */
 bool freezing_slow_path(struct task_struct *p)
 {
-	if (p->flags & PF_NOFREEZE)
+	if (p->flags & (PF_NOFREEZE | PF_SUSPEND_TASK))
+		return false;
+
+	if (test_tsk_thread_flag(p, TIF_MEMDIE))
 		return false;
 
 	if (pm_nosig_freezing || cgroup_freezing(p))
@@ -52,7 +58,7 @@ bool __refrigerator(bool check_kthr_stop)
 	/* Hmm, should we be allowed to suspend when there are realtime
 	   processes around? */
 	bool was_frozen = false;
-	long save = current->state;
+	unsigned int save = get_current_state();
 
 	pr_debug("%s entered refrigerator\n", current->comm);
 
@@ -99,9 +105,9 @@ static void fake_signal_wake_up(struct task_struct *p)
  * freeze_task - send a freeze request to given task
  * @p: task to send the request to
  *
- * If @p is freezing, the freeze request is sent by setting %TIF_FREEZE
- * flag and either sending a fake signal to it or waking it up, depending
- * on whether it has %PF_FREEZER_NOSIG set.
+ * If @p is freezing, the freeze request is sent either by sending a fake
+ * signal (if it's not a kernel thread) or waking it up (if it's a kernel
+ * thread).
  *
  * RETURNS:
  * %false, if @p is not freezing or already frozen; %true, otherwise
@@ -110,23 +116,28 @@ bool freeze_task(struct task_struct *p)
 {
 	unsigned long flags;
 
+	/*
+	 * This check can race with freezer_do_not_count, but worst case that
+	 * will result in an extra wakeup being sent to the task.  It does not
+	 * race with freezer_count(), the barriers in freezer_count() and
+	 * freezer_should_skip() ensure that either freezer_count() sees
+	 * freezing == true in try_to_freeze() and freezes, or
+	 * freezer_should_skip() sees !PF_FREEZE_SKIP and freezes the task
+	 * normally.
+	 */
+	if (freezer_should_skip(p))
+		return false;
+
 	spin_lock_irqsave(&freezer_lock, flags);
 	if (!freezing(p) || frozen(p)) {
 		spin_unlock_irqrestore(&freezer_lock, flags);
 		return false;
 	}
 
-	if (!(p->flags & PF_KTHREAD)) {
+	if (!(p->flags & PF_KTHREAD))
 		fake_signal_wake_up(p);
-		/*
-		 * fake_signal_wake_up() goes through p's scheduler
-		 * lock and guarantees that TASK_STOPPED/TRACED ->
-		 * TASK_RUNNING transition can't race with task state
-		 * testing in try_to_freeze_tasks().
-		 */
-	} else {
+	else
 		wake_up_state(p, TASK_INTERRUPTIBLE);
-	}
 
 	spin_unlock_irqrestore(&freezer_lock, flags);
 	return true;
@@ -136,12 +147,6 @@ void __thaw_task(struct task_struct *p)
 {
 	unsigned long flags;
 
-	/*
-	 * Clear freezing and kick @p if FROZEN.  Clearing is guaranteed to
-	 * be visible to @p as waking up implies wmb.  Waking up inside
-	 * freezer_lock also prevents wakeups from leaking outside
-	 * refrigerator.
-	 */
 	spin_lock_irqsave(&freezer_lock, flags);
 	if (frozen(p))
 		wake_up_process(p);

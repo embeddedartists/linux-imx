@@ -1,17 +1,11 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Header file for the Atmel AHB DMA Controller driver
  *
  * Copyright (C) 2008 Atmel Corporation
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
  */
 #ifndef AT_HDMAC_REGS_H
 #define	AT_HDMAC_REGS_H
-
-#include <mach/at_hdmac.h>
 
 #define	AT_DMA_MAX_NR_CHANNELS	8
 
@@ -87,12 +81,32 @@
 /* Bitfields in CTRLA */
 #define	ATC_BTSIZE_MAX		0xFFFFUL	/* Maximum Buffer Transfer Size */
 #define	ATC_BTSIZE(x)		(ATC_BTSIZE_MAX & (x)) /* Buffer Transfer Size */
-/* Chunck Tranfer size definitions are in at_hdmac.h */
+#define	ATC_SCSIZE_MASK		(0x7 << 16)	/* Source Chunk Transfer Size */
+#define		ATC_SCSIZE(x)		(ATC_SCSIZE_MASK & ((x) << 16))
+#define		ATC_SCSIZE_1		(0x0 << 16)
+#define		ATC_SCSIZE_4		(0x1 << 16)
+#define		ATC_SCSIZE_8		(0x2 << 16)
+#define		ATC_SCSIZE_16		(0x3 << 16)
+#define		ATC_SCSIZE_32		(0x4 << 16)
+#define		ATC_SCSIZE_64		(0x5 << 16)
+#define		ATC_SCSIZE_128		(0x6 << 16)
+#define		ATC_SCSIZE_256		(0x7 << 16)
+#define	ATC_DCSIZE_MASK		(0x7 << 20)	/* Destination Chunk Transfer Size */
+#define		ATC_DCSIZE(x)		(ATC_DCSIZE_MASK & ((x) << 20))
+#define		ATC_DCSIZE_1		(0x0 << 20)
+#define		ATC_DCSIZE_4		(0x1 << 20)
+#define		ATC_DCSIZE_8		(0x2 << 20)
+#define		ATC_DCSIZE_16		(0x3 << 20)
+#define		ATC_DCSIZE_32		(0x4 << 20)
+#define		ATC_DCSIZE_64		(0x5 << 20)
+#define		ATC_DCSIZE_128		(0x6 << 20)
+#define		ATC_DCSIZE_256		(0x7 << 20)
 #define	ATC_SRC_WIDTH_MASK	(0x3 << 24)	/* Source Single Transfer Size */
 #define		ATC_SRC_WIDTH(x)	((x) << 24)
 #define		ATC_SRC_WIDTH_BYTE	(0x0 << 24)
 #define		ATC_SRC_WIDTH_HALFWORD	(0x1 << 24)
 #define		ATC_SRC_WIDTH_WORD	(0x2 << 24)
+#define		ATC_REG_TO_SRC_WIDTH(r)	(((r) >> 24) & 0x3)
 #define	ATC_DST_WIDTH_MASK	(0x3 << 28)	/* Destination Single Transfer Size */
 #define		ATC_DST_WIDTH(x)	((x) << 28)
 #define		ATC_DST_WIDTH_BYTE	(0x0 << 28)
@@ -132,7 +146,31 @@
 #define	ATC_AUTO		(0x1 << 31)	/* Auto multiple buffer tx enable */
 
 /* Bitfields in CFG */
-/* are in at_hdmac.h */
+#define ATC_PER_MSB(h)	((0x30U & (h)) >> 4)	/* Extract most significant bits of a handshaking identifier */
+
+#define	ATC_SRC_PER(h)		(0xFU & (h))	/* Channel src rq associated with periph handshaking ifc h */
+#define	ATC_DST_PER(h)		((0xFU & (h)) <<  4)	/* Channel dst rq associated with periph handshaking ifc h */
+#define	ATC_SRC_REP		(0x1 <<  8)	/* Source Replay Mod */
+#define	ATC_SRC_H2SEL		(0x1 <<  9)	/* Source Handshaking Mod */
+#define		ATC_SRC_H2SEL_SW	(0x0 <<  9)
+#define		ATC_SRC_H2SEL_HW	(0x1 <<  9)
+#define	ATC_SRC_PER_MSB(h)	(ATC_PER_MSB(h) << 10)	/* Channel src rq (most significant bits) */
+#define	ATC_DST_REP		(0x1 << 12)	/* Destination Replay Mod */
+#define	ATC_DST_H2SEL		(0x1 << 13)	/* Destination Handshaking Mod */
+#define		ATC_DST_H2SEL_SW	(0x0 << 13)
+#define		ATC_DST_H2SEL_HW	(0x1 << 13)
+#define	ATC_DST_PER_MSB(h)	(ATC_PER_MSB(h) << 14)	/* Channel dst rq (most significant bits) */
+#define	ATC_SOD			(0x1 << 16)	/* Stop On Done */
+#define	ATC_LOCK_IF		(0x1 << 20)	/* Interface Lock */
+#define	ATC_LOCK_B		(0x1 << 21)	/* AHB Bus Lock */
+#define	ATC_LOCK_IF_L		(0x1 << 22)	/* Master Interface Arbiter Lock */
+#define		ATC_LOCK_IF_L_CHUNK	(0x0 << 22)
+#define		ATC_LOCK_IF_L_BUFFER	(0x1 << 22)
+#define	ATC_AHB_PROT_MASK	(0x7 << 24)	/* AHB Protection */
+#define	ATC_FIFOCFG_MASK	(0x3 << 28)	/* FIFO Request Configuration */
+#define		ATC_FIFOCFG_LARGESTBURST	(0x0 << 28)
+#define		ATC_FIFOCFG_HALFFIFO		(0x1 << 28)
+#define		ATC_FIFOCFG_ENOUGHSPACE		(0x2 << 28)
 
 /* Bitfields in SPIP */
 #define	ATC_SPIP_HOLE(x)	(0xFFFFU & (x))
@@ -162,7 +200,8 @@ struct at_lli {
  * @at_lli: hardware lli structure
  * @txd: support for the async_tx api
  * @desc_node: node on the channed descriptors list
- * @len: total transaction bytecount
+ * @len: descriptor byte count
+ * @total_len: total transaction byte count
  */
 struct at_desc {
 	/* FIRST values the hardware uses */
@@ -173,6 +212,17 @@ struct at_desc {
 	struct dma_async_tx_descriptor	txd;
 	struct list_head		desc_node;
 	size_t				len;
+	size_t				total_len;
+
+	/* Interleaved data */
+	size_t				boundary;
+	size_t				dst_hole;
+	size_t				src_hole;
+
+	/* Memset temporary buffer */
+	bool				memset_buffer;
+	dma_addr_t			memset_paddr;
+	int				*memset_vaddr;
 };
 
 static inline struct at_desc *
@@ -201,37 +251,40 @@ enum atc_status {
  * @device: parent device
  * @ch_regs: memory mapped register base
  * @mask: channel index in a mask
+ * @per_if: peripheral interface
+ * @mem_if: memory interface
  * @status: transmit status information from irq/prep* functions
  *                to tasklet (use atomic operations)
  * @tasklet: bottom half to finish transaction work
  * @save_cfg: configuration register that is saved on suspend/resume cycle
  * @save_dscr: for cyclic operations, preserve next descriptor address in
  *             the cyclic list on suspend/resume cycle
+ * @dma_sconfig: configuration for slave transfers, passed via
+ * .device_config
  * @lock: serializes enqueue/dequeue operations to descriptors lists
- * @completed_cookie: identifier for the most recently completed operation
  * @active_list: list of descriptors dmaengine is being running on
  * @queue: list of descriptors ready to be submitted to engine
  * @free_list: list of descriptors usable by the channel
- * @descs_allocated: records the actual size of the descriptor pool
  */
 struct at_dma_chan {
 	struct dma_chan		chan_common;
 	struct at_dma		*device;
 	void __iomem		*ch_regs;
 	u8			mask;
+	u8			per_if;
+	u8			mem_if;
 	unsigned long		status;
 	struct tasklet_struct	tasklet;
 	u32			save_cfg;
 	u32			save_dscr;
+	struct dma_slave_config dma_sconfig;
 
 	spinlock_t		lock;
 
 	/* these other elements are all protected by lock */
-	dma_cookie_t		completed_cookie;
 	struct list_head	active_list;
 	struct list_head	queue;
 	struct list_head	free_list;
-	unsigned int		descs_allocated;
 };
 
 #define	channel_readl(atchan, name) \
@@ -245,12 +298,43 @@ static inline struct at_dma_chan *to_at_dma_chan(struct dma_chan *dchan)
 	return container_of(dchan, struct at_dma_chan, chan_common);
 }
 
+/*
+ * Fix sconfig's burst size according to at_hdmac. We need to convert them as:
+ * 1 -> 0, 4 -> 1, 8 -> 2, 16 -> 3, 32 -> 4, 64 -> 5, 128 -> 6, 256 -> 7.
+ *
+ * This can be done by finding most significant bit set.
+ */
+static inline void convert_burst(u32 *maxburst)
+{
+	if (*maxburst > 1)
+		*maxburst = fls(*maxburst) - 2;
+	else
+		*maxburst = 0;
+}
+
+/*
+ * Fix sconfig's bus width according to at_hdmac.
+ * 1 byte -> 0, 2 bytes -> 1, 4 bytes -> 2.
+ */
+static inline u8 convert_buswidth(enum dma_slave_buswidth addr_width)
+{
+	switch (addr_width) {
+	case DMA_SLAVE_BUSWIDTH_2_BYTES:
+		return 1;
+	case DMA_SLAVE_BUSWIDTH_4_BYTES:
+		return 2;
+	default:
+		/* For 1 byte width or fallback */
+		return 0;
+	}
+}
 
 /*--  Controller  ------------------------------------------------------*/
 
 /**
  * struct at_dma - internal representation of an Atmel HDMA Controller
  * @chan_common: common dmaengine dma_device object members
+ * @atdma_devtype: identifier of DMA controller compatibility
  * @ch_regs: memory mapped register base
  * @clk: dma controller clock
  * @save_imr: interrupt mask register that is saved on suspend/resume cycle
@@ -267,8 +351,9 @@ struct at_dma {
 	u8			all_chan_mask;
 
 	struct dma_pool		*dma_desc_pool;
+	struct dma_pool		*memset_pool;
 	/* AT THE END channels table */
-	struct at_dma_chan	chan[0];
+	struct at_dma_chan	chan[];
 };
 
 #define	dma_readl(atdma, name) \
@@ -287,10 +372,6 @@ static inline struct at_dma *to_at_dma(struct dma_device *ddev)
 static struct device *chan2dev(struct dma_chan *chan)
 {
 	return &chan->dev->device;
-}
-static struct device *chan2parent(struct dma_chan *chan)
-{
-	return chan->dev->device.parent;
 }
 
 #if defined(VERBOSE_DEBUG)
@@ -319,35 +400,34 @@ static void vdbg_dump_regs(struct at_dma_chan *atchan) {}
 
 static void atc_dump_lli(struct at_dma_chan *atchan, struct at_lli *lli)
 {
-	dev_printk(KERN_CRIT, chan2dev(&atchan->chan_common),
-			"  desc: s0x%x d0x%x ctrl0x%x:0x%x l0x%x\n",
-			lli->saddr, lli->daddr,
-			lli->ctrla, lli->ctrlb, lli->dscr);
+	dev_crit(chan2dev(&atchan->chan_common),
+		 "desc: s%pad d%pad ctrl0x%x:0x%x l%pad\n",
+		 &lli->saddr, &lli->daddr,
+		 lli->ctrla, lli->ctrlb, &lli->dscr);
 }
 
 
-static void atc_setup_irq(struct at_dma_chan *atchan, int on)
+static void atc_setup_irq(struct at_dma *atdma, int chan_id, int on)
 {
-	struct at_dma	*atdma = to_at_dma(atchan->chan_common.device);
-	u32		ebci;
+	u32 ebci;
 
 	/* enable interrupts on buffer transfer completion & error */
-	ebci =    AT_DMA_BTC(atchan->chan_common.chan_id)
-		| AT_DMA_ERR(atchan->chan_common.chan_id);
+	ebci =    AT_DMA_BTC(chan_id)
+		| AT_DMA_ERR(chan_id);
 	if (on)
 		dma_writel(atdma, EBCIER, ebci);
 	else
 		dma_writel(atdma, EBCIDR, ebci);
 }
 
-static inline void atc_enable_irq(struct at_dma_chan *atchan)
+static void atc_enable_chan_irq(struct at_dma *atdma, int chan_id)
 {
-	atc_setup_irq(atchan, 1);
+	atc_setup_irq(atdma, chan_id, 1);
 }
 
-static inline void atc_disable_irq(struct at_dma_chan *atchan)
+static void atc_disable_chan_irq(struct at_dma *atdma, int chan_id)
 {
-	atc_setup_irq(atchan, 0);
+	atc_setup_irq(atdma, chan_id, 0);
 }
 
 

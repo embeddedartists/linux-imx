@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  HID driver for some samsung "special" devices
  *
@@ -5,10 +6,8 @@
  *  Copyright (c) 2000-2005 Vojtech Pavlik <vojtech@suse.cz>
  *  Copyright (c) 2005 Michael Haboustak <mike-@cinci.rr.com> for Concept2, Inc
  *  Copyright (c) 2006-2007 Jiri Kosina
- *  Copyright (c) 2007 Paul Walmsley
  *  Copyright (c) 2008 Jiri Slaby
  *  Copyright (c) 2010 Don Prince <dhprince.devel@yahoo.co.uk>
- *
  *
  *  This driver supports several HID devices:
  *
@@ -18,14 +17,9 @@
  *  [0419:0600] Creative Desktop Wireless 6000 keyboard/mouse combo
  *	several key mappings used from the consumer usage page
  *	deviate from the USB HUT 1.12 standard.
- *
  */
 
 /*
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the Free
- * Software Foundation; either version 2 of the License, or (at your option)
- * any later version.
  */
 
 #include <linux/device.h>
@@ -158,6 +152,9 @@ static int samsung_probe(struct hid_device *hdev,
 	int ret;
 	unsigned int cmask = HID_CONNECT_DEFAULT;
 
+	if (!hid_is_usb(hdev))
+		return -EINVAL;
+
 	ret = hid_parse(hdev);
 	if (ret) {
 		hid_err(hdev, "parse failed\n");
@@ -197,17 +194,6 @@ static struct hid_driver samsung_driver = {
 	.input_mapping = samsung_input_mapping,
 	.probe = samsung_probe,
 };
+module_hid_driver(samsung_driver);
 
-static int __init samsung_init(void)
-{
-	return hid_register_driver(&samsung_driver);
-}
-
-static void __exit samsung_exit(void)
-{
-	hid_unregister_driver(&samsung_driver);
-}
-
-module_init(samsung_init);
-module_exit(samsung_exit);
 MODULE_LICENSE("GPL");

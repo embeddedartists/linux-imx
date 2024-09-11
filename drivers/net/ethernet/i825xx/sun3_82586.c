@@ -28,8 +28,8 @@ static int automatic_resume = 0; /* experimental .. better should be zero */
 static int rfdadd = 0; /* rfdadd=1 may be better for 8K MEM cards */
 static int fifo=0x8;	/* don't change */
 
-#include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/module.h>
 #include <linux/string.h>
 #include <linux/errno.h>
 #include <linux/ioport.h>
@@ -122,10 +122,11 @@ static int     sun3_82586_probe1(struct net_device *dev,int ioaddr);
 static irqreturn_t sun3_82586_interrupt(int irq,void *dev_id);
 static int     sun3_82586_open(struct net_device *dev);
 static int     sun3_82586_close(struct net_device *dev);
-static int     sun3_82586_send_packet(struct sk_buff *,struct net_device *);
+static netdev_tx_t     sun3_82586_send_packet(struct sk_buff *,
+					      struct net_device *);
 static struct  net_device_stats *sun3_82586_get_stats(struct net_device *dev);
 static void    set_multicast_list(struct net_device *dev);
-static void    sun3_82586_timeout(struct net_device *dev);
+static void    sun3_82586_timeout(struct net_device *dev, unsigned int txqueue);
 #if 0
 static void    sun3_82586_dump(struct net_device *,void *);
 #endif
@@ -276,7 +277,7 @@ static void alloc586(struct net_device *dev)
 	memset((char *)p->scb,0,sizeof(struct scb_struct));
 }
 
-struct net_device * __init sun3_82586_probe(int unit)
+static int __init sun3_82586_probe(void)
 {
 	struct net_device *dev;
 	unsigned long ioaddr;
@@ -291,25 +292,20 @@ struct net_device * __init sun3_82586_probe(int unit)
 		break;
 
 	default:
-		return ERR_PTR(-ENODEV);
+		return -ENODEV;
 	}
 
 	if (found)
-		return ERR_PTR(-ENODEV);
+		return -ENODEV;
 
 	ioaddr = (unsigned long)ioremap(IE_OBIO, SUN3_82586_TOTAL_SIZE);
 	if (!ioaddr)
-		return ERR_PTR(-ENOMEM);
+		return -ENOMEM;
 	found = 1;
 
 	dev = alloc_etherdev(sizeof(struct priv));
 	if (!dev)
 		goto out;
-	if (unit >= 0) {
-		sprintf(dev->name, "eth%d", unit);
-		netdev_boot_setup_check(dev);
-	}
-
 	dev->irq = IE_IRQ;
 	dev->base_addr = ioaddr;
 	err = sun3_82586_probe1(dev, ioaddr);
@@ -318,7 +314,7 @@ struct net_device * __init sun3_82586_probe(int unit)
 	err = register_netdev(dev);
 	if (err)
 		goto out2;
-	return dev;
+	return 0;
 
 out2:
 	release_region(ioaddr, SUN3_82586_TOTAL_SIZE);
@@ -326,8 +322,9 @@ out1:
 	free_netdev(dev);
 out:
 	iounmap((void __iomem *)ioaddr);
-	return ERR_PTR(err);
+	return err;
 }
+module_init(sun3_82586_probe);
 
 static const struct net_device_ops sun3_82586_netdev_ops = {
 	.ndo_open		= sun3_82586_open,
@@ -338,7 +335,6 @@ static const struct net_device_ops sun3_82586_netdev_ops = {
 	.ndo_get_stats		= sun3_82586_get_stats,
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_set_mac_address	= eth_mac_addr,
-	.ndo_change_mtu		= eth_change_mtu,
 };
 
 static int __init sun3_82586_probe1(struct net_device *dev,int ioaddr)
@@ -572,7 +568,7 @@ static int init586(struct net_device *dev)
 	}
 #endif
 
-	ptr = alloc_rfa(dev,(void *)ptr); /* init receive-frame-area */
+	ptr = alloc_rfa(dev,ptr); /* init receive-frame-area */
 
 	/*
 	 * alloc xmit-buffs / init xmit_cmds
@@ -585,7 +581,7 @@ static int init586(struct net_device *dev)
 		ptr = (char *) ptr + XMIT_BUFF_SIZE;
 		p->xmit_buffs[i] = (struct tbd_struct *)ptr; /* TBD */
 		ptr = (char *) ptr + sizeof(struct tbd_struct);
-		if((void *)ptr > (void *)dev->mem_end)
+		if(ptr > (void *)dev->mem_end)
 		{
 			printk("%s: not enough shared-mem for your configuration!\n",dev->name);
 			return 1;
@@ -779,7 +775,7 @@ static void sun3_82586_rcv_int(struct net_device *dev)
 				{
 					totlen &= RBD_MASK; /* length of this frame */
 					rbd->status = 0;
-					skb = (struct sk_buff *) dev_alloc_skb(totlen+2);
+					skb = netdev_alloc_skb(dev, totlen + 2);
 					if(skb != NULL)
 					{
 						skb_reserve(skb,2);
@@ -966,7 +962,7 @@ static void startrecv586(struct net_device *dev)
 	WAIT_4_SCB_CMD_RUC();	/* wait for accept cmd. (no timeout!!) */
 }
 
-static void sun3_82586_timeout(struct net_device *dev)
+static void sun3_82586_timeout(struct net_device *dev, unsigned int txqueue)
 {
 	struct priv *p = netdev_priv(dev);
 #ifndef NO_NOPCOMMANDS
@@ -984,7 +980,7 @@ static void sun3_82586_timeout(struct net_device *dev)
 		p->scb->cmd_cuc = CUC_START;
 		sun3_attn586();
 		WAIT_4_SCB_CMD();
-		dev->trans_start = jiffies; /* prevent tx timeout */
+		netif_trans_update(dev); /* prevent tx timeout */
 		return 0;
 	}
 #endif
@@ -997,14 +993,15 @@ static void sun3_82586_timeout(struct net_device *dev)
 		sun3_82586_close(dev);
 		sun3_82586_open(dev);
 	}
-	dev->trans_start = jiffies; /* prevent tx timeout */
+	netif_trans_update(dev); /* prevent tx timeout */
 }
 
 /******************************************************
  * send frame
  */
 
-static int sun3_82586_send_packet(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t
+sun3_82586_send_packet(struct sk_buff *skb, struct net_device *dev)
 {
 	int len,i;
 #ifndef NO_NOPCOMMANDS
@@ -1151,28 +1148,6 @@ static void set_multicast_list(struct net_device *dev)
 	netif_wake_queue(dev);
 }
 
-#ifdef MODULE
-#error This code is not currently supported as a module
-static struct net_device *dev_sun3_82586;
-
-int init_module(void)
-{
-	dev_sun3_82586 = sun3_82586_probe(-1);
-	if (IS_ERR(dev_sun3_82586))
-		return PTR_ERR(dev_sun3_82586);
-	return 0;
-}
-
-void cleanup_module(void)
-{
-	unsigned long ioaddr = dev_sun3_82586->base_addr;
-	unregister_netdev(dev_sun3_82586);
-	release_region(ioaddr, SUN3_82586_TOTAL_SIZE);
-	iounmap((void *)ioaddr);
-	free_netdev(dev_sun3_82586);
-}
-#endif /* MODULE */
-
 #if 0
 /*
  * DUMP .. we expect a not running CMD unit and enough space
@@ -1209,5 +1184,3 @@ void sun3_82586_dump(struct net_device *dev,void *ptr)
 	printk("\n");
 }
 #endif
-
-MODULE_LICENSE("GPL");

@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Generic PowerPC 40x platform support
  *
  * Copyright 2008 IBM Corporation
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; version 2 of the License.
  *
  * This implements simple platform support for PowerPC 44x chips.  This is
  * mostly used for eval boards or other simple and "generic" 44x boards.  If
@@ -24,7 +21,7 @@
 #include <linux/init.h>
 #include <linux/of_platform.h>
 
-static __initdata struct of_device_id ppc40x_of_bus[] = {
+static const struct of_device_id ppc40x_of_bus[] __initconst = {
 	{ .compatible = "ibm,plb3", },
 	{ .compatible = "ibm,plb4", },
 	{ .compatible = "ibm,opb", },
@@ -50,19 +47,20 @@ machine_device_initcall(ppc40x_simple, ppc40x_device_probe);
  * Again, if your board needs to do things differently then create a
  * board.c file for it rather than adding it to this list.
  */
-static const char *board[] __initdata = {
+static const char * const board[] __initconst = {
 	"amcc,acadia",
 	"amcc,haleakala",
 	"amcc,kilauea",
 	"amcc,makalu",
 	"apm,klondike",
 	"est,hotfoot",
-	"plathome,obs600"
+	"plathome,obs600",
+	NULL
 };
 
 static int __init ppc40x_probe(void)
 {
-	if (of_flat_dt_match(of_get_flat_dt_root(), board)) {
+	if (of_device_compatible_match(of_root, board)) {
 		pci_set_flags(PCI_REASSIGN_ALL_RSRC);
 		return 1;
 	}

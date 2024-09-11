@@ -1,9 +1,10 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __LINUX_MAPLE_H
 #define __LINUX_MAPLE_H
 
-#include <linux/device.h>
 #include <mach/maple.h>
 
+struct device;
 extern struct bus_type maple_bus_type;
 
 /* Maple Bus command and response codes */

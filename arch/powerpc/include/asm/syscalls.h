@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __ASM_POWERPC_SYSCALLS_H
 #define __ASM_POWERPC_SYSCALLS_H
 #ifdef __KERNEL__
@@ -5,44 +6,47 @@
 #include <linux/compiler.h>
 #include <linux/linkage.h>
 #include <linux/types.h>
-#include <asm/signal.h>
+#include <linux/compat.h>
 
-struct pt_regs;
 struct rtas_args;
-struct sigaction;
 
-asmlinkage unsigned long sys_mmap(unsigned long addr, size_t len,
+asmlinkage long sys_mmap(unsigned long addr, size_t len,
 		unsigned long prot, unsigned long flags,
 		unsigned long fd, off_t offset);
-asmlinkage unsigned long sys_mmap2(unsigned long addr, size_t len,
+asmlinkage long sys_mmap2(unsigned long addr, size_t len,
 		unsigned long prot, unsigned long flags,
 		unsigned long fd, unsigned long pgoff);
-asmlinkage int sys_execve(unsigned long a0, unsigned long a1,
-		unsigned long a2, unsigned long a3, unsigned long a4,
-		unsigned long a5, struct pt_regs *regs);
-asmlinkage int sys_clone(unsigned long clone_flags, unsigned long usp,
-		int __user *parent_tidp, void __user *child_threadptr,
-		int __user *child_tidp, int p6, struct pt_regs *regs);
-asmlinkage int sys_fork(unsigned long p1, unsigned long p2,
-		unsigned long p3, unsigned long p4, unsigned long p5,
-		unsigned long p6, struct pt_regs *regs);
-asmlinkage int sys_vfork(unsigned long p1, unsigned long p2,
-		unsigned long p3, unsigned long p4, unsigned long p5,
-		unsigned long p6, struct pt_regs *regs);
-asmlinkage long sys_pipe(int __user *fildes);
-asmlinkage long sys_pipe2(int __user *fildes, int flags);
-asmlinkage long sys_rt_sigaction(int sig,
-		const struct sigaction __user *act,
-		struct sigaction __user *oact, size_t sigsetsize);
 asmlinkage long ppc64_personality(unsigned long personality);
-asmlinkage int ppc_rtas(struct rtas_args __user *uargs);
-asmlinkage time_t sys64_time(time_t __user * tloc);
+asmlinkage long sys_rtas(struct rtas_args __user *uargs);
 
-asmlinkage long sys_rt_sigsuspend(sigset_t __user *unewset,
-		size_t sigsetsize);
-asmlinkage long sys_sigaltstack(const stack_t __user *uss,
-		stack_t __user *uoss, unsigned long r5, unsigned long r6,
-		unsigned long r7, unsigned long r8, struct pt_regs *regs);
+#ifdef CONFIG_COMPAT
+unsigned long compat_sys_mmap2(unsigned long addr, size_t len,
+			       unsigned long prot, unsigned long flags,
+			       unsigned long fd, unsigned long pgoff);
+
+compat_ssize_t compat_sys_pread64(unsigned int fd, char __user *ubuf, compat_size_t count,
+				  u32 reg6, u32 pos1, u32 pos2);
+
+compat_ssize_t compat_sys_pwrite64(unsigned int fd, const char __user *ubuf, compat_size_t count,
+				   u32 reg6, u32 pos1, u32 pos2);
+
+compat_ssize_t compat_sys_readahead(int fd, u32 r4, u32 offset1, u32 offset2, u32 count);
+
+int compat_sys_truncate64(const char __user *path, u32 reg4,
+			  unsigned long len1, unsigned long len2);
+
+long compat_sys_fallocate(int fd, int mode, u32 offset1, u32 offset2, u32 len1, u32 len2);
+
+int compat_sys_ftruncate64(unsigned int fd, u32 reg4, unsigned long len1,
+			   unsigned long len2);
+
+long ppc32_fadvise64(int fd, u32 unused, u32 offset1, u32 offset2,
+		     size_t len, int advice);
+
+long compat_sys_sync_file_range2(int fd, unsigned int flags,
+				 unsigned int offset1, unsigned int offset2,
+				 unsigned int nbytes1, unsigned int nbytes2);
+#endif
 
 #endif /* __KERNEL__ */
 #endif /* __ASM_POWERPC_SYSCALLS_H */

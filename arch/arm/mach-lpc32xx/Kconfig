@@ -1,33 +1,11 @@
-if ARCH_LPC32XX
+# SPDX-License-Identifier: GPL-2.0-only
 
-menu "Individual UART enable selections"
-
-config ARCH_LPC32XX_UART3_SELECT
-	bool "Add support for standard UART3"
+config ARCH_LPC32XX
+	bool "NXP LPC32XX"
+	depends on ARCH_MULTI_V5
+	select ARM_AMBA
+	select CLKSRC_LPC32XX
+	select CPU_ARM926T
+	select GPIOLIB
 	help
-	 Adds support for standard UART 3 when the 8250 serial support
-	 is enabled.
-
-config ARCH_LPC32XX_UART4_SELECT
-	bool "Add support for standard UART4"
-	help
-	 Adds support for standard UART 4 when the 8250 serial support
-	 is enabled.
-
-config ARCH_LPC32XX_UART5_SELECT
-	bool "Add support for standard UART5"
-	default y
-	help
-	 Adds support for standard UART 5 when the 8250 serial support
-	 is enabled.
-
-config ARCH_LPC32XX_UART6_SELECT
-	bool "Add support for standard UART6"
-	help
-	 Adds support for standard UART 6 when the 8250 serial support
-	 is enabled.
-
-endmenu
-
-endif
-
+	  Support for the NXP LPC32XX family of processors

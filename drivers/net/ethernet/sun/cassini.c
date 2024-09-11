@@ -1,22 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0+
 /* cassini.c: Sun Microsystems Cassini(+) ethernet driver.
  *
  * Copyright (C) 2004 Sun Microsystems Inc.
  * Copyright (C) 2003 Adrian Sun (asun@darksunrising.com)
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation; either version 2 of the
- * License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
  *
  * This driver uses the sungem driver (c) David Miller
  * (davem@redhat.com) as its basis.
@@ -99,13 +85,12 @@
 #include <net/checksum.h>
 
 #include <linux/atomic.h>
-#include <asm/system.h>
 #include <asm/io.h>
 #include <asm/byteorder.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
-#define cas_page_map(x)      kmap_atomic((x), KM_SKB_DATA_SOFTIRQ)
-#define cas_page_unmap(x)    kunmap_atomic((x), KM_SKB_DATA_SOFTIRQ)
+#define cas_page_map(x)      kmap_atomic((x))
+#define cas_page_unmap(x)    kunmap_atomic((x))
 #define CAS_NCPUS            num_online_cpus()
 
 #define cas_skb_release(x)  netif_rx(x)
@@ -186,7 +171,7 @@
 #define CAS_RESET_SPARE                 3
 #endif
 
-static char version[] __devinitdata =
+static char version[] =
 	DRV_MODULE_NAME ".c:v" DRV_MODULE_VERSION " (" DRV_MODULE_RELDATE ")\n";
 
 static int cassini_debug = -1;	/* -1 == use CAS_DEF_MSG_ENABLE as value */
@@ -223,7 +208,7 @@ static int link_transition_timeout;
 
 
 
-static u16 link_modes[] __devinitdata = {
+static u16 link_modes[] = {
 	BMCR_ANENABLE,			 /* 0 : autoneg */
 	0,				 /* 1 : 10bt half duplex */
 	BMCR_SPEED100,			 /* 2 : 100bt half duplex */
@@ -232,7 +217,7 @@ static u16 link_modes[] __devinitdata = {
 	CAS_BMCR_SPEED1000|BMCR_FULLDPLX /* 5 : 1000bt full duplex */
 };
 
-static DEFINE_PCI_DEVICE_TABLE(cas_pci_tbl) = {
+static const struct pci_device_id cas_pci_tbl[] = {
 	{ PCI_VENDOR_ID_SUN, PCI_DEVICE_ID_SUN_CASSINI,
 	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0UL },
 	{ PCI_VENDOR_ID_NS, PCI_DEVICE_ID_NS_SATURN,
@@ -249,13 +234,7 @@ static inline void cas_lock_tx(struct cas *cp)
 	int i;
 
 	for (i = 0; i < N_TX_RINGS; i++)
-		spin_lock(&cp->tx_lock[i]);
-}
-
-static inline void cas_lock_all(struct cas *cp)
-{
-	spin_lock_irq(&cp->lock);
-	cas_lock_tx(cp);
+		spin_lock_nested(&cp->tx_lock[i], i);
 }
 
 /* WTZ: QA was finding deadlock problems with the previous
@@ -279,12 +258,6 @@ static inline void cas_unlock_tx(struct cas *cp)
 
 	for (i = N_TX_RINGS; i > 0; i--)
 		spin_unlock(&cp->tx_lock[i - 1]);
-}
-
-static inline void cas_unlock_all(struct cas *cp)
-{
-	cas_unlock_tx(cp);
-	spin_unlock_irq(&cp->lock);
 }
 
 #define cas_unlock_all_restore(cp, flags) \
@@ -470,8 +443,8 @@ static void cas_phy_powerdown(struct cas *cp)
 /* cp->lock held. note: the last put_page will free the buffer */
 static int cas_page_free(struct cas *cp, cas_page_t *page)
 {
-	pci_unmap_page(cp->pdev, page->dma_addr, cp->page_size,
-		       PCI_DMA_FROMDEVICE);
+	dma_unmap_page(&cp->pdev->dev, page->dma_addr, cp->page_size,
+		       DMA_FROM_DEVICE);
 	__free_pages(page->buffer, cp->page_order);
 	kfree(page);
 	return 0;
@@ -481,8 +454,8 @@ static int cas_page_free(struct cas *cp, cas_page_t *page)
 #define RX_USED_ADD(x, y)       ((x)->used += (y))
 #define RX_USED_SET(x, y)       ((x)->used  = (y))
 #else
-#define RX_USED_ADD(x, y)
-#define RX_USED_SET(x, y)
+#define RX_USED_ADD(x, y) do { } while(0)
+#define RX_USED_SET(x, y) do { } while(0)
 #endif
 
 /* local page allocation routines for the receive buffers. jumbo pages
@@ -501,8 +474,8 @@ static cas_page_t *cas_page_alloc(struct cas *cp, const gfp_t flags)
 	page->buffer = alloc_pages(flags, cp->page_order);
 	if (!page->buffer)
 		goto page_err;
-	page->dma_addr = pci_map_page(cp->pdev, page->buffer, 0,
-				      cp->page_size, PCI_DMA_FROMDEVICE);
+	page->dma_addr = dma_map_page(&cp->pdev->dev, page->buffer, 0,
+				      cp->page_size, DMA_FROM_DEVICE);
 	return page;
 
 page_err:
@@ -513,7 +486,7 @@ page_err:
 /* initialize spare pool of rx buffers, but allocate during the open */
 static void cas_spare_init(struct cas *cp)
 {
-  	spin_lock(&cp->rx_inuse_lock);
+	spin_lock(&cp->rx_inuse_lock);
 	INIT_LIST_HEAD(&cp->rx_inuse_list);
 	spin_unlock(&cp->rx_inuse_lock);
 
@@ -694,7 +667,8 @@ static void cas_mif_poll(struct cas *cp, const int enable)
 }
 
 /* Must be invoked under cp->lock */
-static void cas_begin_auto_negotiation(struct cas *cp, struct ethtool_cmd *ep)
+static void cas_begin_auto_negotiation(struct cas *cp,
+				       const struct ethtool_link_ksettings *ep)
 {
 	u16 ctl;
 #if 1
@@ -707,16 +681,16 @@ static void cas_begin_auto_negotiation(struct cas *cp, struct ethtool_cmd *ep)
 	if (!ep)
 		goto start_aneg;
 	lcntl = cp->link_cntl;
-	if (ep->autoneg == AUTONEG_ENABLE)
+	if (ep->base.autoneg == AUTONEG_ENABLE) {
 		cp->link_cntl = BMCR_ANENABLE;
-	else {
-		u32 speed = ethtool_cmd_speed(ep);
+	} else {
+		u32 speed = ep->base.speed;
 		cp->link_cntl = 0;
 		if (speed == SPEED_100)
 			cp->link_cntl |= BMCR_SPEED100;
 		else if (speed == SPEED_1000)
 			cp->link_cntl |= CAS_BMCR_SPEED1000;
-		if (ep->duplex == DUPLEX_FULL)
+		if (ep->base.duplex == DUPLEX_FULL)
 			cp->link_cntl |= BMCR_FULLDPLX;
 	}
 #if 1
@@ -809,44 +783,42 @@ static int cas_reset_mii_phy(struct cas *cp)
 	return limit <= 0;
 }
 
-static int cas_saturn_firmware_init(struct cas *cp)
+static void cas_saturn_firmware_init(struct cas *cp)
 {
 	const struct firmware *fw;
 	const char fw_name[] = "sun/cassini.bin";
 	int err;
 
 	if (PHY_NS_DP83065 != cp->phy_id)
-		return 0;
+		return;
 
 	err = request_firmware(&fw, fw_name, &cp->pdev->dev);
 	if (err) {
 		pr_err("Failed to load firmware \"%s\"\n",
 		       fw_name);
-		return err;
+		return;
 	}
 	if (fw->size < 2) {
 		pr_err("bogus length %zu in \"%s\"\n",
 		       fw->size, fw_name);
-		err = -EINVAL;
 		goto out;
 	}
 	cp->fw_load_addr= fw->data[1] << 8 | fw->data[0];
 	cp->fw_size = fw->size - 2;
 	cp->fw_data = vmalloc(cp->fw_size);
-	if (!cp->fw_data) {
-		err = -ENOMEM;
-		pr_err("\"%s\" Failed %d\n", fw_name, err);
+	if (!cp->fw_data)
 		goto out;
-	}
 	memcpy(cp->fw_data, &fw->data[2], cp->fw_size);
 out:
 	release_firmware(fw);
-	return err;
 }
 
 static void cas_saturn_firmware_load(struct cas *cp)
 {
 	int i;
+
+	if (!cp->fw_data)
+		return;
 
 	cas_phy_powerdown(cp);
 
@@ -1627,6 +1599,7 @@ static inline int cas_mdio_link_not_up(struct cas *cp)
 			cas_phy_write(cp, MII_BMCR, val);
 			break;
 		}
+		break;
 	default:
 		break;
 	}
@@ -1732,34 +1705,26 @@ static int cas_pci_interrupt(struct net_device *dev, struct cas *cp,
 	pr_cont("\n");
 
 	if (stat & PCI_ERR_OTHER) {
-		u16 cfg;
+		int pci_errs;
 
 		/* Interrogate PCI config space for the
 		 * true cause.
 		 */
-		pci_read_config_word(cp->pdev, PCI_STATUS, &cfg);
-		netdev_err(dev, "Read PCI cfg space status [%04x]\n", cfg);
-		if (cfg & PCI_STATUS_PARITY)
-			netdev_err(dev, "PCI parity error detected\n");
-		if (cfg & PCI_STATUS_SIG_TARGET_ABORT)
-			netdev_err(dev, "PCI target abort\n");
-		if (cfg & PCI_STATUS_REC_TARGET_ABORT)
-			netdev_err(dev, "PCI master acks target abort\n");
-		if (cfg & PCI_STATUS_REC_MASTER_ABORT)
-			netdev_err(dev, "PCI master abort\n");
-		if (cfg & PCI_STATUS_SIG_SYSTEM_ERROR)
-			netdev_err(dev, "PCI system error SERR#\n");
-		if (cfg & PCI_STATUS_DETECTED_PARITY)
-			netdev_err(dev, "PCI parity error\n");
+		pci_errs = pci_status_get_and_clear_errors(cp->pdev);
 
-		/* Write the error bits back to clear them. */
-		cfg &= (PCI_STATUS_PARITY |
-			PCI_STATUS_SIG_TARGET_ABORT |
-			PCI_STATUS_REC_TARGET_ABORT |
-			PCI_STATUS_REC_MASTER_ABORT |
-			PCI_STATUS_SIG_SYSTEM_ERROR |
-			PCI_STATUS_DETECTED_PARITY);
-		pci_write_config_word(cp->pdev, PCI_STATUS, cfg);
+		netdev_err(dev, "PCI status errors[%04x]\n", pci_errs);
+		if (pci_errs & PCI_STATUS_PARITY)
+			netdev_err(dev, "PCI parity error detected\n");
+		if (pci_errs & PCI_STATUS_SIG_TARGET_ABORT)
+			netdev_err(dev, "PCI target abort\n");
+		if (pci_errs & PCI_STATUS_REC_TARGET_ABORT)
+			netdev_err(dev, "PCI master acks target abort\n");
+		if (pci_errs & PCI_STATUS_REC_MASTER_ABORT)
+			netdev_err(dev, "PCI master abort\n");
+		if (pci_errs & PCI_STATUS_SIG_SYSTEM_ERROR)
+			netdev_err(dev, "PCI system error SERR#\n");
+		if (pci_errs & PCI_STATUS_DETECTED_PARITY)
+			netdev_err(dev, "PCI parity error\n");
 	}
 
 	/* For all PCI errors, we should reset the chip. */
@@ -1899,8 +1864,8 @@ static inline void cas_tx_ringN(struct cas *cp, int ring, int limit)
 			daddr = le64_to_cpu(txd->buffer);
 			dlen = CAS_VAL(TX_DESC_BUFLEN,
 				       le64_to_cpu(txd->control));
-			pci_unmap_page(cp->pdev, daddr, dlen,
-				       PCI_DMA_TODEVICE);
+			dma_unmap_page(&cp->pdev->dev, daddr, dlen,
+				       DMA_TO_DEVICE);
 			entry = TX_DESC_NEXT(ring, entry);
 
 			/* tiny buffer may follow */
@@ -1914,7 +1879,7 @@ static inline void cas_tx_ringN(struct cas *cp, int ring, int limit)
 		cp->net_stats[ring].tx_packets++;
 		cp->net_stats[ring].tx_bytes += skb->len;
 		spin_unlock(&cp->stat_lock[ring]);
-		dev_kfree_skb_irq(skb);
+		dev_consume_skb_irq(skb);
 	}
 	cp->tx_old[ring] = entry;
 
@@ -1975,7 +1940,7 @@ static int cas_rx_process_pkt(struct cas *cp, struct cas_rx_comp *rxc,
 	else
 		alloclen = max(hlen, RX_COPY_MIN);
 
-	skb = dev_alloc_skb(alloclen + swivel + cp->crc_size);
+	skb = netdev_alloc_skb(cp->dev, alloclen + swivel + cp->crc_size);
 	if (skb == NULL)
 		return -1;
 
@@ -1993,12 +1958,13 @@ static int cas_rx_process_pkt(struct cas *cp, struct cas_rx_comp *rxc,
 		i = hlen;
 		if (!dlen) /* attach FCS */
 			i += cp->crc_size;
-		pci_dma_sync_single_for_cpu(cp->pdev, page->dma_addr + off, i,
-				    PCI_DMA_FROMDEVICE);
+		dma_sync_single_for_cpu(&cp->pdev->dev, page->dma_addr + off,
+					i, DMA_FROM_DEVICE);
 		addr = cas_page_map(page->buffer);
 		memcpy(p, addr + off, i);
-		pci_dma_sync_single_for_device(cp->pdev, page->dma_addr + off, i,
-				    PCI_DMA_FROMDEVICE);
+		dma_sync_single_for_device(&cp->pdev->dev,
+					   page->dma_addr + off, i,
+					   DMA_FROM_DEVICE);
 		cas_page_unmap(addr);
 		RX_USED_ADD(page, 0x100);
 		p += hlen;
@@ -2024,16 +1990,17 @@ static int cas_rx_process_pkt(struct cas *cp, struct cas_rx_comp *rxc,
 		i = hlen;
 		if (i == dlen)  /* attach FCS */
 			i += cp->crc_size;
-		pci_dma_sync_single_for_cpu(cp->pdev, page->dma_addr + off, i,
-				    PCI_DMA_FROMDEVICE);
+		dma_sync_single_for_cpu(&cp->pdev->dev, page->dma_addr + off,
+					i, DMA_FROM_DEVICE);
 
 		/* make sure we always copy a header */
 		swivel = 0;
 		if (p == (char *) skb->data) { /* not split */
 			addr = cas_page_map(page->buffer);
 			memcpy(p, addr + off, RX_COPY_MIN);
-			pci_dma_sync_single_for_device(cp->pdev, page->dma_addr + off, i,
-					PCI_DMA_FROMDEVICE);
+			dma_sync_single_for_device(&cp->pdev->dev,
+						   page->dma_addr + off, i,
+						   DMA_FROM_DEVICE);
 			cas_page_unmap(addr);
 			off += RX_COPY_MIN;
 			swivel = RX_COPY_MIN;
@@ -2050,7 +2017,7 @@ static int cas_rx_process_pkt(struct cas *cp, struct cas_rx_comp *rxc,
 
 		__skb_frag_set_page(frag, page->buffer);
 		__skb_frag_ref(frag);
-		frag->page_offset = off;
+		skb_frag_off_set(frag, off);
 		skb_frag_size_set(frag, hlen - swivel);
 
 		/* any more data? */
@@ -2060,12 +2027,14 @@ static int cas_rx_process_pkt(struct cas *cp, struct cas_rx_comp *rxc,
 
 			i = CAS_VAL(RX_COMP2_NEXT_INDEX, words[1]);
 			page = cp->rx_pages[CAS_VAL(RX_INDEX_RING, i)][CAS_VAL(RX_INDEX_NUM, i)];
-			pci_dma_sync_single_for_cpu(cp->pdev, page->dma_addr,
-					    hlen + cp->crc_size,
-					    PCI_DMA_FROMDEVICE);
-			pci_dma_sync_single_for_device(cp->pdev, page->dma_addr,
-					    hlen + cp->crc_size,
-					    PCI_DMA_FROMDEVICE);
+			dma_sync_single_for_cpu(&cp->pdev->dev,
+						page->dma_addr,
+						hlen + cp->crc_size,
+						DMA_FROM_DEVICE);
+			dma_sync_single_for_device(&cp->pdev->dev,
+						   page->dma_addr,
+						   hlen + cp->crc_size,
+						   DMA_FROM_DEVICE);
 
 			skb_shinfo(skb)->nr_frags++;
 			skb->data_len += hlen;
@@ -2074,7 +2043,7 @@ static int cas_rx_process_pkt(struct cas *cp, struct cas_rx_comp *rxc,
 
 			__skb_frag_set_page(frag, page->buffer);
 			__skb_frag_ref(frag);
-			frag->page_offset = 0;
+			skb_frag_off_set(frag, 0);
 			skb_frag_size_set(frag, hlen);
 			RX_USED_ADD(page, hlen + cp->crc_size);
 		}
@@ -2102,12 +2071,13 @@ static int cas_rx_process_pkt(struct cas *cp, struct cas_rx_comp *rxc,
 		i = hlen;
 		if (i == dlen) /* attach FCS */
 			i += cp->crc_size;
-		pci_dma_sync_single_for_cpu(cp->pdev, page->dma_addr + off, i,
-				    PCI_DMA_FROMDEVICE);
+		dma_sync_single_for_cpu(&cp->pdev->dev, page->dma_addr + off,
+					i, DMA_FROM_DEVICE);
 		addr = cas_page_map(page->buffer);
 		memcpy(p, addr + off, i);
-		pci_dma_sync_single_for_device(cp->pdev, page->dma_addr + off, i,
-				    PCI_DMA_FROMDEVICE);
+		dma_sync_single_for_device(&cp->pdev->dev,
+					   page->dma_addr + off, i,
+					   DMA_FROM_DEVICE);
 		cas_page_unmap(addr);
 		if (p == (char *) skb->data) /* not split */
 			RX_USED_ADD(page, cp->mtu_stride);
@@ -2119,14 +2089,16 @@ static int cas_rx_process_pkt(struct cas *cp, struct cas_rx_comp *rxc,
 			p += hlen;
 			i = CAS_VAL(RX_COMP2_NEXT_INDEX, words[1]);
 			page = cp->rx_pages[CAS_VAL(RX_INDEX_RING, i)][CAS_VAL(RX_INDEX_NUM, i)];
-			pci_dma_sync_single_for_cpu(cp->pdev, page->dma_addr,
-					    dlen + cp->crc_size,
-					    PCI_DMA_FROMDEVICE);
+			dma_sync_single_for_cpu(&cp->pdev->dev,
+						page->dma_addr,
+						dlen + cp->crc_size,
+						DMA_FROM_DEVICE);
 			addr = cas_page_map(page->buffer);
 			memcpy(p, addr, dlen + cp->crc_size);
-			pci_dma_sync_single_for_device(cp->pdev, page->dma_addr,
-					    dlen + cp->crc_size,
-					    PCI_DMA_FROMDEVICE);
+			dma_sync_single_for_device(&cp->pdev->dev,
+						   page->dma_addr,
+						   dlen + cp->crc_size,
+						   DMA_FROM_DEVICE);
 			cas_page_unmap(addr);
 			RX_USED_ADD(page, dlen + cp->crc_size);
 		}
@@ -2307,7 +2279,7 @@ static int cas_rx_ringN(struct cas *cp, int ring, int budget)
 	drops = 0;
 	while (1) {
 		struct cas_rx_comp *rxc = rxcs + entry;
-		struct sk_buff *uninitialized_var(skb);
+		struct sk_buff *skb;
 		int type, len;
 		u64 words[4];
 		int i, dring;
@@ -2682,7 +2654,7 @@ static void cas_netpoll(struct net_device *dev)
 }
 #endif
 
-static void cas_tx_timeout(struct net_device *dev)
+static void cas_tx_timeout(struct net_device *dev, unsigned int txqueue)
 {
 	struct cas *cp = netdev_priv(dev);
 
@@ -2802,9 +2774,8 @@ static inline int cas_xmit_tx_ringN(struct cas *cp, int ring,
 
 	nr_frags = skb_shinfo(skb)->nr_frags;
 	len = skb_headlen(skb);
-	mapping = pci_map_page(cp->pdev, virt_to_page(skb->data),
-			       offset_in_page(skb->data), len,
-			       PCI_DMA_TODEVICE);
+	mapping = dma_map_page(&cp->pdev->dev, virt_to_page(skb->data),
+			       offset_in_page(skb->data), len, DMA_TO_DEVICE);
 
 	tentry = entry;
 	tabort = cas_calc_tabort(cp, (unsigned long) skb->data, len);
@@ -2832,7 +2803,7 @@ static inline int cas_xmit_tx_ringN(struct cas *cp, int ring,
 		mapping = skb_frag_dma_map(&cp->pdev->dev, fragp, 0, len,
 					   DMA_TO_DEVICE);
 
-		tabort = cas_calc_tabort(cp, fragp->page_offset, len);
+		tabort = cas_calc_tabort(cp, skb_frag_off(fragp), len);
 		if (unlikely(tabort)) {
 			void *addr;
 
@@ -2843,7 +2814,7 @@ static inline int cas_xmit_tx_ringN(struct cas *cp, int ring,
 
 			addr = cas_page_map(skb_frag_page(fragp));
 			memcpy(tx_tiny_buf(cp, ring, entry),
-			       addr + fragp->page_offset + len - tabort,
+			       addr + skb_frag_off(fragp) + len - tabort,
 			       tabort);
 			cas_page_unmap(addr);
 			mapping = tx_tiny_map(cp, ring, entry, tentry);
@@ -3063,7 +3034,6 @@ static void cas_init_mac(struct cas *cp)
 	/* setup core arbitration weight register */
 	writel(CAWR_RR_DIS, cp->regs + REG_CAWR);
 
-	/* XXX Use pci_dma_burst_advice() */
 #if !defined(CONFIG_SPARC64) && !defined(CONFIG_ALPHA)
 	/* set the infinite burst register for chips that don't have
 	 * pci issues.
@@ -3357,7 +3327,7 @@ use_random_mac_addr:
 #if defined(CONFIG_SPARC)
 	addr = of_get_property(cp->of_node, "local-mac-address", NULL);
 	if (addr != NULL) {
-		memcpy(dev_addr, addr, 6);
+		memcpy(dev_addr, addr, ETH_ALEN);
 		goto done;
 	}
 #endif
@@ -3869,9 +3839,6 @@ static int cas_change_mtu(struct net_device *dev, int new_mtu)
 {
 	struct cas *cp = netdev_priv(dev);
 
-	if (new_mtu < CAS_MIN_MTU || new_mtu > CAS_MAX_MTU)
-		return -EINVAL;
-
 	dev->mtu = new_mtu;
 	if (!netif_running(dev) || !netif_device_present(dev))
 		return 0;
@@ -3892,7 +3859,7 @@ static int cas_change_mtu(struct net_device *dev, int new_mtu)
 	schedule_work(&cp->reset_task);
 #endif
 
-	flush_work_sync(&cp->reset_task);
+	flush_work(&cp->reset_task);
 	return 0;
 }
 
@@ -3922,8 +3889,8 @@ static void cas_clean_txd(struct cas *cp, int ring)
 			daddr = le64_to_cpu(txd[ent].buffer);
 			dlen  =  CAS_VAL(TX_DESC_BUFLEN,
 					 le64_to_cpu(txd[ent].control));
-			pci_unmap_page(cp->pdev, daddr, dlen,
-				       PCI_DMA_TODEVICE);
+			dma_unmap_page(&cp->pdev->dev, daddr, dlen,
+				       DMA_TO_DEVICE);
 
 			if (frag != skb_shinfo(skb)->nr_frags) {
 				i++;
@@ -4087,9 +4054,9 @@ done:
 #endif
 }
 
-static void cas_link_timer(unsigned long data)
+static void cas_link_timer(struct timer_list *t)
 {
-	struct cas *cp = (struct cas *) data;
+	struct cas *cp = from_timer(cp, t, link_timer);
 	int mask, pending = 0, reset = 0;
 	unsigned long flags;
 
@@ -4221,9 +4188,8 @@ static void cas_tx_tiny_free(struct cas *cp)
 		if (!cp->tx_tiny_bufs[i])
 			continue;
 
-		pci_free_consistent(pdev, TX_TINY_BUF_BLOCK,
-				    cp->tx_tiny_bufs[i],
-				    cp->tx_tiny_dvma[i]);
+		dma_free_coherent(&pdev->dev, TX_TINY_BUF_BLOCK,
+				  cp->tx_tiny_bufs[i], cp->tx_tiny_dvma[i]);
 		cp->tx_tiny_bufs[i] = NULL;
 	}
 }
@@ -4235,8 +4201,8 @@ static int cas_tx_tiny_alloc(struct cas *cp)
 
 	for (i = 0; i < N_TX_RINGS; i++) {
 		cp->tx_tiny_bufs[i] =
-			pci_alloc_consistent(pdev, TX_TINY_BUF_BLOCK,
-					     &cp->tx_tiny_dvma[i]);
+			dma_alloc_coherent(&pdev->dev, TX_TINY_BUF_BLOCK,
+					   &cp->tx_tiny_dvma[i], GFP_KERNEL);
 		if (!cp->tx_tiny_bufs[i]) {
 			cas_tx_tiny_free(cp);
 			return -1;
@@ -4535,24 +4501,23 @@ static void cas_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *info
 	strlcpy(info->driver, DRV_MODULE_NAME, sizeof(info->driver));
 	strlcpy(info->version, DRV_MODULE_VERSION, sizeof(info->version));
 	strlcpy(info->bus_info, pci_name(cp->pdev), sizeof(info->bus_info));
-	info->regdump_len = cp->casreg_len < CAS_MAX_REGS ?
-		cp->casreg_len : CAS_MAX_REGS;
-	info->n_stats = CAS_NUM_STAT_KEYS;
 }
 
-static int cas_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
+static int cas_get_link_ksettings(struct net_device *dev,
+				  struct ethtool_link_ksettings *cmd)
 {
 	struct cas *cp = netdev_priv(dev);
 	u16 bmcr;
 	int full_duplex, speed, pause;
 	unsigned long flags;
 	enum link_state linkstate = link_up;
+	u32 supported, advertising;
 
-	cmd->advertising = 0;
-	cmd->supported = SUPPORTED_Autoneg;
+	advertising = 0;
+	supported = SUPPORTED_Autoneg;
 	if (cp->cas_flags & CAS_FLAG_1000MB_CAP) {
-		cmd->supported |= SUPPORTED_1000baseT_Full;
-		cmd->advertising |= ADVERTISED_1000baseT_Full;
+		supported |= SUPPORTED_1000baseT_Full;
+		advertising |= ADVERTISED_1000baseT_Full;
 	}
 
 	/* Record PHY settings if HW is on. */
@@ -4560,17 +4525,15 @@ static int cas_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 	bmcr = 0;
 	linkstate = cp->lstate;
 	if (CAS_PHY_MII(cp->phy_type)) {
-		cmd->port = PORT_MII;
-		cmd->transceiver = (cp->cas_flags & CAS_FLAG_SATURN) ?
-			XCVR_INTERNAL : XCVR_EXTERNAL;
-		cmd->phy_address = cp->phy_addr;
-		cmd->advertising |= ADVERTISED_TP | ADVERTISED_MII |
+		cmd->base.port = PORT_MII;
+		cmd->base.phy_address = cp->phy_addr;
+		advertising |= ADVERTISED_TP | ADVERTISED_MII |
 			ADVERTISED_10baseT_Half |
 			ADVERTISED_10baseT_Full |
 			ADVERTISED_100baseT_Half |
 			ADVERTISED_100baseT_Full;
 
-		cmd->supported |=
+		supported |=
 			(SUPPORTED_10baseT_Half |
 			 SUPPORTED_10baseT_Full |
 			 SUPPORTED_100baseT_Half |
@@ -4586,11 +4549,10 @@ static int cas_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 		}
 
 	} else {
-		cmd->port = PORT_FIBRE;
-		cmd->transceiver = XCVR_INTERNAL;
-		cmd->phy_address = 0;
-		cmd->supported   |= SUPPORTED_FIBRE;
-		cmd->advertising |= ADVERTISED_FIBRE;
+		cmd->base.port = PORT_FIBRE;
+		cmd->base.phy_address = 0;
+		supported   |= SUPPORTED_FIBRE;
+		advertising |= ADVERTISED_FIBRE;
 
 		if (cp->hw_running) {
 			/* pcs uses the same bits as mii */
@@ -4602,21 +4564,20 @@ static int cas_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 	spin_unlock_irqrestore(&cp->lock, flags);
 
 	if (bmcr & BMCR_ANENABLE) {
-		cmd->advertising |= ADVERTISED_Autoneg;
-		cmd->autoneg = AUTONEG_ENABLE;
-		ethtool_cmd_speed_set(cmd, ((speed == 10) ?
+		advertising |= ADVERTISED_Autoneg;
+		cmd->base.autoneg = AUTONEG_ENABLE;
+		cmd->base.speed =  ((speed == 10) ?
 					    SPEED_10 :
 					    ((speed == 1000) ?
-					     SPEED_1000 : SPEED_100)));
-		cmd->duplex = full_duplex ? DUPLEX_FULL : DUPLEX_HALF;
+					     SPEED_1000 : SPEED_100));
+		cmd->base.duplex = full_duplex ? DUPLEX_FULL : DUPLEX_HALF;
 	} else {
-		cmd->autoneg = AUTONEG_DISABLE;
-		ethtool_cmd_speed_set(cmd, ((bmcr & CAS_BMCR_SPEED1000) ?
+		cmd->base.autoneg = AUTONEG_DISABLE;
+		cmd->base.speed = ((bmcr & CAS_BMCR_SPEED1000) ?
 					    SPEED_1000 :
 					    ((bmcr & BMCR_SPEED100) ?
-					     SPEED_100 : SPEED_10)));
-		cmd->duplex =
-			(bmcr & BMCR_FULLDPLX) ?
+					     SPEED_100 : SPEED_10));
+		cmd->base.duplex = (bmcr & BMCR_FULLDPLX) ?
 			DUPLEX_FULL : DUPLEX_HALF;
 	}
 	if (linkstate != link_up) {
@@ -4631,39 +4592,46 @@ static int cas_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 		 * settings that we configured.
 		 */
 		if (cp->link_cntl & BMCR_ANENABLE) {
-			ethtool_cmd_speed_set(cmd, 0);
-			cmd->duplex = 0xff;
+			cmd->base.speed = 0;
+			cmd->base.duplex = 0xff;
 		} else {
-			ethtool_cmd_speed_set(cmd, SPEED_10);
+			cmd->base.speed = SPEED_10;
 			if (cp->link_cntl & BMCR_SPEED100) {
-				ethtool_cmd_speed_set(cmd, SPEED_100);
+				cmd->base.speed = SPEED_100;
 			} else if (cp->link_cntl & CAS_BMCR_SPEED1000) {
-				ethtool_cmd_speed_set(cmd, SPEED_1000);
+				cmd->base.speed = SPEED_1000;
 			}
-			cmd->duplex = (cp->link_cntl & BMCR_FULLDPLX)?
+			cmd->base.duplex = (cp->link_cntl & BMCR_FULLDPLX) ?
 				DUPLEX_FULL : DUPLEX_HALF;
 		}
 	}
+
+	ethtool_convert_legacy_u32_to_link_mode(cmd->link_modes.supported,
+						supported);
+	ethtool_convert_legacy_u32_to_link_mode(cmd->link_modes.advertising,
+						advertising);
+
 	return 0;
 }
 
-static int cas_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
+static int cas_set_link_ksettings(struct net_device *dev,
+				  const struct ethtool_link_ksettings *cmd)
 {
 	struct cas *cp = netdev_priv(dev);
 	unsigned long flags;
-	u32 speed = ethtool_cmd_speed(cmd);
+	u32 speed = cmd->base.speed;
 
 	/* Verify the settings we care about. */
-	if (cmd->autoneg != AUTONEG_ENABLE &&
-	    cmd->autoneg != AUTONEG_DISABLE)
+	if (cmd->base.autoneg != AUTONEG_ENABLE &&
+	    cmd->base.autoneg != AUTONEG_DISABLE)
 		return -EINVAL;
 
-	if (cmd->autoneg == AUTONEG_DISABLE &&
+	if (cmd->base.autoneg == AUTONEG_DISABLE &&
 	    ((speed != SPEED_1000 &&
 	      speed != SPEED_100 &&
 	      speed != SPEED_10) ||
-	     (cmd->duplex != DUPLEX_HALF &&
-	      cmd->duplex != DUPLEX_FULL)))
+	     (cmd->base.duplex != DUPLEX_HALF &&
+	      cmd->base.duplex != DUPLEX_FULL)))
 		return -EINVAL;
 
 	/* Apply settings and restart link process. */
@@ -4765,8 +4733,6 @@ static void cas_get_ethtool_stats(struct net_device *dev,
 
 static const struct ethtool_ops cas_ethtool_ops = {
 	.get_drvinfo		= cas_get_drvinfo,
-	.get_settings		= cas_get_settings,
-	.set_settings		= cas_set_settings,
 	.nway_reset		= cas_nway_reset,
 	.get_link		= cas_get_link,
 	.get_msglevel		= cas_get_msglevel,
@@ -4776,6 +4742,8 @@ static const struct ethtool_ops cas_ethtool_ops = {
 	.get_sset_count		= cas_get_sset_count,
 	.get_strings		= cas_get_strings,
 	.get_ethtool_stats	= cas_get_ethtool_stats,
+	.get_link_ksettings	= cas_get_link_ksettings,
+	.set_link_ksettings	= cas_set_link_ksettings,
 };
 
 static int cas_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
@@ -4792,7 +4760,7 @@ static int cas_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	switch (cmd) {
 	case SIOCGMIIPHY:		/* Get address of MII PHY in use. */
 		data->phy_id = cp->phy_addr;
-		/* Fallthrough... */
+		fallthrough;
 
 	case SIOCGMIIREG:		/* Read MII PHY register. */
 		spin_lock_irqsave(&cp->lock, flags);
@@ -4822,7 +4790,7 @@ static int cas_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
  * only subordinate device and we can tweak the bridge settings to
  * reflect that fact.
  */
-static void __devinit cas_program_bridge(struct pci_dev *cas_pdev)
+static void cas_program_bridge(struct pci_dev *cas_pdev)
 {
 	struct pci_dev *pdev = cas_pdev->bus->self;
 	u32 val;
@@ -4908,7 +4876,7 @@ static const struct net_device_ops cas_netdev_ops = {
 	.ndo_start_xmit		= cas_start_xmit,
 	.ndo_get_stats 		= cas_get_stats,
 	.ndo_set_rx_mode	= cas_set_multicast,
-	.ndo_do_ioctl		= cas_ioctl,
+	.ndo_eth_ioctl		= cas_ioctl,
 	.ndo_tx_timeout		= cas_tx_timeout,
 	.ndo_change_mtu		= cas_change_mtu,
 	.ndo_set_mac_address	= eth_mac_addr,
@@ -4918,8 +4886,7 @@ static const struct net_device_ops cas_netdev_ops = {
 #endif
 };
 
-static int __devinit cas_init_one(struct pci_dev *pdev,
-				  const struct pci_device_id *ent)
+static int cas_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	static int cas_version_printed = 0;
 	unsigned long casreg_len;
@@ -4947,7 +4914,6 @@ static int __devinit cas_init_one(struct pci_dev *pdev,
 
 	dev = alloc_etherdev(sizeof(*cp));
 	if (!dev) {
-		dev_err(&pdev->dev, "Etherdev alloc failed, aborting\n");
 		err = -ENOMEM;
 		goto err_out_disable_pdev;
 	}
@@ -4969,7 +4935,7 @@ static int __devinit cas_init_one(struct pci_dev *pdev,
 	pci_cmd |= PCI_COMMAND_PARITY;
 	pci_write_config_word(pdev, PCI_COMMAND, pci_cmd);
 	if (pci_try_set_mwi(pdev))
-		pr_warning("Could not enable MWI for %s\n", pci_name(pdev));
+		pr_warn("Could not enable MWI for %s\n", pci_name(pdev));
 
 	cas_program_bridge(pdev);
 
@@ -4991,17 +4957,16 @@ static int __devinit cas_init_one(struct pci_dev *pdev,
 					  cas_cacheline_size)) {
 			dev_err(&pdev->dev, "Could not set PCI cache "
 			       "line size\n");
-			goto err_write_cacheline;
+			goto err_out_free_res;
 		}
 	}
 #endif
 
 
 	/* Configure DMA attributes. */
-	if (!pci_set_dma_mask(pdev, DMA_BIT_MASK(64))) {
+	if (!dma_set_mask(&pdev->dev, DMA_BIT_MASK(64))) {
 		pci_using_dac = 1;
-		err = pci_set_consistent_dma_mask(pdev,
-						  DMA_BIT_MASK(64));
+		err = dma_set_coherent_mask(&pdev->dev, DMA_BIT_MASK(64));
 		if (err < 0) {
 			dev_err(&pdev->dev, "Unable to obtain 64-bit DMA "
 			       "for consistent allocations\n");
@@ -5009,7 +4974,7 @@ static int __devinit cas_init_one(struct pci_dev *pdev,
 		}
 
 	} else {
-		err = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
+		err = dma_set_mask(&pdev->dev, DMA_BIT_MASK(32));
 		if (err) {
 			dev_err(&pdev->dev, "No usable DMA configuration, "
 			       "aborting\n");
@@ -5047,9 +5012,7 @@ static int __devinit cas_init_one(struct pci_dev *pdev,
 	spin_lock_init(&cp->stat_lock[N_TX_RINGS]);
 	mutex_init(&cp->pm_mutex);
 
-	init_timer(&cp->link_timer);
-	cp->link_timer.function = cas_link_timer;
-	cp->link_timer.data = (unsigned long) cp;
+	timer_setup(&cp->link_timer, cas_link_timer, 0);
 
 #if 1
 	/* Just in case the implementation of atomic operations
@@ -5087,12 +5050,11 @@ static int __devinit cas_init_one(struct pci_dev *pdev,
 	if (cas_check_invariants(cp))
 		goto err_out_iounmap;
 	if (cp->cas_flags & CAS_FLAG_SATURN)
-		if (cas_saturn_firmware_init(cp))
-			goto err_out_iounmap;
+		cas_saturn_firmware_init(cp);
 
-	cp->init_block = (struct cas_init_block *)
-		pci_alloc_consistent(pdev, sizeof(struct cas_init_block),
-				     &cp->block_dvma);
+	cp->init_block =
+		dma_alloc_coherent(&pdev->dev, sizeof(struct cas_init_block),
+				   &cp->block_dvma, GFP_KERNEL);
 	if (!cp->init_block) {
 		dev_err(&pdev->dev, "Cannot allocate init block, aborting\n");
 		goto err_out_iounmap;
@@ -5127,6 +5089,10 @@ static int __devinit cas_init_one(struct pci_dev *pdev,
 	if (pci_using_dac)
 		dev->features |= NETIF_F_HIGHDMA;
 
+	/* MTU range: 60 - varies or 9000 */
+	dev->min_mtu = CAS_MIN_MTU;
+	dev->max_mtu = CAS_MAX_MTU;
+
 	if (register_netdev(dev)) {
 		dev_err(&pdev->dev, "Cannot register net device, aborting\n");
 		goto err_out_free_consistent;
@@ -5148,8 +5114,8 @@ static int __devinit cas_init_one(struct pci_dev *pdev,
 	return 0;
 
 err_out_free_consistent:
-	pci_free_consistent(pdev, sizeof(struct cas_init_block),
-			    cp->init_block, cp->block_dvma);
+	dma_free_coherent(&pdev->dev, sizeof(struct cas_init_block),
+			  cp->init_block, cp->block_dvma);
 
 err_out_iounmap:
 	mutex_lock(&cp->pm_mutex);
@@ -5163,7 +5129,6 @@ err_out_iounmap:
 err_out_free_res:
 	pci_release_regions(pdev);
 
-err_write_cacheline:
 	/* Try to restore it in case the error occurred after we
 	 * set it.
 	 */
@@ -5174,11 +5139,10 @@ err_out_free_netdev:
 
 err_out_disable_pdev:
 	pci_disable_device(pdev);
-	pci_set_drvdata(pdev, NULL);
 	return -ENODEV;
 }
 
-static void __devexit cas_remove_one(struct pci_dev *pdev)
+static void cas_remove_one(struct pci_dev *pdev)
 {
 	struct net_device *dev = pci_get_drvdata(pdev);
 	struct cas *cp;
@@ -5188,8 +5152,7 @@ static void __devexit cas_remove_one(struct pci_dev *pdev)
 	cp = netdev_priv(dev);
 	unregister_netdev(dev);
 
-	if (cp->fw_data)
-		vfree(cp->fw_data);
+	vfree(cp->fw_data);
 
 	mutex_lock(&cp->pm_mutex);
 	cancel_work_sync(&cp->reset_task);
@@ -5206,19 +5169,17 @@ static void __devexit cas_remove_one(struct pci_dev *pdev)
 				      cp->orig_cacheline_size);
 	}
 #endif
-	pci_free_consistent(pdev, sizeof(struct cas_init_block),
-			    cp->init_block, cp->block_dvma);
+	dma_free_coherent(&pdev->dev, sizeof(struct cas_init_block),
+			  cp->init_block, cp->block_dvma);
 	pci_iounmap(pdev, cp->regs);
 	free_netdev(dev);
 	pci_release_regions(pdev);
 	pci_disable_device(pdev);
-	pci_set_drvdata(pdev, NULL);
 }
 
-#ifdef CONFIG_PM
-static int cas_suspend(struct pci_dev *pdev, pm_message_t state)
+static int __maybe_unused cas_suspend(struct device *dev_d)
 {
-	struct net_device *dev = pci_get_drvdata(pdev);
+	struct net_device *dev = dev_get_drvdata(dev_d);
 	struct cas *cp = netdev_priv(dev);
 	unsigned long flags;
 
@@ -5247,9 +5208,9 @@ static int cas_suspend(struct pci_dev *pdev, pm_message_t state)
 	return 0;
 }
 
-static int cas_resume(struct pci_dev *pdev)
+static int __maybe_unused cas_resume(struct device *dev_d)
 {
-	struct net_device *dev = pci_get_drvdata(pdev);
+	struct net_device *dev = dev_get_drvdata(dev_d);
 	struct cas *cp = netdev_priv(dev);
 
 	netdev_info(dev, "resuming\n");
@@ -5270,17 +5231,15 @@ static int cas_resume(struct pci_dev *pdev)
 	mutex_unlock(&cp->pm_mutex);
 	return 0;
 }
-#endif /* CONFIG_PM */
+
+static SIMPLE_DEV_PM_OPS(cas_pm_ops, cas_suspend, cas_resume);
 
 static struct pci_driver cas_driver = {
 	.name		= DRV_MODULE_NAME,
 	.id_table	= cas_pci_tbl,
 	.probe		= cas_init_one,
-	.remove		= __devexit_p(cas_remove_one),
-#ifdef CONFIG_PM
-	.suspend	= cas_suspend,
-	.resume		= cas_resume
-#endif
+	.remove		= cas_remove_one,
+	.driver.pm	= &cas_pm_ops,
 };
 
 static int __init cas_init(void)

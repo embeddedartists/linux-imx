@@ -1,12 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  linux/drivers/acorn/scsi/acornscsi.c
  *
  *  Acorn SCSI 3 driver
  *  By R.M.King.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  *
  * Abandoned using the Select and Transfer command since there were
  * some nasty races between our software and the target devices that
@@ -55,19 +52,8 @@
  * You can tell if you have a device that supports tagged queueing my
  * cating (eg) /proc/scsi/acornscsi/0 and see if the SCSI revision is reported
  * as '2 TAG'.
- *
- * Also note that CONFIG_SCSI_ACORNSCSI_TAGGED_QUEUE is normally set in the config
- * scripts, but disabled here.  Once debugged, remove the #undef, otherwise to debug,
- * comment out the undef.
  */
-#undef CONFIG_SCSI_ACORNSCSI_TAGGED_QUEUE
-/*
- * SCSI-II Linked command support.
- *
- * The higher level code doesn't support linked commands yet, and so the option
- * is undef'd here.
- */
-#undef CONFIG_SCSI_ACORNSCSI_LINK
+
 /*
  * SCSI-II Synchronous transfer support.
  *
@@ -138,7 +124,6 @@
 #include <linux/stringify.h>
 #include <linux/io.h>
 
-#include <asm/system.h>
 #include <asm/ecard.h>
 
 #include "../scsi.h"
@@ -154,16 +139,6 @@
 #define VER_MAJOR 2
 #define VER_MINOR 0
 #define VER_PATCH 6
-
-#ifndef ABORT_TAG
-#define ABORT_TAG 0xd
-#else
-#error "Yippee!  ABORT TAG is now defined!  Remove this error!"
-#endif
-
-#ifdef CONFIG_SCSI_ACORNSCSI_LINK
-#error SCSI2 LINKed commands not supported (yet)!
-#endif
 
 #ifdef USE_DMAC
 /*
@@ -192,7 +167,7 @@ static void acornscsi_done(AS_Host *host, struct scsi_cmnd **SCpntp,
 			   unsigned int result);
 static int acornscsi_reconnect_finish(AS_Host *host);
 static void acornscsi_dma_cleanup(AS_Host *host);
-static void acornscsi_abortcmd(AS_Host *host, unsigned char tag);
+static void acornscsi_abortcmd(AS_Host *host);
 
 /* ====================================================================================
  * Miscellaneous
@@ -689,7 +664,8 @@ int round_period(unsigned int period)
  * Copyright: Copyright (c) 1996 John Shifflett, GeoLog Consulting
  */
 static
-unsigned char calc_sync_xfer(unsigned int period, unsigned int offset)
+unsigned char __maybe_unused calc_sync_xfer(unsigned int period,
+					    unsigned int offset)
 {
     return sync_xfer_table[round_period(period)].reg_value |
 		((offset < SDTR_SIZE) ? offset : SDTR_SIZE);
@@ -761,18 +737,8 @@ intr_ret_t acornscsi_kick(AS_Host *host)
 #endif
 
     if (from_queue) {
-#ifdef CONFIG_SCSI_ACORNSCSI_TAGGED_QUEUE
-	/*
-	 * tagged queueing - allocate a new tag to this command
-	 */
-	if (SCpnt->device->simple_tags) {
-	    SCpnt->device->current_tag += 1;
-	    if (SCpnt->device->current_tag == 0)
-		SCpnt->device->current_tag = 1;
-	    SCpnt->tag = SCpnt->device->current_tag;
-	} else
-#endif
-	    set_bit(SCpnt->device->id * 8 + SCpnt->device->lun, host->busyluns);
+	    set_bit(SCpnt->device->id * 8 +
+		    (u8)(SCpnt->device->lun & 0x07), host->busyluns);
 
 	host->stats.removes += 1;
 
@@ -813,7 +779,10 @@ static void acornscsi_done(AS_Host *host, struct scsi_cmnd **SCpntp,
 
 	acornscsi_dma_cleanup(host);
 
-	SCpnt->result = result << 16 | host->scsi.SCp.Message << 8 | host->scsi.SCp.Status;
+	set_host_byte(SCpnt, result);
+	if (result == DID_OK)
+		scsi_msg_to_host_byte(SCpnt, host->scsi.SCp.Message);
+	set_status_byte(SCpnt, host->scsi.SCp.Status);
 
 	/*
 	 * In theory, this should not happen.  In practice, it seems to.
@@ -852,22 +821,22 @@ static void acornscsi_done(AS_Host *host, struct scsi_cmnd **SCpntp,
 			xfer_warn = 0;
 
 		if (xfer_warn) {
-		    switch (status_byte(SCpnt->result)) {
-		    case CHECK_CONDITION:
-		    case COMMAND_TERMINATED:
-		    case BUSY:
-		    case QUEUE_FULL:
-		    case RESERVATION_CONFLICT:
+		    switch (get_status_byte(SCpnt)) {
+		    case SAM_STAT_CHECK_CONDITION:
+		    case SAM_STAT_COMMAND_TERMINATED:
+		    case SAM_STAT_BUSY:
+		    case SAM_STAT_TASK_SET_FULL:
+		    case SAM_STAT_RESERVATION_CONFLICT:
 			break;
 
 		    default:
-			printk(KERN_ERR "scsi%d.H: incomplete data transfer detected: result=%08X command=",
-				host->host->host_no, SCpnt->result);
-			__scsi_print_command(SCpnt->cmnd);
+			scmd_printk(KERN_ERR, SCpnt,
+				    "incomplete data transfer detected: "
+				    "result=%08X", SCpnt->result);
+			scsi_print_command(SCpnt);
 			acornscsi_dumpdma(host, "done");
-		 	acornscsi_dumplog(host, SCpnt->device->id);
-			SCpnt->result &= 0xffff;
-			SCpnt->result |= DID_ERROR << 16;
+			acornscsi_dumplog(host, SCpnt->device->id);
+			set_host_byte(SCpnt, DID_ERROR);
 		    }
 		}
 	}
@@ -875,7 +844,8 @@ static void acornscsi_done(AS_Host *host, struct scsi_cmnd **SCpntp,
 	if (!SCpnt->scsi_done)
 	    panic("scsi%d.H: null scsi_done function in acornscsi_done", host->host->host_no);
 
-	clear_bit(SCpnt->device->id * 8 + SCpnt->device->lun, host->busyluns);
+	clear_bit(SCpnt->device->id * 8 +
+		  (u8)(SCpnt->device->lun & 0x7), host->busyluns);
 
 	SCpnt->scsi_done(SCpnt);
     } else
@@ -1079,7 +1049,7 @@ void acornscsi_dma_setup(AS_Host *host, dmadir_t direction)
  * Purpose : ensure that all DMA transfers are up-to-date & host->scsi.SCp is correct
  * Params  : host - host to finish
  * Notes   : This is called when a command is:
- *		terminating, RESTORE_POINTERS, SAVE_POINTERS, DISCONECT
+ *		terminating, RESTORE_POINTERS, SAVE_POINTERS, DISCONNECT
  *	   : This must not return until all transfers are completed.
  */
 static
@@ -1207,7 +1177,7 @@ void acornscsi_dma_intr(AS_Host *host)
 	 * the device recognises the attention.
 	 */
 	if (dmac_read(host, DMAC_STATUS) & STATUS_RQ0) {
-	    acornscsi_abortcmd(host, host->SCpnt->tag);
+	    acornscsi_abortcmd(host);
 
 	    dmac_write(host, DMAC_TXCNTLO, 0);
 	    dmac_write(host, DMAC_TXCNTHI, 0);
@@ -1502,8 +1472,8 @@ void acornscsi_message(AS_Host *host)
     }
 
     switch (message[0]) {
-    case ABORT:
-    case ABORT_TAG:
+    case ABORT_TASK_SET:
+    case ABORT_TASK:
     case COMMAND_COMPLETE:
 	if (host->scsi.phase != PHASE_STATUSIN) {
 	    printk(KERN_ERR "scsi%d.%c: command complete following non-status in phase?\n",
@@ -1575,22 +1545,6 @@ void acornscsi_message(AS_Host *host)
 	    acornscsi_sbic_issuecmd(host, CMND_ASSERTATN);
 
 	switch (host->scsi.last_message) {
-#ifdef CONFIG_SCSI_ACORNSCSI_TAGGED_QUEUE
-	case HEAD_OF_QUEUE_TAG:
-	case ORDERED_QUEUE_TAG:
-	case SIMPLE_QUEUE_TAG:
-	    /*
-	     * ANSI standard says: (Section SCSI-2 Rev. 10c Sect 5.6.17)
-	     *  If a target does not implement tagged queuing and a queue tag
-	     *  message is received, it shall respond with a MESSAGE REJECT
-	     *  message and accept the I/O process as if it were untagged.
-	     */
-	    printk(KERN_NOTICE "scsi%d.%c: disabling tagged queueing\n",
-		    host->host->host_no, acornscsi_target(host));
-	    host->SCpnt->device->simple_tags = 0;
-	    set_bit(host->SCpnt->device->id * 8 + host->SCpnt->device->lun, host->busyluns);
-	    break;
-#endif
 	case EXTENDED_MESSAGE | (EXTENDED_SDTR << 8):
 	    /*
 	     * Target can't handle synchronous transfers
@@ -1605,10 +1559,6 @@ void acornscsi_message(AS_Host *host)
 	default:
 	    break;
 	}
-	break;
-
-    case QUEUE_FULL:
-	/* TODO: target queue is full */
 	break;
 
     case SIMPLE_QUEUE_TAG:
@@ -1669,42 +1619,6 @@ void acornscsi_message(AS_Host *host)
 	}
 	break;
 
-#ifdef CONFIG_SCSI_ACORNSCSI_LINK
-    case LINKED_CMD_COMPLETE:
-    case LINKED_FLG_CMD_COMPLETE:
-	/*
-	 * We don't support linked commands yet
-	 */
-	if (0) {
-#if (DEBUG & DEBUG_LINK)
-	    printk("scsi%d.%c: lun %d tag %d linked command complete\n",
-		    host->host->host_no, acornscsi_target(host), host->SCpnt->tag);
-#endif
-	    /*
-	     * A linked command should only terminate with one of these messages
-	     * if there are more linked commands available.
-	     */
-	    if (!host->SCpnt->next_link) {
-		printk(KERN_WARNING "scsi%d.%c: lun %d tag %d linked command complete, but no next_link\n",
-			instance->host_no, acornscsi_target(host), host->SCpnt->tag);
-		acornscsi_sbic_issuecmd(host, CMND_ASSERTATN);
-		msgqueue_addmsg(&host->scsi.msgs, 1, ABORT);
-	    } else {
-		struct scsi_cmnd *SCpnt = host->SCpnt;
-
-		acornscsi_dma_cleanup(host);
-
-		host->SCpnt = host->SCpnt->next_link;
-		host->SCpnt->tag = SCpnt->tag;
-		SCpnt->result = DID_OK | host->scsi.SCp.Message << 8 | host->Scsi.SCp.Status;
-		SCpnt->done(SCpnt);
-
-		/* initialise host->SCpnt->SCp */
-	    }
-	    break;
-	}
-#endif
-
     default: /* reject message */
 	printk(KERN_ERR "scsi%d.%c: unrecognised message %02X, rejecting\n",
 		host->host->host_no, acornscsi_target(host),
@@ -1741,24 +1655,11 @@ void acornscsi_buildmessages(AS_Host *host)
 #if 0
     /* does the device need the current command aborted */
     if (cmd_aborted) {
-	acornscsi_abortcmd(host->SCpnt->tag);
+	acornscsi_abortcmd(host);
 	return;
     }
 #endif
 
-#ifdef CONFIG_SCSI_ACORNSCSI_TAGGED_QUEUE
-    if (host->SCpnt->tag) {
-	unsigned int tag_type;
-
-	if (host->SCpnt->cmnd[0] == REQUEST_SENSE ||
-	    host->SCpnt->cmnd[0] == TEST_UNIT_READY ||
-	    host->SCpnt->cmnd[0] == INQUIRY)
-	    tag_type = HEAD_OF_QUEUE_TAG;
-	else
-	    tag_type = SIMPLE_QUEUE_TAG;
-	msgqueue_addmsg(&host->scsi.msgs, 2, tag_type, host->SCpnt->tag);
-    }
-#endif
 
 #ifdef CONFIG_SCSI_ACORNSCSI_SYNC
     if (host->device[host->SCpnt->device->id].sync_state == SYNC_NEGOCIATE) {
@@ -1852,7 +1753,7 @@ int acornscsi_reconnect(AS_Host *host)
 		"to reconnect with\n",
 		host->host->host_no, '0' + target);
 	acornscsi_dumplog(host, target);
-	acornscsi_abortcmd(host, 0);
+	acornscsi_abortcmd(host);
 	if (host->SCpnt) {
 	    queue_add_cmd_tail(&host->queues.disconnected, host->SCpnt);
 	    host->SCpnt = NULL;
@@ -1863,7 +1764,7 @@ int acornscsi_reconnect(AS_Host *host)
 }
 
 /*
- * Function: int acornscsi_reconect_finish(AS_Host *host)
+ * Function: int acornscsi_reconnect_finish(AS_Host *host)
  * Purpose : finish reconnecting a command
  * Params  : host - host to complete
  * Returns : 0 if failed
@@ -1875,7 +1776,7 @@ int acornscsi_reconnect_finish(AS_Host *host)
 	host->scsi.disconnectable = 0;
 	if (host->SCpnt->device->id  == host->scsi.reconnected.target &&
 	    host->SCpnt->device->lun == host->scsi.reconnected.lun &&
-	    host->SCpnt->tag         == host->scsi.reconnected.tag) {
+	    scsi_cmd_to_rq(host->SCpnt)->tag == host->scsi.reconnected.tag) {
 #if (DEBUG & (DEBUG_QUEUES|DEBUG_DISCON))
 	    DBG(host->SCpnt, printk("scsi%d.%c: reconnected",
 		    host->host->host_no, acornscsi_target(host)));
@@ -1902,7 +1803,7 @@ int acornscsi_reconnect_finish(AS_Host *host)
     }
 
     if (!host->SCpnt)
-	acornscsi_abortcmd(host, host->scsi.reconnected.tag);
+	acornscsi_abortcmd(host);
     else {
 	/*
 	 * Restore data pointer from SAVED pointers.
@@ -1943,21 +1844,15 @@ void acornscsi_disconnect_unexpected(AS_Host *host)
  * Function: void acornscsi_abortcmd(AS_host *host, unsigned char tag)
  * Purpose : abort a currently executing command
  * Params  : host - host with connected command to abort
- *	     tag  - tag to abort
  */
 static
-void acornscsi_abortcmd(AS_Host *host, unsigned char tag)
+void acornscsi_abortcmd(AS_Host *host)
 {
     host->scsi.phase = PHASE_ABORTED;
     sbic_arm_write(host, SBIC_CMND, CMND_ASSERTATN);
 
     msgqueue_flush(&host->scsi.msgs);
-#ifdef CONFIG_SCSI_ACORNSCSI_TAGGED_QUEUE
-    if (tag)
-	msgqueue_addmsg(&host->scsi.msgs, 2, ABORT_TAG, tag);
-    else
-#endif
-	msgqueue_addmsg(&host->scsi.msgs, 1, ABORT);
+    msgqueue_addmsg(&host->scsi.msgs, 1, ABORT);
 }
 
 /* ==========================================================================================
@@ -2047,7 +1942,7 @@ intr_ret_t acornscsi_sbicintr(AS_Host *host, int in_irq)
 	    printk(KERN_ERR "scsi%d.%c: PHASE_CONNECTING, SSR %02X?\n",
 		    host->host->host_no, acornscsi_target(host), ssr);
 	    acornscsi_dumplog(host, host->SCpnt ? host->SCpnt->device->id : 8);
-	    acornscsi_abortcmd(host, host->SCpnt->tag);
+	    acornscsi_abortcmd(host);
 	}
 	return INTR_PROCESSING;
 
@@ -2083,7 +1978,7 @@ intr_ret_t acornscsi_sbicintr(AS_Host *host, int in_irq)
 	    printk(KERN_ERR "scsi%d.%c: PHASE_CONNECTED, SSR %02X?\n",
 		    host->host->host_no, acornscsi_target(host), ssr);
 	    acornscsi_dumplog(host, host->SCpnt ? host->SCpnt->device->id : 8);
-	    acornscsi_abortcmd(host, host->SCpnt->tag);
+	    acornscsi_abortcmd(host);
 	}
 	return INTR_PROCESSING;
 
@@ -2129,20 +2024,20 @@ intr_ret_t acornscsi_sbicintr(AS_Host *host, int in_irq)
 	case 0x18:			/* -> PHASE_DATAOUT				*/
 	    /* COMMAND -> DATA OUT */
 	    if (host->scsi.SCp.sent_command != host->SCpnt->cmd_len)
-		acornscsi_abortcmd(host, host->SCpnt->tag);
+		acornscsi_abortcmd(host);
 	    acornscsi_dma_setup(host, DMA_OUT);
 	    if (!acornscsi_starttransfer(host))
-		acornscsi_abortcmd(host, host->SCpnt->tag);
+		acornscsi_abortcmd(host);
 	    host->scsi.phase = PHASE_DATAOUT;
 	    return INTR_IDLE;
 
 	case 0x19:			/* -> PHASE_DATAIN				*/
 	    /* COMMAND -> DATA IN */
 	    if (host->scsi.SCp.sent_command != host->SCpnt->cmd_len)
-		acornscsi_abortcmd(host, host->SCpnt->tag);
+		acornscsi_abortcmd(host);
 	    acornscsi_dma_setup(host, DMA_IN);
 	    if (!acornscsi_starttransfer(host))
-		acornscsi_abortcmd(host, host->SCpnt->tag);
+		acornscsi_abortcmd(host);
 	    host->scsi.phase = PHASE_DATAIN;
 	    return INTR_IDLE;
 
@@ -2210,7 +2105,7 @@ intr_ret_t acornscsi_sbicintr(AS_Host *host, int in_irq)
 	    /* MESSAGE IN -> DATA OUT */
 	    acornscsi_dma_setup(host, DMA_OUT);
 	    if (!acornscsi_starttransfer(host))
-		acornscsi_abortcmd(host, host->SCpnt->tag);
+		acornscsi_abortcmd(host);
 	    host->scsi.phase = PHASE_DATAOUT;
 	    return INTR_IDLE;
 
@@ -2219,7 +2114,7 @@ intr_ret_t acornscsi_sbicintr(AS_Host *host, int in_irq)
 	    /* MESSAGE IN -> DATA IN */
 	    acornscsi_dma_setup(host, DMA_IN);
 	    if (!acornscsi_starttransfer(host))
-		acornscsi_abortcmd(host, host->SCpnt->tag);
+		acornscsi_abortcmd(host);
 	    host->scsi.phase = PHASE_DATAIN;
 	    return INTR_IDLE;
 
@@ -2260,7 +2155,7 @@ intr_ret_t acornscsi_sbicintr(AS_Host *host, int in_irq)
 	switch (ssr) {
 	case 0x19:			/* -> PHASE_DATAIN				*/
 	case 0x89:			/* -> PHASE_DATAIN				*/
-	    acornscsi_abortcmd(host, host->SCpnt->tag);
+	    acornscsi_abortcmd(host);
 	    return INTR_IDLE;
 
 	case 0x1b:			/* -> PHASE_STATUSIN				*/
@@ -2309,7 +2204,7 @@ intr_ret_t acornscsi_sbicintr(AS_Host *host, int in_irq)
 	switch (ssr) {
 	case 0x18:			/* -> PHASE_DATAOUT				*/
 	case 0x88:			/* -> PHASE_DATAOUT				*/
-	    acornscsi_abortcmd(host, host->SCpnt->tag);
+	    acornscsi_abortcmd(host);
 	    return INTR_IDLE;
 
 	case 0x1b:			/* -> PHASE_STATUSIN				*/
@@ -2527,7 +2422,7 @@ static int acornscsi_queuecmd_lck(struct scsi_cmnd *SCpnt,
     if (acornscsi_cmdtype(SCpnt->cmnd[0]) == CMD_WRITE && (NO_WRITE & (1 << SCpnt->device->id))) {
 	printk(KERN_CRIT "scsi%d.%c: WRITE attempted with NO_WRITE flag set\n",
 	    host->host->host_no, '0' + SCpnt->device->id);
-	SCpnt->result = DID_NO_CONNECT << 16;
+	set_host_byte(SCpnt, DID_NO_CONNECT);
 	done(SCpnt);
 	return 0;
     }
@@ -2536,7 +2431,6 @@ static int acornscsi_queuecmd_lck(struct scsi_cmnd *SCpnt,
     SCpnt->scsi_done = done;
     SCpnt->host_scribble = NULL;
     SCpnt->result = 0;
-    SCpnt->tag = 0;
     SCpnt->SCp.phase = (int)acornscsi_datadirection(SCpnt->cmnd[0]);
     SCpnt->SCp.sent_command = 0;
     SCpnt->SCp.scsi_xferred = 0;
@@ -2549,7 +2443,7 @@ static int acornscsi_queuecmd_lck(struct scsi_cmnd *SCpnt,
 	unsigned long flags;
 
 	if (!queue_add_cmd_ordered(&host->queues.issue, SCpnt)) {
-	    SCpnt->result = DID_ERROR << 16;
+		set_host_byte(SCpnt, DID_ERROR);
 	    done(SCpnt);
 	    return 0;
 	}
@@ -2562,31 +2456,6 @@ static int acornscsi_queuecmd_lck(struct scsi_cmnd *SCpnt,
 }
 
 DEF_SCSI_QCMD(acornscsi_queuecmd)
-
-/*
- * Prototype: void acornscsi_reportstatus(struct scsi_cmnd **SCpntp1, struct scsi_cmnd **SCpntp2, int result)
- * Purpose  : pass a result to *SCpntp1, and check if *SCpntp1 = *SCpntp2
- * Params   : SCpntp1 - pointer to command to return
- *	      SCpntp2 - pointer to command to check
- *	      result  - result to pass back to mid-level done function
- * Returns  : *SCpntp2 = NULL if *SCpntp1 is the same command structure as *SCpntp2.
- */
-static inline void acornscsi_reportstatus(struct scsi_cmnd **SCpntp1,
-					  struct scsi_cmnd **SCpntp2,
-					  int result)
-{
-	struct scsi_cmnd *SCpnt = *SCpntp1;
-
-    if (SCpnt) {
-	*SCpntp1 = NULL;
-
-	SCpnt->result = result;
-	SCpnt->scsi_done(SCpnt);
-    }
-
-    if (SCpnt == *SCpntp2)
-	*SCpntp2 = NULL;
-}
 
 enum res_abort { res_not_running, res_success, res_success_clear, res_snooze };
 
@@ -2660,7 +2529,7 @@ static enum res_abort acornscsi_do_abort(AS_Host *host, struct scsi_cmnd *SCpnt)
 			break;
 
 		default:
-			acornscsi_abortcmd(host, host->SCpnt->tag);
+			acornscsi_abortcmd(host);
 			res = res_snooze;
 		}
 		local_irq_restore(flags);
@@ -2719,7 +2588,9 @@ int acornscsi_abort(struct scsi_cmnd *SCpnt)
 //#if (DEBUG & DEBUG_ABORT)
 		printk("clear ");
 //#endif
-		clear_bit(SCpnt->device->id * 8 + SCpnt->device->lun, host->busyluns);
+		clear_bit(SCpnt->device->id * 8 +
+			  (u8)(SCpnt->device->lun & 0x7), host->busyluns);
+		fallthrough;
 
 	/*
 	 * We found the command, and cleared it out.  Either
@@ -2768,7 +2639,7 @@ int acornscsi_abort(struct scsi_cmnd *SCpnt)
  * Params   : SCpnt  - command causing reset
  * Returns  : one of SCSI_RESET_ macros
  */
-int acornscsi_bus_reset(struct scsi_cmnd *SCpnt)
+int acornscsi_host_reset(struct scsi_cmnd *SCpnt)
 {
 	AS_Host *host = (AS_Host *)SCpnt->device->host->hostdata;
 	struct scsi_cmnd *SCptr;
@@ -2777,14 +2648,15 @@ int acornscsi_bus_reset(struct scsi_cmnd *SCpnt)
 
 #if (DEBUG & DEBUG_RESET)
     {
-	int asr, ssr;
+	int asr, ssr, devidx;
 
 	asr = sbic_arm_read(host, SBIC_ASR);
 	ssr = sbic_arm_read(host, SBIC_SSR);
 
 	printk(KERN_WARNING "acornscsi_reset: ");
 	print_sbic_status(asr, ssr, host->scsi.phase);
-	acornscsi_dumplog(host, SCpnt->device->id);
+	for (devidx = 0; devidx < 9; devidx++)
+	    acornscsi_dumplog(host, devidx);
     }
 #endif
 
@@ -2823,12 +2695,6 @@ char *acornscsi_info(struct Scsi_Host *host)
 #ifdef CONFIG_SCSI_ACORNSCSI_SYNC
     " SYNC"
 #endif
-#ifdef CONFIG_SCSI_ACORNSCSI_TAGGED_QUEUE
-    " TAG"
-#endif
-#ifdef CONFIG_SCSI_ACORNSCSI_LINK
-    " LINK"
-#endif
 #if (DEBUG & DEBUG_NO_WRITE)
     " NOWRITE (" __stringify(NO_WRITE) ")"
 #endif
@@ -2837,42 +2703,31 @@ char *acornscsi_info(struct Scsi_Host *host)
     return string;
 }
 
-int acornscsi_proc_info(struct Scsi_Host *instance, char *buffer, char **start, off_t offset,
-			int length, int inout)
+static int acornscsi_show_info(struct seq_file *m, struct Scsi_Host *instance)
 {
-    int pos, begin = 0, devidx;
+    int devidx;
     struct scsi_device *scd;
     AS_Host *host;
-    char *p = buffer;
-
-    if (inout == 1)
-	return -EINVAL;
 
     host  = (AS_Host *)instance->hostdata;
     
-    p += sprintf(p, "AcornSCSI driver v%d.%d.%d"
+    seq_printf(m, "AcornSCSI driver v%d.%d.%d"
 #ifdef CONFIG_SCSI_ACORNSCSI_SYNC
     " SYNC"
-#endif
-#ifdef CONFIG_SCSI_ACORNSCSI_TAGGED_QUEUE
-    " TAG"
-#endif
-#ifdef CONFIG_SCSI_ACORNSCSI_LINK
-    " LINK"
 #endif
 #if (DEBUG & DEBUG_NO_WRITE)
     " NOWRITE (" __stringify(NO_WRITE) ")"
 #endif
 		"\n\n", VER_MAJOR, VER_MINOR, VER_PATCH);
 
-    p += sprintf(p,	"SBIC: WD33C93A  Address: %p    IRQ : %d\n",
+    seq_printf(m,	"SBIC: WD33C93A  Address: %p    IRQ : %d\n",
 			host->base + SBIC_REGIDX, host->scsi.irq);
 #ifdef USE_DMAC
-    p += sprintf(p,	"DMAC: uPC71071  Address: %p  IRQ : %d\n\n",
+    seq_printf(m,	"DMAC: uPC71071  Address: %p  IRQ : %d\n\n",
 			host->base + DMAC_OFFSET, host->scsi.irq);
 #endif
 
-    p += sprintf(p,	"Statistics:\n"
+    seq_printf(m,	"Statistics:\n"
 			"Queued commands: %-10u    Issued commands: %-10u\n"
 			"Done commands  : %-10u    Reads          : %-10u\n"
 			"Writes         : %-10u    Others         : %-10u\n"
@@ -2887,7 +2742,7 @@ int acornscsi_proc_info(struct Scsi_Host *instance, char *buffer, char **start, 
     for (devidx = 0; devidx < 9; devidx ++) {
 	unsigned int statptr, prev;
 
-	p += sprintf(p, "\n%c:", devidx == 8 ? 'H' : ('0' + devidx));
+	seq_printf(m, "\n%c:", devidx == 8 ? 'H' : ('0' + devidx));
 	statptr = host->status_ptr[devidx] - 10;
 
 	if ((signed int)statptr < 0)
@@ -2897,7 +2752,7 @@ int acornscsi_proc_info(struct Scsi_Host *instance, char *buffer, char **start, 
 
 	for (; statptr != host->status_ptr[devidx]; statptr = (statptr + 1) & (STATUS_BUFFER_SIZE - 1)) {
 	    if (host->status[devidx][statptr].when) {
-		p += sprintf(p, "%c%02X:%02X+%2ld",
+		seq_printf(m, "%c%02X:%02X+%2ld",
 			host->status[devidx][statptr].irq ? '-' : ' ',
 			host->status[devidx][statptr].ph,
 			host->status[devidx][statptr].ssr,
@@ -2908,66 +2763,45 @@ int acornscsi_proc_info(struct Scsi_Host *instance, char *buffer, char **start, 
 	}
     }
 
-    p += sprintf(p, "\nAttached devices:\n");
+    seq_printf(m, "\nAttached devices:\n");
 
     shost_for_each_device(scd, instance) {
-	p += sprintf(p, "Device/Lun TaggedQ      Sync\n");
-	p += sprintf(p, "     %d/%d   ", scd->id, scd->lun);
+	seq_printf(m, "Device/Lun TaggedQ      Sync\n");
+	seq_printf(m, "     %d/%llu   ", scd->id, scd->lun);
 	if (scd->tagged_supported)
-		p += sprintf(p, "%3sabled(%3d) ",
-			     scd->simple_tags ? "en" : "dis",
-			     scd->current_tag);
+		seq_printf(m, "%3sabled ",
+			     scd->simple_tags ? "en" : "dis");
 	else
-		p += sprintf(p, "unsupported  ");
+		seq_printf(m, "unsupported  ");
 
 	if (host->device[scd->id].sync_xfer & 15)
-		p += sprintf(p, "offset %d, %d ns\n",
+		seq_printf(m, "offset %d, %d ns\n",
 			     host->device[scd->id].sync_xfer & 15,
 			     acornscsi_getperiod(host->device[scd->id].sync_xfer));
 	else
-		p += sprintf(p, "async\n");
+		seq_printf(m, "async\n");
 
-	pos = p - buffer;
-	if (pos + begin < offset) {
-	    begin += pos;
-	    p = buffer;
-	}
-	pos = p - buffer;
-	if (pos + begin > offset + length) {
-	    scsi_device_put(scd);
-	    break;
-	}
     }
-
-    pos = p - buffer;
-
-    *start = buffer + (offset - begin);
-    pos -= offset - begin;
-
-    if (pos > length)
-	pos = length;
-
-    return pos;
+    return 0;
 }
 
 static struct scsi_host_template acornscsi_template = {
 	.module			= THIS_MODULE,
-	.proc_info		= acornscsi_proc_info,
+	.show_info		= acornscsi_show_info,
 	.name			= "AcornSCSI",
 	.info			= acornscsi_info,
 	.queuecommand		= acornscsi_queuecmd,
 	.eh_abort_handler	= acornscsi_abort,
-	.eh_bus_reset_handler	= acornscsi_bus_reset,
+	.eh_host_reset_handler	= acornscsi_host_reset,
 	.can_queue		= 16,
 	.this_id		= 7,
 	.sg_tablesize		= SG_ALL,
 	.cmd_per_lun		= 2,
-	.use_clustering		= DISABLE_CLUSTERING,
+	.dma_boundary		= PAGE_SIZE - 1,
 	.proc_name		= "acornscsi",
 };
 
-static int __devinit
-acornscsi_probe(struct expansion_card *ec, const struct ecard_id *id)
+static int acornscsi_probe(struct expansion_card *ec, const struct ecard_id *id)
 {
 	struct Scsi_Host *host;
 	AS_Host *ashost;
@@ -2987,8 +2821,10 @@ acornscsi_probe(struct expansion_card *ec, const struct ecard_id *id)
 
 	ashost->base = ecardm_iomap(ec, ECARD_RES_MEMC, 0, 0);
 	ashost->fast = ecardm_iomap(ec, ECARD_RES_IOCFAST, 0, 0);
-	if (!ashost->base || !ashost->fast)
+	if (!ashost->base || !ashost->fast) {
+		ret = -ENOMEM;
 		goto out_put;
+	}
 
 	host->irq = ec->irq;
 	ashost->host = host;
@@ -2997,7 +2833,7 @@ acornscsi_probe(struct expansion_card *ec, const struct ecard_id *id)
 	ec->irqaddr	= ashost->fast + INT_REG;
 	ec->irqmask	= 0x0a;
 
-	ret = request_irq(host->irq, acornscsi_intr, IRQF_DISABLED, "acornscsi", ashost);
+	ret = request_irq(host->irq, acornscsi_intr, 0, "acornscsi", ashost);
 	if (ret) {
 		printk(KERN_CRIT "scsi%d: IRQ%d not free: %d\n",
 			host->host_no, ashost->scsi.irq, ret);
@@ -3033,7 +2869,7 @@ acornscsi_probe(struct expansion_card *ec, const struct ecard_id *id)
 	return ret;
 }
 
-static void __devexit acornscsi_remove(struct expansion_card *ec)
+static void acornscsi_remove(struct expansion_card *ec)
 {
 	struct Scsi_Host *host = ecard_get_drvdata(ec);
 	AS_Host *ashost = (AS_Host *)host->hostdata;
@@ -3064,7 +2900,7 @@ static const struct ecard_id acornscsi_cids[] = {
 
 static struct ecard_driver acornscsi_driver = {
 	.probe		= acornscsi_probe,
-	.remove		= __devexit_p(acornscsi_remove),
+	.remove		= acornscsi_remove,
 	.id_table	= acornscsi_cids,
 	.drv = {
 		.name		= "acornscsi",

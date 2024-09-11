@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * INET		An implementation of the TCP/IP protocol suite for the LINUX
  *		operating system.  INET is implemented using the  BSD Socket
@@ -6,11 +7,6 @@
  *		PF_INET6 protocol dispatch tables.
  *
  * Authors:	Pedro Roque	<roque@di.fc.ul.pt>
- *
- *		This program is free software; you can redistribute it and/or
- *		modify it under the terms of the GNU General Public License
- *		as published by the Free Software Foundation; either version
- *		2 of the License, or (at your option) any later version.
  */
 
 /*
@@ -25,26 +21,22 @@
 #include <linux/spinlock.h>
 #include <net/protocol.h>
 
-const struct inet6_protocol __rcu *inet6_protos[MAX_INET_PROTOS] __read_mostly;
+#if IS_ENABLED(CONFIG_IPV6)
+struct inet6_protocol __rcu *inet6_protos[MAX_INET_PROTOS] __read_mostly;
+EXPORT_SYMBOL(inet6_protos);
 
 int inet6_add_protocol(const struct inet6_protocol *prot, unsigned char protocol)
 {
-	int hash = protocol & (MAX_INET_PROTOS - 1);
-
-	return !cmpxchg((const struct inet6_protocol **)&inet6_protos[hash],
+	return !cmpxchg((const struct inet6_protocol **)&inet6_protos[protocol],
 			NULL, prot) ? 0 : -1;
 }
 EXPORT_SYMBOL(inet6_add_protocol);
 
-/*
- *	Remove a protocol from the hash tables.
- */
-
 int inet6_del_protocol(const struct inet6_protocol *prot, unsigned char protocol)
 {
-	int ret, hash = protocol & (MAX_INET_PROTOS - 1);
+	int ret;
 
-	ret = (cmpxchg((const struct inet6_protocol **)&inet6_protos[hash],
+	ret = (cmpxchg((const struct inet6_protocol **)&inet6_protos[protocol],
 		       prot, NULL) == prot) ? 0 : -1;
 
 	synchronize_net();
@@ -52,3 +44,27 @@ int inet6_del_protocol(const struct inet6_protocol *prot, unsigned char protocol
 	return ret;
 }
 EXPORT_SYMBOL(inet6_del_protocol);
+#endif
+
+const struct net_offload __rcu *inet6_offloads[MAX_INET_PROTOS] __read_mostly;
+EXPORT_SYMBOL(inet6_offloads);
+
+int inet6_add_offload(const struct net_offload *prot, unsigned char protocol)
+{
+	return !cmpxchg((const struct net_offload **)&inet6_offloads[protocol],
+			NULL, prot) ? 0 : -1;
+}
+EXPORT_SYMBOL(inet6_add_offload);
+
+int inet6_del_offload(const struct net_offload *prot, unsigned char protocol)
+{
+	int ret;
+
+	ret = (cmpxchg((const struct net_offload **)&inet6_offloads[protocol],
+		       prot, NULL) == prot) ? 0 : -1;
+
+	synchronize_net();
+
+	return ret;
+}
+EXPORT_SYMBOL(inet6_del_offload);

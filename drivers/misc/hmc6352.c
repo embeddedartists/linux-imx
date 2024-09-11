@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * hmc6352.c - Honeywell Compass Driver
  *
@@ -5,29 +6,16 @@
  *
  *  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; version 2 of the License.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA.
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
- *
  */
 
 #include <linux/module.h>
-#include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/i2c.h>
 #include <linux/err.h>
 #include <linux/delay.h>
 #include <linux/sysfs.h>
+#include <linux/nospec.h>
 
 static DEFINE_MUTEX(compass_mutex);
 
@@ -46,10 +34,12 @@ static int compass_store(struct device *dev, const char *buf, size_t count,
 	int ret;
 	unsigned long val;
 
-	if (strict_strtoul(buf, 10, &val))
-		return -EINVAL;
+	ret = kstrtoul(buf, 10, &val);
+	if (ret)
+		return ret;
 	if (val >= strlen(map))
 		return -EINVAL;
+	val = array_index_nospec(val, strlen(map));
 	mutex_lock(&compass_mutex);
 	ret = compass_command(c, map[val]);
 	mutex_unlock(&compass_mutex);
@@ -132,7 +122,7 @@ static int hmc6352_remove(struct i2c_client *client)
 	return 0;
 }
 
-static struct i2c_device_id hmc6352_id[] = {
+static const struct i2c_device_id hmc6352_id[] = {
 	{ "hmc6352", 0 },
 	{ }
 };
@@ -148,18 +138,7 @@ static struct i2c_driver hmc6352_driver = {
 	.id_table = hmc6352_id,
 };
 
-static int __init sensor_hmc6352_init(void)
-{
-	return i2c_add_driver(&hmc6352_driver);
-}
-
-static void  __exit sensor_hmc6352_exit(void)
-{
-	i2c_del_driver(&hmc6352_driver);
-}
-
-module_init(sensor_hmc6352_init);
-module_exit(sensor_hmc6352_exit);
+module_i2c_driver(hmc6352_driver);
 
 MODULE_AUTHOR("Kalhan Trisal <kalhan.trisal@intel.com");
 MODULE_DESCRIPTION("hmc6352 Compass Driver");

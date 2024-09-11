@@ -1,16 +1,5 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License, version 2, as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  *
  * Copyright SUSE Linux Products GmbH 2009
  *
@@ -23,6 +12,7 @@
 #include <asm/mmu.h>
 #include <asm/page.h>
 #include <asm/asm-offsets.h>
+#include <asm/asm-compat.h>
 
 #ifdef CONFIG_PPC_BOOK3S_64
 #include <asm/exception-64s.h>
@@ -36,39 +26,18 @@
 
 #if defined(CONFIG_PPC_BOOK3S_64)
 
+#ifdef PPC64_ELF_ABI_v2
+#define FUNC(name) 		name
+#else
 #define FUNC(name) 		GLUE(.,name)
-#define MTMSR_EERI(reg)		mtmsrd	(reg),1
-
-	.globl	kvmppc_skip_interrupt
-kvmppc_skip_interrupt:
-	/*
-	 * Here all GPRs are unchanged from when the interrupt happened
-	 * except for r13, which is saved in SPRG_SCRATCH0.
-	 */
-	mfspr	r13, SPRN_SRR0
-	addi	r13, r13, 4
-	mtspr	SPRN_SRR0, r13
-	GET_SCRATCH0(r13)
-	rfid
-	b	.
-
-	.globl	kvmppc_skip_Hinterrupt
-kvmppc_skip_Hinterrupt:
-	/*
-	 * Here all GPRs are unchanged from when the interrupt happened
-	 * except for r13, which is saved in SPRG_SCRATCH0.
-	 */
-	mfspr	r13, SPRN_HSRR0
-	addi	r13, r13, 4
-	mtspr	SPRN_HSRR0, r13
-	GET_SCRATCH0(r13)
-	hrfid
-	b	.
+#endif
 
 #elif defined(CONFIG_PPC_BOOK3S_32)
 
 #define FUNC(name)		name
-#define MTMSR_EERI(reg)		mtmsr	(reg)
+
+#define RFI_TO_KERNEL	rfi
+#define RFI_TO_GUEST	rfi
 
 .macro INTERRUPT_TRAMPOLINE intno
 
@@ -165,78 +134,29 @@ kvmppc_handler_skip_ins:
 	GET_SCRATCH0(r13)
 
 	/* And get back into the code */
-	RFI
+	RFI_TO_KERNEL
 #endif
 
 /*
  * Call kvmppc_handler_trampoline_enter in real mode
  *
  * On entry, r4 contains the guest shadow MSR
+ * MSR.EE has to be 0 when calling this function
  */
-_GLOBAL(kvmppc_entry_trampoline)
+_GLOBAL_TOC(kvmppc_entry_trampoline)
 	mfmsr	r5
 	LOAD_REG_ADDR(r7, kvmppc_handler_trampoline_enter)
 	toreal(r7)
 
-	li	r9, MSR_RI
-	ori	r9, r9, MSR_EE
-	andc	r9, r5, r9	/* Clear EE and RI in MSR value */
 	li	r6, MSR_IR | MSR_DR
-	ori	r6, r6, MSR_EE
-	andc	r6, r5, r6	/* Clear EE, DR and IR in MSR value */
-	MTMSR_EERI(r9)		/* Clear EE and RI in MSR */
-	mtsrr0	r7		/* before we set srr0/1 */
+	andc	r6, r5, r6	/* Clear DR and IR in MSR value */
+	/*
+	 * Set EE in HOST_MSR so that it's enabled when we get into our
+	 * C exit handler function.
+	 */
+	ori	r5, r5, MSR_EE
+	mtsrr0	r7
 	mtsrr1	r6
-	RFI
-
-#if defined(CONFIG_PPC_BOOK3S_32)
-#define STACK_LR	INT_FRAME_SIZE+4
-
-/* load_up_xxx have to run with MSR_DR=0 on Book3S_32 */
-#define MSR_EXT_START						\
-	PPC_STL	r20, _NIP(r1);					\
-	mfmsr	r20;						\
-	LOAD_REG_IMMEDIATE(r3, MSR_DR|MSR_EE);			\
-	andc	r3,r20,r3;		/* Disable DR,EE */	\
-	mtmsr	r3;						\
-	sync
-
-#define MSR_EXT_END						\
-	mtmsr	r20;			/* Enable DR,EE */	\
-	sync;							\
-	PPC_LL	r20, _NIP(r1)
-
-#elif defined(CONFIG_PPC_BOOK3S_64)
-#define STACK_LR	_LINK
-#define MSR_EXT_START
-#define MSR_EXT_END
-#endif
-
-/*
- * Activate current's external feature (FPU/Altivec/VSX)
- */
-#define define_load_up(what) 					\
-								\
-_GLOBAL(kvmppc_load_up_ ## what);				\
-	PPC_STLU r1, -INT_FRAME_SIZE(r1);			\
-	mflr	r3;						\
-	PPC_STL	r3, STACK_LR(r1);				\
-	MSR_EXT_START;						\
-								\
-	bl	FUNC(load_up_ ## what);				\
-								\
-	MSR_EXT_END;						\
-	PPC_LL	r3, STACK_LR(r1);				\
-	mtlr	r3;						\
-	addi	r1, r1, INT_FRAME_SIZE;				\
-	blr
-
-define_load_up(fpu)
-#ifdef CONFIG_ALTIVEC
-define_load_up(altivec)
-#endif
-#ifdef CONFIG_VSX
-define_load_up(vsx)
-#endif
+	RFI_TO_KERNEL
 
 #include "book3s_segment.S"

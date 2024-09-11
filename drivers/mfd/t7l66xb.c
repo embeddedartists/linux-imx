@@ -1,13 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *
  * Toshiba T7L66XB core mfd support
  *
  * Copyright (c) 2005, 2007, 2008 Ian Molton
  * Copyright (c) 2008 Dmitry Baryshkov
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  *
  * T7L66 features:
  *
@@ -40,16 +37,8 @@ enum {
 };
 
 static const struct resource t7l66xb_mmc_resources[] = {
-	{
-		.start = 0x800,
-		.end	= 0x9ff,
-		.flags = IORESOURCE_MEM,
-	},
-	{
-		.start = IRQ_T7L66XB_MMC,
-		.end	= IRQ_T7L66XB_MMC,
-		.flags = IORESOURCE_IRQ,
-	},
+	DEFINE_RES_MEM(0x800, 0x200),
+	DEFINE_RES_IRQ(IRQ_T7L66XB_MMC)
 };
 
 #define SCR_REVID	0x08		/* b Revision ID	*/
@@ -69,7 +58,7 @@ static const struct resource t7l66xb_mmc_resources[] = {
 struct t7l66xb {
 	void __iomem		*scr;
 	/* Lock to protect registers requiring read/modify/write ops. */
-	spinlock_t		lock;
+	raw_spinlock_t		lock;
 
 	struct resource		rscr;
 	struct clk		*clk48m;
@@ -82,20 +71,22 @@ struct t7l66xb {
 
 static int t7l66xb_mmc_enable(struct platform_device *mmc)
 {
-	struct platform_device *dev = to_platform_device(mmc->dev.parent);
-	struct t7l66xb *t7l66xb = platform_get_drvdata(dev);
+	struct t7l66xb *t7l66xb = dev_get_drvdata(mmc->dev.parent);
 	unsigned long flags;
 	u8 dev_ctl;
+	int ret;
 
-	clk_enable(t7l66xb->clk32k);
+	ret = clk_prepare_enable(t7l66xb->clk32k);
+	if (ret)
+		return ret;
 
-	spin_lock_irqsave(&t7l66xb->lock, flags);
+	raw_spin_lock_irqsave(&t7l66xb->lock, flags);
 
 	dev_ctl = tmio_ioread8(t7l66xb->scr + SCR_DEV_CTL);
 	dev_ctl |= SCR_DEV_CTL_MMC;
 	tmio_iowrite8(dev_ctl, t7l66xb->scr + SCR_DEV_CTL);
 
-	spin_unlock_irqrestore(&t7l66xb->lock, flags);
+	raw_spin_unlock_irqrestore(&t7l66xb->lock, flags);
 
 	tmio_core_mmc_enable(t7l66xb->scr + 0x200, 0,
 		t7l66xb_mmc_resources[0].start & 0xfffe);
@@ -105,36 +96,33 @@ static int t7l66xb_mmc_enable(struct platform_device *mmc)
 
 static int t7l66xb_mmc_disable(struct platform_device *mmc)
 {
-	struct platform_device *dev = to_platform_device(mmc->dev.parent);
-	struct t7l66xb *t7l66xb = platform_get_drvdata(dev);
+	struct t7l66xb *t7l66xb = dev_get_drvdata(mmc->dev.parent);
 	unsigned long flags;
 	u8 dev_ctl;
 
-	spin_lock_irqsave(&t7l66xb->lock, flags);
+	raw_spin_lock_irqsave(&t7l66xb->lock, flags);
 
 	dev_ctl = tmio_ioread8(t7l66xb->scr + SCR_DEV_CTL);
 	dev_ctl &= ~SCR_DEV_CTL_MMC;
 	tmio_iowrite8(dev_ctl, t7l66xb->scr + SCR_DEV_CTL);
 
-	spin_unlock_irqrestore(&t7l66xb->lock, flags);
+	raw_spin_unlock_irqrestore(&t7l66xb->lock, flags);
 
-	clk_disable(t7l66xb->clk32k);
+	clk_disable_unprepare(t7l66xb->clk32k);
 
 	return 0;
 }
 
 static void t7l66xb_mmc_pwr(struct platform_device *mmc, int state)
 {
-	struct platform_device *dev = to_platform_device(mmc->dev.parent);
-	struct t7l66xb *t7l66xb = platform_get_drvdata(dev);
+	struct t7l66xb *t7l66xb = dev_get_drvdata(mmc->dev.parent);
 
 	tmio_core_mmc_pwr(t7l66xb->scr + 0x200, 0, state);
 }
 
 static void t7l66xb_mmc_clk_div(struct platform_device *mmc, int state)
 {
-	struct platform_device *dev = to_platform_device(mmc->dev.parent);
-	struct t7l66xb *t7l66xb = platform_get_drvdata(dev);
+	struct t7l66xb *t7l66xb = dev_get_drvdata(mmc->dev.parent);
 
 	tmio_core_mmc_clk_div(t7l66xb->scr + 0x200, 0, state);
 }
@@ -185,9 +173,9 @@ static struct mfd_cell t7l66xb_cells[] = {
 /*--------------------------------------------------------------------------*/
 
 /* Handle the T7L66XB interrupt mux */
-static void t7l66xb_irq(unsigned int irq, struct irq_desc *desc)
+static void t7l66xb_irq(struct irq_desc *desc)
 {
-	struct t7l66xb *t7l66xb = irq_get_handler_data(irq);
+	struct t7l66xb *t7l66xb = irq_desc_get_handler_data(desc);
 	unsigned int isr;
 	unsigned int i, irq_base;
 
@@ -206,11 +194,11 @@ static void t7l66xb_irq_mask(struct irq_data *data)
 	unsigned long			flags;
 	u8 imr;
 
-	spin_lock_irqsave(&t7l66xb->lock, flags);
+	raw_spin_lock_irqsave(&t7l66xb->lock, flags);
 	imr = tmio_ioread8(t7l66xb->scr + SCR_IMR);
 	imr |= 1 << (data->irq - t7l66xb->irq_base);
 	tmio_iowrite8(imr, t7l66xb->scr + SCR_IMR);
-	spin_unlock_irqrestore(&t7l66xb->lock, flags);
+	raw_spin_unlock_irqrestore(&t7l66xb->lock, flags);
 }
 
 static void t7l66xb_irq_unmask(struct irq_data *data)
@@ -219,11 +207,11 @@ static void t7l66xb_irq_unmask(struct irq_data *data)
 	unsigned long flags;
 	u8 imr;
 
-	spin_lock_irqsave(&t7l66xb->lock, flags);
+	raw_spin_lock_irqsave(&t7l66xb->lock, flags);
 	imr = tmio_ioread8(t7l66xb->scr + SCR_IMR);
 	imr &= ~(1 << (data->irq - t7l66xb->irq_base));
 	tmio_iowrite8(imr, t7l66xb->scr + SCR_IMR);
-	spin_unlock_irqrestore(&t7l66xb->lock, flags);
+	raw_spin_unlock_irqrestore(&t7l66xb->lock, flags);
 }
 
 static struct irq_chip t7l66xb_chip = {
@@ -246,14 +234,10 @@ static void t7l66xb_attach_irq(struct platform_device *dev)
 	for (irq = irq_base; irq < irq_base + T7L66XB_NR_IRQS; irq++) {
 		irq_set_chip_and_handler(irq, &t7l66xb_chip, handle_level_irq);
 		irq_set_chip_data(irq, t7l66xb);
-#ifdef CONFIG_ARM
-		set_irq_flags(irq, IRQF_VALID | IRQF_PROBE);
-#endif
 	}
 
 	irq_set_irq_type(t7l66xb->irq, IRQ_TYPE_EDGE_FALLING);
-	irq_set_handler_data(t7l66xb->irq, t7l66xb);
-	irq_set_chained_handler(t7l66xb->irq, t7l66xb_irq);
+	irq_set_chained_handler_and_data(t7l66xb->irq, t7l66xb_irq, t7l66xb);
 }
 
 static void t7l66xb_detach_irq(struct platform_device *dev)
@@ -263,13 +247,9 @@ static void t7l66xb_detach_irq(struct platform_device *dev)
 
 	irq_base = t7l66xb->irq_base;
 
-	irq_set_chained_handler(t7l66xb->irq, NULL);
-	irq_set_handler_data(t7l66xb->irq, NULL);
+	irq_set_chained_handler_and_data(t7l66xb->irq, NULL, NULL);
 
 	for (irq = irq_base; irq < irq_base + T7L66XB_NR_IRQS; irq++) {
-#ifdef CONFIG_ARM
-		set_irq_flags(irq, 0);
-#endif
 		irq_set_chip(irq, NULL);
 		irq_set_chip_data(irq, NULL);
 	}
@@ -281,11 +261,11 @@ static void t7l66xb_detach_irq(struct platform_device *dev)
 static int t7l66xb_suspend(struct platform_device *dev, pm_message_t state)
 {
 	struct t7l66xb *t7l66xb = platform_get_drvdata(dev);
-	struct t7l66xb_platform_data *pdata = dev->dev.platform_data;
+	struct t7l66xb_platform_data *pdata = dev_get_platdata(&dev->dev);
 
 	if (pdata && pdata->suspend)
 		pdata->suspend(dev);
-	clk_disable(t7l66xb->clk48m);
+	clk_disable_unprepare(t7l66xb->clk48m);
 
 	return 0;
 }
@@ -293,9 +273,13 @@ static int t7l66xb_suspend(struct platform_device *dev, pm_message_t state)
 static int t7l66xb_resume(struct platform_device *dev)
 {
 	struct t7l66xb *t7l66xb = platform_get_drvdata(dev);
-	struct t7l66xb_platform_data *pdata = dev->dev.platform_data;
+	struct t7l66xb_platform_data *pdata = dev_get_platdata(&dev->dev);
+	int ret;
 
-	clk_enable(t7l66xb->clk48m);
+	ret = clk_prepare_enable(t7l66xb->clk48m);
+	if (ret)
+		return ret;
+
 	if (pdata && pdata->resume)
 		pdata->resume(dev);
 
@@ -313,12 +297,12 @@ static int t7l66xb_resume(struct platform_device *dev)
 
 static int t7l66xb_probe(struct platform_device *dev)
 {
-	struct t7l66xb_platform_data *pdata = dev->dev.platform_data;
+	struct t7l66xb_platform_data *pdata = dev_get_platdata(&dev->dev);
 	struct t7l66xb *t7l66xb;
 	struct resource *iomem, *rscr;
 	int ret;
 
-	if (pdata == NULL)
+	if (!pdata)
 		return -EINVAL;
 
 	iomem = platform_get_resource(dev, IORESOURCE_MEM, 0);
@@ -329,7 +313,7 @@ static int t7l66xb_probe(struct platform_device *dev)
 	if (!t7l66xb)
 		return -ENOMEM;
 
-	spin_lock_init(&t7l66xb->lock);
+	raw_spin_lock_init(&t7l66xb->lock);
 
 	platform_set_drvdata(dev, t7l66xb);
 
@@ -369,9 +353,11 @@ static int t7l66xb_probe(struct platform_device *dev)
 		goto err_ioremap;
 	}
 
-	clk_enable(t7l66xb->clk48m);
+	ret = clk_prepare_enable(t7l66xb->clk48m);
+	if (ret)
+		goto err_clk_enable;
 
-	if (pdata && pdata->enable)
+	if (pdata->enable)
 		pdata->enable(dev);
 
 	/* Mask all interrupts */
@@ -388,12 +374,14 @@ static int t7l66xb_probe(struct platform_device *dev)
 
 	ret = mfd_add_devices(&dev->dev, dev->id,
 			      t7l66xb_cells, ARRAY_SIZE(t7l66xb_cells),
-			      iomem, t7l66xb->irq_base);
+			      iomem, t7l66xb->irq_base, NULL);
 
 	if (!ret)
 		return 0;
 
 	t7l66xb_detach_irq(dev);
+	clk_disable_unprepare(t7l66xb->clk48m);
+err_clk_enable:
 	iounmap(t7l66xb->scr);
 err_ioremap:
 	release_resource(&t7l66xb->rscr);
@@ -409,20 +397,19 @@ err_noirq:
 
 static int t7l66xb_remove(struct platform_device *dev)
 {
-	struct t7l66xb_platform_data *pdata = dev->dev.platform_data;
+	struct t7l66xb_platform_data *pdata = dev_get_platdata(&dev->dev);
 	struct t7l66xb *t7l66xb = platform_get_drvdata(dev);
 	int ret;
 
 	ret = pdata->disable(dev);
-	clk_disable(t7l66xb->clk48m);
+	clk_disable_unprepare(t7l66xb->clk48m);
 	clk_put(t7l66xb->clk48m);
-	clk_disable(t7l66xb->clk32k);
+	clk_disable_unprepare(t7l66xb->clk32k);
 	clk_put(t7l66xb->clk32k);
 	t7l66xb_detach_irq(dev);
 	iounmap(t7l66xb->scr);
 	release_resource(&t7l66xb->rscr);
 	mfd_remove_devices(&dev->dev);
-	platform_set_drvdata(dev, NULL);
 	kfree(t7l66xb);
 
 	return ret;
@@ -432,7 +419,6 @@ static int t7l66xb_remove(struct platform_device *dev)
 static struct platform_driver t7l66xb_platform_driver = {
 	.driver = {
 		.name	= "t7l66xb",
-		.owner	= THIS_MODULE,
 	},
 	.suspend	= t7l66xb_suspend,
 	.resume		= t7l66xb_resume,

@@ -1,18 +1,11 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2005-2010 Brocade Communications Systems, Inc.
+ * Copyright (c) 2005-2014 Brocade Communications Systems, Inc.
+ * Copyright (c) 2014- QLogic Corporation.
  * All rights reserved
- * www.brocade.com
+ * www.qlogic.com
  *
- * Linux driver for Brocade Fibre Channel Host Bus Adapter.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License (GPL) Version 2 as
- * published by the Free Software Foundation
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
+ * Linux driver for QLogic BR-series Fibre Channel Host Bus Adapter.
  */
 
 #ifndef __BFA_DEFS_FCS_H__
@@ -93,6 +86,7 @@ struct bfa_lport_cfg_s {
 	wwn_t	       pwwn;       /*  port wwn */
 	wwn_t	       nwwn;       /*  node wwn */
 	struct bfa_lport_symname_s  sym_name;   /*  vm port symbolic name */
+	struct bfa_lport_symname_s node_sym_name; /* Node symbolic name */
 	enum bfa_lport_role roles;      /* FCS port roles */
 	u32     rsvd;
 	bfa_boolean_t   preboot_vp;  /*  vport created from PBC */
@@ -191,6 +185,18 @@ struct bfa_lport_stats_s {
 	u32	ns_gidft_rejects;
 	u32	ns_gidft_unknown_rsp;
 	u32	ns_gidft_alloc_wait;
+
+	u32	ns_rnnid_sent;
+	u32	ns_rnnid_accepts;
+	u32	ns_rnnid_rsp_err;
+	u32	ns_rnnid_rejects;
+	u32	ns_rnnid_alloc_wait;
+
+	u32	ns_rsnn_nn_sent;
+	u32	ns_rsnn_nn_accepts;
+	u32	ns_rsnn_nn_rsp_err;
+	u32	ns_rsnn_nn_rejects;
+	u32	ns_rsnn_nn_alloc_wait;
 
 	/*
 	 * Mgmt Server stats
@@ -410,6 +416,11 @@ struct bfa_rport_remote_link_stats_s {
 	u32 icc; /*  Invalid CRC Count */
 };
 
+struct bfa_rport_qualifier_s {
+	wwn_t	pwwn;	/* Port WWN */
+	u32	pid;	/* port ID */
+	u32	rsvd;
+};
 
 #define BFA_MAX_IO_INDEX 7
 #define BFA_NO_IO_INDEX 9

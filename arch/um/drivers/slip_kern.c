@@ -1,12 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2007 Jeff Dike (jdike@{addtoit,linux.intel}.com)
- * Licensed under the GPL.
  */
 
 #include <linux/if_arp.h>
 #include <linux/init.h>
 #include <linux/netdevice.h>
-#include "net_kern.h"
+#include <net_kern.h>
 #include "slip.h"
 
 struct slip_init {

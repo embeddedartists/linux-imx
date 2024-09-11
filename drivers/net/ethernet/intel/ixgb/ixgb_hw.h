@@ -1,30 +1,5 @@
-/*******************************************************************************
-
-  Intel PRO/10GbE Linux driver
-  Copyright(c) 1999 - 2008 Intel Corporation.
-
-  This program is free software; you can redistribute it and/or modify it
-  under the terms and conditions of the GNU General Public License,
-  version 2, as published by the Free Software Foundation.
-
-  This program is distributed in the hope it will be useful, but WITHOUT
-  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
-  more details.
-
-  You should have received a copy of the GNU General Public License along with
-  this program; if not, write to the Free Software Foundation, Inc.,
-  51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
-
-  The full GNU General Public License is included in this distribution in
-  the file called "COPYING".
-
-  Contact Information:
-  Linux NICS <linux.nics@intel.com>
-  e1000-devel Mailing List <e1000-devel@lists.sourceforge.net>
-  Intel Corporation, 5200 N.E. Elam Young Parkway, Hillsboro, OR 97124-6497
-
-*******************************************************************************/
+/* SPDX-License-Identifier: GPL-2.0 */
+/* Copyright(c) 1999 - 2008 Intel Corporation. */
 
 #ifndef _IXGB_HW_H_
 #define _IXGB_HW_H_
@@ -759,27 +734,20 @@ struct ixgb_hw_stats {
 };
 
 /* Function Prototypes */
-extern bool ixgb_adapter_stop(struct ixgb_hw *hw);
-extern bool ixgb_init_hw(struct ixgb_hw *hw);
-extern bool ixgb_adapter_start(struct ixgb_hw *hw);
-extern void ixgb_check_for_link(struct ixgb_hw *hw);
-extern bool ixgb_check_for_bad_link(struct ixgb_hw *hw);
+bool ixgb_adapter_stop(struct ixgb_hw *hw);
+bool ixgb_init_hw(struct ixgb_hw *hw);
+bool ixgb_adapter_start(struct ixgb_hw *hw);
+void ixgb_check_for_link(struct ixgb_hw *hw);
+bool ixgb_check_for_bad_link(struct ixgb_hw *hw);
 
-extern void ixgb_rar_set(struct ixgb_hw *hw,
-				u8 *addr,
-				u32 index);
-
+void ixgb_rar_set(struct ixgb_hw *hw, u8 *addr, u32 index);
 
 /* Filters (multicast, vlan, receive) */
-extern void ixgb_mc_addr_list_update(struct ixgb_hw *hw,
-				   u8 *mc_addr_list,
-				   u32 mc_addr_count,
-				   u32 pad);
+void ixgb_mc_addr_list_update(struct ixgb_hw *hw, u8 *mc_addr_list,
+			      u32 mc_addr_count, u32 pad);
 
 /* Vfta functions */
-extern void ixgb_write_vfta(struct ixgb_hw *hw,
-				 u32 offset,
-				 u32 value);
+void ixgb_write_vfta(struct ixgb_hw *hw, u32 offset, u32 value);
 
 /* Access functions to eeprom data */
 void ixgb_get_ee_mac_addr(struct ixgb_hw *hw, u8 *mac_addr);

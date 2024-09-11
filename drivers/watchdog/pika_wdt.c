@@ -1,9 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * PIKA FPGA based Watchdog Timer
  *
  * Copyright (c) 2008 PIKA Technologies
  *   Sean MacLennan <smaclennan@pikatech.com>
  */
+
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/init.h>
 #include <linux/errno.h>
@@ -20,10 +23,10 @@
 #include <linux/bitops.h>
 #include <linux/uaccess.h>
 #include <linux/io.h>
+#include <linux/of_address.h>
 #include <linux/of_platform.h>
 
 #define DRV_NAME "PIKA-WDT"
-#define PFX DRV_NAME ": "
 
 /* Hardware timeout in seconds */
 #define WDT_HW_TIMEOUT 2
@@ -38,8 +41,8 @@ module_param(heartbeat, int, 0);
 MODULE_PARM_DESC(heartbeat, "Watchdog heartbeats in seconds. "
 	"(default = " __MODULE_STRING(WDT_HEARTBEAT) ")");
 
-static int nowayout = WATCHDOG_NOWAYOUT;
-module_param(nowayout, int, 0);
+static bool nowayout = WATCHDOG_NOWAYOUT;
+module_param(nowayout, bool, 0);
 MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started "
 	"(default=" __MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
 
@@ -52,7 +55,7 @@ static struct {
 	struct timer_list timer;	/* The timer that pings the watchdog */
 } pikawdt_private;
 
-static struct watchdog_info ident = {
+static struct watchdog_info ident __ro_after_init = {
 	.identity	= DRV_NAME,
 	.options	= WDIOF_CARDRESET |
 			  WDIOF_SETTIMEOUT |
@@ -83,14 +86,14 @@ static inline void pikawdt_reset(void)
 /*
  * Timer tick
  */
-static void pikawdt_ping(unsigned long data)
+static void pikawdt_ping(struct timer_list *unused)
 {
 	if (time_before(jiffies, pikawdt_private.next_heartbeat) ||
 			(!nowayout && !pikawdt_private.open)) {
 		pikawdt_reset();
 		mod_timer(&pikawdt_private.timer, jiffies + WDT_TIMEOUT);
 	} else
-		printk(KERN_CRIT PFX "I will reset your machine !\n");
+		pr_crit("I will reset your machine !\n");
 }
 
 
@@ -116,7 +119,7 @@ static int pikawdt_open(struct inode *inode, struct file *file)
 
 	pikawdt_start();
 
-	return nonseekable_open(inode, file);
+	return stream_open(inode, file);
 }
 
 /*
@@ -211,6 +214,7 @@ static const struct file_operations pikawdt_fops = {
 	.release	= pikawdt_release,
 	.write		= pikawdt_write,
 	.unlocked_ioctl	= pikawdt_ioctl,
+	.compat_ioctl	= compat_ptr_ioctl,
 };
 
 static struct miscdevice pikawdt_miscdev = {
@@ -223,19 +227,19 @@ static int __init pikawdt_init(void)
 {
 	struct device_node *np;
 	void __iomem *fpga;
-	static u32 post1;
+	u32 post1;
 	int ret;
 
 	np = of_find_compatible_node(NULL, NULL, "pika,fpga");
 	if (np == NULL) {
-		printk(KERN_ERR PFX "Unable to find fpga.\n");
+		pr_err("Unable to find fpga\n");
 		return -ENOENT;
 	}
 
 	pikawdt_private.fpga = of_iomap(np, 0);
 	of_node_put(np);
 	if (pikawdt_private.fpga == NULL) {
-		printk(KERN_ERR PFX "Unable to map fpga.\n");
+		pr_err("Unable to map fpga\n");
 		return -ENOMEM;
 	}
 
@@ -244,7 +248,7 @@ static int __init pikawdt_init(void)
 	/* POST information is in the sd area. */
 	np = of_find_compatible_node(NULL, NULL, "pika,fpga-sd");
 	if (np == NULL) {
-		printk(KERN_ERR PFX "Unable to find fpga-sd.\n");
+		pr_err("Unable to find fpga-sd\n");
 		ret = -ENOENT;
 		goto out;
 	}
@@ -252,7 +256,7 @@ static int __init pikawdt_init(void)
 	fpga = of_iomap(np, 0);
 	of_node_put(np);
 	if (fpga == NULL) {
-		printk(KERN_ERR PFX "Unable to map fpga-sd.\n");
+		pr_err("Unable to map fpga-sd\n");
 		ret = -ENOMEM;
 		goto out;
 	}
@@ -267,16 +271,16 @@ static int __init pikawdt_init(void)
 
 	iounmap(fpga);
 
-	setup_timer(&pikawdt_private.timer, pikawdt_ping, 0);
+	timer_setup(&pikawdt_private.timer, pikawdt_ping, 0);
 
 	ret = misc_register(&pikawdt_miscdev);
 	if (ret) {
-		printk(KERN_ERR PFX "Unable to register miscdev.\n");
+		pr_err("Unable to register miscdev\n");
 		goto out;
 	}
 
-	printk(KERN_INFO PFX "initialized. heartbeat=%d sec (nowayout=%d)\n",
-							heartbeat, nowayout);
+	pr_info("initialized. heartbeat=%d sec (nowayout=%d)\n",
+		heartbeat, nowayout);
 	return 0;
 
 out:
@@ -297,5 +301,3 @@ module_exit(pikawdt_exit);
 MODULE_AUTHOR("Sean MacLennan <smaclennan@pikatech.com>");
 MODULE_DESCRIPTION("PIKA FPGA based Watchdog Timer");
 MODULE_LICENSE("GPL");
-MODULE_ALIAS_MISCDEV(WATCHDOG_MINOR);
-

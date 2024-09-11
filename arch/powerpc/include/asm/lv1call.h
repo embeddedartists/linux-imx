@@ -1,22 +1,10 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  *  PS3 hvcall interface.
  *
  *  Copyright (C) 2006 Sony Computer Entertainment Inc.
  *  Copyright 2006 Sony Corp.
  *  Copyright 2003, 2004 (c) MontaVista Software, Inc.
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; version 2 of the License.
- *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with this program; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
 #if !defined(_ASM_POWERPC_LV1CALL_H)
@@ -265,8 +253,8 @@ LV1_CALL(get_spe_irq_outlet,                            2, 1,  78 )
 LV1_CALL(set_spe_privilege_state_area_1_register,       3, 0,  79 )
 LV1_CALL(create_repository_node,                        6, 0,  90 )
 LV1_CALL(read_repository_node,                          5, 2,  91 )
-LV1_CALL(modify_repository_node_value,                  6, 0,  92 )
-LV1_CALL(remove_repository_node,                        4, 0,  93 )
+LV1_CALL(write_repository_node,                         6, 0,  92 )
+LV1_CALL(delete_repository_node,                        4, 0,  93 )
 LV1_CALL(read_htab_entries,                             2, 5,  95 )
 LV1_CALL(set_dabr,                                      2, 0,  96 )
 LV1_CALL(get_total_execution_time,                      2, 1, 103 )

@@ -1,52 +1,21 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*******************************************************************************
  * This file contains the iSCSI Virtual Device and Disk Transport
  * agnostic related functions.
  *
- \u00a9 Copyright 2007-2011 RisingTide Systems LLC.
- *
- * Licensed to the Linux Foundation under the General Public License (GPL) version 2.
+ * (c) Copyright 2007-2013 Datera, Inc.
  *
  * Author: Nicholas A. Bellinger <nab@linux-iscsi.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  ******************************************************************************/
 
-#include <scsi/scsi_device.h>
 #include <target/target_core_base.h>
-#include <target/target_core_device.h>
-#include <target/target_core_transport.h>
+#include <target/target_core_fabric.h>
 
-#include "iscsi_target_core.h"
+#include <target/iscsi/iscsi_target_core.h>
 #include "iscsi_target_device.h"
 #include "iscsi_target_tpg.h"
 #include "iscsi_target_util.h"
-
-int iscsit_get_lun_for_tmr(
-	struct iscsi_cmd *cmd,
-	u64 lun)
-{
-	u32 unpacked_lun = scsilun_to_int((struct scsi_lun *)&lun);
-
-	return transport_lookup_tmr_lun(&cmd->se_cmd, unpacked_lun);
-}
-
-int iscsit_get_lun_for_cmd(
-	struct iscsi_cmd *cmd,
-	unsigned char *cdb,
-	u64 lun)
-{
-	u32 unpacked_lun = scsilun_to_int((struct scsi_lun *)&lun);
-
-	return transport_lookup_cmd_lun(&cmd->se_cmd, unpacked_lun);
-}
 
 void iscsit_determine_maxcmdsn(struct iscsi_session *sess)
 {
@@ -70,18 +39,19 @@ void iscsit_determine_maxcmdsn(struct iscsi_session *sess)
 	 * core_set_queue_depth_for_node().
 	 */
 	sess->cmdsn_window = se_nacl->queue_depth;
-	sess->max_cmd_sn = (sess->max_cmd_sn + se_nacl->queue_depth) - 1;
+	atomic_add(se_nacl->queue_depth - 1, &sess->max_cmd_sn);
 }
 
 void iscsit_increment_maxcmdsn(struct iscsi_cmd *cmd, struct iscsi_session *sess)
 {
+	u32 max_cmd_sn;
+
 	if (cmd->immediate_cmd || cmd->maxcmdsn_inc)
 		return;
 
 	cmd->maxcmdsn_inc = 1;
 
-	mutex_lock(&sess->cmdsn_mutex);
-	sess->max_cmd_sn += 1;
-	pr_debug("Updated MaxCmdSN to 0x%08x\n", sess->max_cmd_sn);
-	mutex_unlock(&sess->cmdsn_mutex);
+	max_cmd_sn = atomic_inc_return(&sess->max_cmd_sn);
+	pr_debug("Updated MaxCmdSN to 0x%08x\n", max_cmd_sn);
 }
+EXPORT_SYMBOL(iscsit_increment_maxcmdsn);

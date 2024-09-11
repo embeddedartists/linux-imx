@@ -1,15 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * arch/powerpc/platforms/embedded6xx/flipper-pic.c
  *
  * Nintendo GameCube/Wii "Flipper" interrupt controller support.
  * Copyright (C) 2004-2009 The GameCube Linux Team
  * Copyright (C) 2007,2008,2009 Albert Herranz
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
  */
 #define DRV_MODULE_NAME "flipper-pic"
 #define pr_fmt(fmt) DRV_MODULE_NAME ": " fmt
@@ -17,7 +12,9 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/irq.h>
+#include <linux/irqdomain.h>
 #include <linux/of.h>
+#include <linux/of_address.h>
 #include <asm/io.h>
 
 #include "flipper-pic.h"
@@ -96,9 +93,9 @@ static struct irq_chip flipper_pic = {
  *
  */
 
-static struct irq_host *flipper_irq_host;
+static struct irq_domain *flipper_irq_host;
 
-static int flipper_pic_map(struct irq_host *h, unsigned int virq,
+static int flipper_pic_map(struct irq_domain *h, unsigned int virq,
 			   irq_hw_number_t hwirq)
 {
 	irq_set_chip_data(virq, h->host_data);
@@ -107,15 +104,8 @@ static int flipper_pic_map(struct irq_host *h, unsigned int virq,
 	return 0;
 }
 
-static int flipper_pic_match(struct irq_host *h, struct device_node *np)
-{
-	return 1;
-}
-
-
-static struct irq_host_ops flipper_irq_host_ops = {
+static const struct irq_domain_ops flipper_irq_domain_ops = {
 	.map = flipper_pic_map,
-	.match = flipper_pic_match,
 };
 
 /*
@@ -130,10 +120,10 @@ static void __flipper_quiesce(void __iomem *io_base)
 	out_be32(io_base + FLIPPER_ICR, 0xffffffff);
 }
 
-struct irq_host * __init flipper_pic_init(struct device_node *np)
+static struct irq_domain * __init flipper_pic_init(struct device_node *np)
 {
 	struct device_node *pi;
-	struct irq_host *irq_host = NULL;
+	struct irq_domain *irq_domain = NULL;
 	struct resource res;
 	void __iomem *io_base;
 	int retval;
@@ -159,17 +149,15 @@ struct irq_host * __init flipper_pic_init(struct device_node *np)
 
 	__flipper_quiesce(io_base);
 
-	irq_host = irq_alloc_host(np, IRQ_HOST_MAP_LINEAR, FLIPPER_NR_IRQS,
-				  &flipper_irq_host_ops, -1);
-	if (!irq_host) {
-		pr_err("failed to allocate irq_host\n");
+	irq_domain = irq_domain_add_linear(np, FLIPPER_NR_IRQS,
+				  &flipper_irq_domain_ops, io_base);
+	if (!irq_domain) {
+		pr_err("failed to allocate irq_domain\n");
 		return NULL;
 	}
 
-	irq_host->host_data = io_base;
-
 out:
-	return irq_host;
+	return irq_domain;
 }
 
 unsigned int flipper_pic_get_irq(void)
@@ -181,7 +169,7 @@ unsigned int flipper_pic_get_irq(void)
 	irq_status = in_be32(io_base + FLIPPER_ICR) &
 		     in_be32(io_base + FLIPPER_IMR);
 	if (irq_status == 0)
-		return NO_IRQ;	/* no more IRQs pending */
+		return 0;	/* no more IRQs pending */
 
 	irq = __ffs(irq_status);
 	return irq_linear_revmap(flipper_irq_host, irq);

@@ -681,6 +681,24 @@ int t3_seeprom_wp(struct adapter *adapter, int enable)
 	return t3_seeprom_write(adapter, EEPROM_STAT_ADDR, enable ? 0xc : 0);
 }
 
+static int vpdstrtouint(char *s, u8 len, unsigned int base, unsigned int *val)
+{
+	char tok[256];
+
+	memcpy(tok, s, len);
+	tok[len] = 0;
+	return kstrtouint(strim(tok), base, val);
+}
+
+static int vpdstrtou16(char *s, u8 len, unsigned int base, u16 *val)
+{
+	char tok[256];
+
+	memcpy(tok, s, len);
+	tok[len] = 0;
+	return kstrtou16(strim(tok), base, val);
+}
+
 /**
  *	get_vpd_params - read VPD parameters from VPD EEPROM
  *	@adapter: adapter to read
@@ -709,11 +727,21 @@ static int get_vpd_params(struct adapter *adapter, struct vpd_params *p)
 			return ret;
 	}
 
-	p->cclk = simple_strtoul(vpd.cclk_data, NULL, 10);
-	p->mclk = simple_strtoul(vpd.mclk_data, NULL, 10);
-	p->uclk = simple_strtoul(vpd.uclk_data, NULL, 10);
-	p->mdc = simple_strtoul(vpd.mdc_data, NULL, 10);
-	p->mem_timing = simple_strtoul(vpd.mt_data, NULL, 10);
+	ret = vpdstrtouint(vpd.cclk_data, vpd.cclk_len, 10, &p->cclk);
+	if (ret)
+		return ret;
+	ret = vpdstrtouint(vpd.mclk_data, vpd.mclk_len, 10, &p->mclk);
+	if (ret)
+		return ret;
+	ret = vpdstrtouint(vpd.uclk_data, vpd.uclk_len, 10, &p->uclk);
+	if (ret)
+		return ret;
+	ret = vpdstrtouint(vpd.mdc_data, vpd.mdc_len, 10, &p->mdc);
+	if (ret)
+		return ret;
+	ret = vpdstrtouint(vpd.mt_data, vpd.mt_len, 10, &p->mem_timing);
+	if (ret)
+		return ret;
 	memcpy(p->sn, vpd.sn_data, SERNUM_LEN);
 
 	/* Old eeproms didn't have port information */
@@ -723,13 +751,19 @@ static int get_vpd_params(struct adapter *adapter, struct vpd_params *p)
 	} else {
 		p->port_type[0] = hex_to_bin(vpd.port0_data[0]);
 		p->port_type[1] = hex_to_bin(vpd.port1_data[0]);
-		p->xauicfg[0] = simple_strtoul(vpd.xaui0cfg_data, NULL, 16);
-		p->xauicfg[1] = simple_strtoul(vpd.xaui1cfg_data, NULL, 16);
+		ret = vpdstrtou16(vpd.xaui0cfg_data, vpd.xaui0cfg_len, 16,
+				  &p->xauicfg[0]);
+		if (ret)
+			return ret;
+		ret = vpdstrtou16(vpd.xaui1cfg_data, vpd.xaui1cfg_len, 16,
+				  &p->xauicfg[1]);
+		if (ret)
+			return ret;
 	}
 
-	for (i = 0; i < 6; i++)
-		p->eth_base[i] = hex_to_bin(vpd.na_data[2 * i]) * 16 +
-				 hex_to_bin(vpd.na_data[2 * i + 1]);
+	ret = hex2bin(p->eth_base, vpd.na_data, 6);
+	if (ret < 0)
+		return -EINVAL;
 	return 0;
 }
 
@@ -840,7 +874,7 @@ static int flash_wait_op(struct adapter *adapter, int attempts, int delay)
  *	Read the specified number of 32-bit words from the serial flash.
  *	If @byte_oriented is set the read data is stored as a byte array
  *	(i.e., big-endian), otherwise as 32-bit words in the platform's
- *	natural endianess.
+ *	natural endianness.
  */
 static int t3_read_flash(struct adapter *adapter, unsigned int addr,
 			 unsigned int nwords, u32 *data, int byte_oriented)
@@ -1048,7 +1082,7 @@ int t3_check_fw_version(struct adapter *adapter)
 		CH_WARN(adapter, "found newer FW version(%u.%u), "
 		        "driver compiled for version %u.%u\n", major, minor,
 			FW_VERSION_MAJOR, FW_VERSION_MINOR);
-			return 0;
+		return 0;
 	}
 	return -EINVAL;
 }
@@ -1076,7 +1110,7 @@ static int t3_flash_erase_sectors(struct adapter *adapter, int start, int end)
 	return 0;
 }
 
-/*
+/**
  *	t3_load_fw - download firmware
  *	@adapter: the adapter
  *	@fw_data: the firmware image to write
@@ -2161,7 +2195,7 @@ static int t3_sge_write_context(struct adapter *adapter, unsigned int id,
 
 /**
  *	clear_sge_ctxt - completely clear an SGE context
- *	@adapter: the adapter
+ *	@adap: the adapter
  *	@id: the context id
  *	@type: the context type
  *
@@ -2450,6 +2484,7 @@ int t3_sge_disable_cqcntxt(struct adapter *adapter, unsigned int id)
  *	@adapter: the adapter
  *	@id: the context id
  *	@op: the operation to perform
+ *	@credits: credit value to write
  *
  *	Perform the selected operation on an SGE completion queue context.
  *	The caller is responsible for ensuring only one context operation
@@ -2851,7 +2886,7 @@ static void init_cong_ctrl(unsigned short *a, unsigned short *b)
  *	t3_load_mtus - write the MTU and congestion control HW tables
  *	@adap: the adapter
  *	@mtus: the unrestricted values for the MTU table
- *	@alphs: the values for the congestion control alpha parameter
+ *	@alpha: the values for the congestion control alpha parameter
  *	@beta: the values for the congestion control beta parameter
  *	@mtu_cap: the maximum permitted effective MTU
  *
@@ -2932,7 +2967,7 @@ static void ulp_config(struct adapter *adap, const struct tp_params *p)
 
 /**
  *	t3_set_proto_sram - set the contents of the protocol sram
- *	@adapter: the adapter
+ *	@adap: the adapter
  *	@data: the protocol image
  *
  *	Write the contents of the protocol SRAM.
@@ -3289,29 +3324,25 @@ static void config_pcie(struct adapter *adap)
 	unsigned int log2_width, pldsize;
 	unsigned int fst_trn_rx, fst_trn_tx, acklat, rpllmt;
 
-	pci_read_config_word(adap->pdev,
-			     adap->pdev->pcie_cap + PCI_EXP_DEVCTL,
-			     &val);
+	pcie_capability_read_word(adap->pdev, PCI_EXP_DEVCTL, &val);
 	pldsize = (val & PCI_EXP_DEVCTL_PAYLOAD) >> 5;
 
 	pci_read_config_word(adap->pdev, 0x2, &devid);
 	if (devid == 0x37) {
-		pci_write_config_word(adap->pdev,
-				      adap->pdev->pcie_cap + PCI_EXP_DEVCTL,
-				      val & ~PCI_EXP_DEVCTL_READRQ &
-				      ~PCI_EXP_DEVCTL_PAYLOAD);
+		pcie_capability_write_word(adap->pdev, PCI_EXP_DEVCTL,
+					   val & ~PCI_EXP_DEVCTL_READRQ &
+					   ~PCI_EXP_DEVCTL_PAYLOAD);
 		pldsize = 0;
 	}
 
-	pci_read_config_word(adap->pdev, adap->pdev->pcie_cap + PCI_EXP_LNKCTL,
-			     &val);
+	pcie_capability_read_word(adap->pdev, PCI_EXP_LNKCTL, &val);
 
 	fst_trn_tx = G_NUMFSTTRNSEQ(t3_read_reg(adap, A_PCIE_PEX_CTRL0));
 	fst_trn_rx = adap->params.rev == 0 ? fst_trn_tx :
 	    G_NUMFSTTRNSEQRX(t3_read_reg(adap, A_PCIE_MODE));
 	log2_width = fls(adap->params.pci.width) - 1;
 	acklat = ack_lat[log2_width][pldsize];
-	if (val & 1)		/* check LOsEnable */
+	if (val & PCI_EXP_LNKCTL_ASPM_L0S)	/* check LOsEnable */
 		acklat += fst_trn_tx * 4;
 	rpllmt = rpl_tmr[log2_width][pldsize] + fst_trn_rx * 4;
 
@@ -3425,15 +3456,13 @@ out_err:
 static void get_pci_mode(struct adapter *adapter, struct pci_params *p)
 {
 	static unsigned short speed_map[] = { 33, 66, 100, 133 };
-	u32 pci_mode, pcie_cap;
+	u32 pci_mode;
 
-	pcie_cap = pci_pcie_cap(adapter->pdev);
-	if (pcie_cap) {
+	if (pci_is_pcie(adapter->pdev)) {
 		u16 val;
 
 		p->variant = PCI_VARIANT_PCIE;
-		pci_read_config_word(adapter->pdev, pcie_cap + PCI_EXP_LNKSTA,
-					&val);
+		pcie_capability_read_word(adapter->pdev, PCI_EXP_LNKSTA, &val);
 		p->width = (val >> 4) & 0x3f;
 		return;
 	}
@@ -3455,7 +3484,7 @@ static void get_pci_mode(struct adapter *adapter, struct pci_params *p)
 /**
  *	init_link_config - initialize a link's SW state
  *	@lc: structure holding the link state
- *	@ai: information about the current card
+ *	@caps: information about the current card
  *
  *	Initializes the SW state maintained for each link, including the link's
  *	capabilities and default speed/duplex/flow-control/autonegotiation
@@ -3591,7 +3620,7 @@ int t3_reset_adapter(struct adapter *adapter)
 
 static int init_parity(struct adapter *adap)
 {
-		int i, err, addr;
+	int i, err, addr;
 
 	if (t3_read_reg(adap, A_SG_CONTEXT_CMD) & F_CONTEXT_CMD_BUSY)
 		return -EBUSY;
@@ -3649,6 +3678,8 @@ int t3_prep_adapter(struct adapter *adapter, const struct adapter_info *ai,
 	    MAC_STATS_ACCUM_SECS : (MAC_STATS_ACCUM_SECS * 10);
 	adapter->params.pci.vpd_cap_addr =
 	    pci_find_capability(adapter->pdev, PCI_CAP_ID_VPD);
+	if (!adapter->params.pci.vpd_cap_addr)
+		return -ENODEV;
 	ret = get_vpd_params(adapter, &adapter->params.vpd);
 	if (ret < 0)
 		return ret;
@@ -3731,8 +3762,6 @@ int t3_prep_adapter(struct adapter *adapter, const struct adapter_info *ai,
 
 		memcpy(adapter->port[i]->dev_addr, hw_addr,
 		       ETH_ALEN);
-		memcpy(adapter->port[i]->perm_addr, hw_addr,
-		       ETH_ALEN);
 		init_link_config(&p->link_config, p->phy.caps);
 		p->phy.ops->power_down(&p->phy, 1);
 
@@ -3780,6 +3809,6 @@ int t3_replay_prep_adapter(struct adapter *adapter)
 		p->phy.ops->power_down(&p->phy, 1);
 	}
 
-return 0;
+	return 0;
 }
 

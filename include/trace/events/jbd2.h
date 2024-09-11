@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #undef TRACE_SYSTEM
 #define TRACE_SYSTEM jbd2
 
@@ -81,6 +82,13 @@ DEFINE_EVENT(jbd2_commit, jbd2_commit_logging,
 	TP_ARGS(journal, commit_transaction)
 );
 
+DEFINE_EVENT(jbd2_commit, jbd2_drop_transaction,
+
+	TP_PROTO(journal_t *journal, transaction_t *commit_transaction),
+
+	TP_ARGS(journal, commit_transaction)
+);
+
 TRACE_EVENT(jbd2_end_commit,
 	TP_PROTO(journal_t *journal, transaction_t *commit_transaction),
 
@@ -125,6 +133,118 @@ TRACE_EVENT(jbd2_submit_inode_data,
 		  (unsigned long) __entry->ino)
 );
 
+DECLARE_EVENT_CLASS(jbd2_handle_start_class,
+	TP_PROTO(dev_t dev, unsigned long tid, unsigned int type,
+		 unsigned int line_no, int requested_blocks),
+
+	TP_ARGS(dev, tid, type, line_no, requested_blocks),
+
+	TP_STRUCT__entry(
+		__field(		dev_t,	dev		)
+		__field(	unsigned long,	tid		)
+		__field(	 unsigned int,	type		)
+		__field(	 unsigned int,	line_no		)
+		__field(		  int,	requested_blocks)
+	),
+
+	TP_fast_assign(
+		__entry->dev		  = dev;
+		__entry->tid		  = tid;
+		__entry->type		  = type;
+		__entry->line_no	  = line_no;
+		__entry->requested_blocks = requested_blocks;
+	),
+
+	TP_printk("dev %d,%d tid %lu type %u line_no %u "
+		  "requested_blocks %d",
+		  MAJOR(__entry->dev), MINOR(__entry->dev), __entry->tid,
+		  __entry->type, __entry->line_no, __entry->requested_blocks)
+);
+
+DEFINE_EVENT(jbd2_handle_start_class, jbd2_handle_start,
+	TP_PROTO(dev_t dev, unsigned long tid, unsigned int type,
+		 unsigned int line_no, int requested_blocks),
+
+	TP_ARGS(dev, tid, type, line_no, requested_blocks)
+);
+
+DEFINE_EVENT(jbd2_handle_start_class, jbd2_handle_restart,
+	TP_PROTO(dev_t dev, unsigned long tid, unsigned int type,
+		 unsigned int line_no, int requested_blocks),
+
+	TP_ARGS(dev, tid, type, line_no, requested_blocks)
+);
+
+TRACE_EVENT(jbd2_handle_extend,
+	TP_PROTO(dev_t dev, unsigned long tid, unsigned int type,
+		 unsigned int line_no, int buffer_credits,
+		 int requested_blocks),
+
+	TP_ARGS(dev, tid, type, line_no, buffer_credits, requested_blocks),
+
+	TP_STRUCT__entry(
+		__field(		dev_t,	dev		)
+		__field(	unsigned long,	tid		)
+		__field(	 unsigned int,	type		)
+		__field(	 unsigned int,	line_no		)
+		__field(		  int,	buffer_credits  )
+		__field(		  int,	requested_blocks)
+	),
+
+	TP_fast_assign(
+		__entry->dev		  = dev;
+		__entry->tid		  = tid;
+		__entry->type		  = type;
+		__entry->line_no	  = line_no;
+		__entry->buffer_credits   = buffer_credits;
+		__entry->requested_blocks = requested_blocks;
+	),
+
+	TP_printk("dev %d,%d tid %lu type %u line_no %u "
+		  "buffer_credits %d requested_blocks %d",
+		  MAJOR(__entry->dev), MINOR(__entry->dev), __entry->tid,
+		  __entry->type, __entry->line_no, __entry->buffer_credits,
+		  __entry->requested_blocks)
+);
+
+TRACE_EVENT(jbd2_handle_stats,
+	TP_PROTO(dev_t dev, unsigned long tid, unsigned int type,
+		 unsigned int line_no, int interval, int sync,
+		 int requested_blocks, int dirtied_blocks),
+
+	TP_ARGS(dev, tid, type, line_no, interval, sync,
+		requested_blocks, dirtied_blocks),
+
+	TP_STRUCT__entry(
+		__field(		dev_t,	dev		)
+		__field(	unsigned long,	tid		)
+		__field(	 unsigned int,	type		)
+		__field(	 unsigned int,	line_no		)
+		__field(		  int,	interval	)
+		__field(		  int,	sync		)
+		__field(		  int,	requested_blocks)
+		__field(		  int,	dirtied_blocks	)
+	),
+
+	TP_fast_assign(
+		__entry->dev		  = dev;
+		__entry->tid		  = tid;
+		__entry->type		  = type;
+		__entry->line_no	  = line_no;
+		__entry->interval	  = interval;
+		__entry->sync		  = sync;
+		__entry->requested_blocks = requested_blocks;
+		__entry->dirtied_blocks	  = dirtied_blocks;
+	),
+
+	TP_printk("dev %d,%d tid %lu type %u line_no %u interval %d "
+		  "sync %d requested_blocks %d dirtied_blocks %d",
+		  MAJOR(__entry->dev), MINOR(__entry->dev), __entry->tid,
+		  __entry->type, __entry->line_no, __entry->interval,
+		  __entry->sync, __entry->requested_blocks,
+		  __entry->dirtied_blocks)
+);
+
 TRACE_EVENT(jbd2_run_stats,
 	TP_PROTO(dev_t dev, unsigned long tid,
 		 struct transaction_run_stats_s *stats),
@@ -135,6 +255,7 @@ TRACE_EVENT(jbd2_run_stats,
 		__field(		dev_t,	dev		)
 		__field(	unsigned long,	tid		)
 		__field(	unsigned long,	wait		)
+		__field(	unsigned long,	request_delay	)
 		__field(	unsigned long,	running		)
 		__field(	unsigned long,	locked		)
 		__field(	unsigned long,	flushing	)
@@ -148,6 +269,7 @@ TRACE_EVENT(jbd2_run_stats,
 		__entry->dev		= dev;
 		__entry->tid		= tid;
 		__entry->wait		= stats->rs_wait;
+		__entry->request_delay	= stats->rs_request_delay;
 		__entry->running	= stats->rs_running;
 		__entry->locked		= stats->rs_locked;
 		__entry->flushing	= stats->rs_flushing;
@@ -157,10 +279,12 @@ TRACE_EVENT(jbd2_run_stats,
 		__entry->blocks_logged	= stats->rs_blocks_logged;
 	),
 
-	TP_printk("dev %d,%d tid %lu wait %u running %u locked %u flushing %u "
-		  "logging %u handle_count %u blocks %u blocks_logged %u",
+	TP_printk("dev %d,%d tid %lu wait %u request_delay %u running %u "
+		  "locked %u flushing %u logging %u handle_count %u "
+		  "blocks %u blocks_logged %u",
 		  MAJOR(__entry->dev), MINOR(__entry->dev), __entry->tid,
 		  jiffies_to_msecs(__entry->wait),
+		  jiffies_to_msecs(__entry->request_delay),
 		  jiffies_to_msecs(__entry->running),
 		  jiffies_to_msecs(__entry->locked),
 		  jiffies_to_msecs(__entry->flushing),
@@ -200,7 +324,7 @@ TRACE_EVENT(jbd2_checkpoint_stats,
 		  __entry->forced_to_close, __entry->written, __entry->dropped)
 );
 
-TRACE_EVENT(jbd2_cleanup_journal_tail,
+TRACE_EVENT(jbd2_update_log_tail,
 
 	TP_PROTO(journal_t *journal, tid_t first_tid,
 		 unsigned long block_nr, unsigned long freed),
@@ -227,6 +351,148 @@ TRACE_EVENT(jbd2_cleanup_journal_tail,
 		  MAJOR(__entry->dev), MINOR(__entry->dev),
 		  __entry->tail_sequence, __entry->first_tid,
 		  __entry->block_nr, __entry->freed)
+);
+
+TRACE_EVENT(jbd2_write_superblock,
+
+	TP_PROTO(journal_t *journal, int write_op),
+
+	TP_ARGS(journal, write_op),
+
+	TP_STRUCT__entry(
+		__field(	dev_t,  dev			)
+		__field(	  int,  write_op		)
+	),
+
+	TP_fast_assign(
+		__entry->dev		= journal->j_fs_dev->bd_dev;
+		__entry->write_op	= write_op;
+	),
+
+	TP_printk("dev %d,%d write_op %x", MAJOR(__entry->dev),
+		  MINOR(__entry->dev), __entry->write_op)
+);
+
+TRACE_EVENT(jbd2_lock_buffer_stall,
+
+	TP_PROTO(dev_t dev, unsigned long stall_ms),
+
+	TP_ARGS(dev, stall_ms),
+
+	TP_STRUCT__entry(
+		__field(        dev_t, dev	)
+		__field(unsigned long, stall_ms	)
+	),
+
+	TP_fast_assign(
+		__entry->dev		= dev;
+		__entry->stall_ms	= stall_ms;
+	),
+
+	TP_printk("dev %d,%d stall_ms %lu",
+		MAJOR(__entry->dev), MINOR(__entry->dev),
+		__entry->stall_ms)
+);
+
+DECLARE_EVENT_CLASS(jbd2_journal_shrink,
+
+	TP_PROTO(journal_t *journal, unsigned long nr_to_scan,
+		 unsigned long count),
+
+	TP_ARGS(journal, nr_to_scan, count),
+
+	TP_STRUCT__entry(
+		__field(dev_t, dev)
+		__field(unsigned long, nr_to_scan)
+		__field(unsigned long, count)
+	),
+
+	TP_fast_assign(
+		__entry->dev		= journal->j_fs_dev->bd_dev;
+		__entry->nr_to_scan	= nr_to_scan;
+		__entry->count		= count;
+	),
+
+	TP_printk("dev %d,%d nr_to_scan %lu count %lu",
+		  MAJOR(__entry->dev), MINOR(__entry->dev),
+		  __entry->nr_to_scan, __entry->count)
+);
+
+DEFINE_EVENT(jbd2_journal_shrink, jbd2_shrink_count,
+
+	TP_PROTO(journal_t *journal, unsigned long nr_to_scan, unsigned long count),
+
+	TP_ARGS(journal, nr_to_scan, count)
+);
+
+DEFINE_EVENT(jbd2_journal_shrink, jbd2_shrink_scan_enter,
+
+	TP_PROTO(journal_t *journal, unsigned long nr_to_scan, unsigned long count),
+
+	TP_ARGS(journal, nr_to_scan, count)
+);
+
+TRACE_EVENT(jbd2_shrink_scan_exit,
+
+	TP_PROTO(journal_t *journal, unsigned long nr_to_scan,
+		 unsigned long nr_shrunk, unsigned long count),
+
+	TP_ARGS(journal, nr_to_scan, nr_shrunk, count),
+
+	TP_STRUCT__entry(
+		__field(dev_t, dev)
+		__field(unsigned long, nr_to_scan)
+		__field(unsigned long, nr_shrunk)
+		__field(unsigned long, count)
+	),
+
+	TP_fast_assign(
+		__entry->dev		= journal->j_fs_dev->bd_dev;
+		__entry->nr_to_scan	= nr_to_scan;
+		__entry->nr_shrunk	= nr_shrunk;
+		__entry->count		= count;
+	),
+
+	TP_printk("dev %d,%d nr_to_scan %lu nr_shrunk %lu count %lu",
+		  MAJOR(__entry->dev), MINOR(__entry->dev),
+		  __entry->nr_to_scan, __entry->nr_shrunk,
+		  __entry->count)
+);
+
+TRACE_EVENT(jbd2_shrink_checkpoint_list,
+
+	TP_PROTO(journal_t *journal, tid_t first_tid, tid_t tid, tid_t last_tid,
+		 unsigned long nr_freed, unsigned long nr_scanned,
+		 tid_t next_tid),
+
+	TP_ARGS(journal, first_tid, tid, last_tid, nr_freed,
+		nr_scanned, next_tid),
+
+	TP_STRUCT__entry(
+		__field(dev_t, dev)
+		__field(tid_t, first_tid)
+		__field(tid_t, tid)
+		__field(tid_t, last_tid)
+		__field(unsigned long, nr_freed)
+		__field(unsigned long, nr_scanned)
+		__field(tid_t, next_tid)
+	),
+
+	TP_fast_assign(
+		__entry->dev		= journal->j_fs_dev->bd_dev;
+		__entry->first_tid	= first_tid;
+		__entry->tid		= tid;
+		__entry->last_tid	= last_tid;
+		__entry->nr_freed	= nr_freed;
+		__entry->nr_scanned	= nr_scanned;
+		__entry->next_tid	= next_tid;
+	),
+
+	TP_printk("dev %d,%d shrink transaction %u-%u(%u) freed %lu "
+		  "scanned %lu next transaction %u",
+		  MAJOR(__entry->dev), MINOR(__entry->dev),
+		  __entry->first_tid, __entry->tid, __entry->last_tid,
+		  __entry->nr_freed, __entry->nr_scanned, __entry->next_tid)
 );
 
 #endif /* _TRACE_JBD2_H */

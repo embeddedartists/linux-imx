@@ -1,12 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Common code for Palm LD, T5, TX, Z72
  *
  * Copyright (C) 2010-2011 Marek Vasut <marek.vasut@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
  */
 
 #include <linux/platform_device.h>
@@ -15,26 +11,27 @@
 #include <linux/gpio_keys.h>
 #include <linux/input.h>
 #include <linux/pda_power.h>
+#include <linux/pwm.h>
 #include <linux/pwm_backlight.h>
+#include <linux/gpio/machine.h>
 #include <linux/gpio.h>
 #include <linux/wm97xx.h>
 #include <linux/power_supply.h>
-#include <linux/usb/gpio_vbus.h>
 #include <linux/regulator/max1586.h>
-#include <linux/i2c/pxa-i2c.h>
+#include <linux/platform_data/i2c-pxa.h>
 
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
 
-#include <mach/pxa27x.h>
+#include "pxa27x.h"
 #include <mach/audio.h>
-#include <mach/mmc.h>
-#include <mach/pxafb.h>
-#include <mach/irda.h>
-#include <mach/udc.h>
-#include <mach/palmasoc.h>
-#include <mach/palm27x.h>
+#include <linux/platform_data/mmc-pxamci.h>
+#include <linux/platform_data/video-pxafb.h>
+#include <linux/platform_data/irda-pxaficp.h>
+#include "udc.h"
+#include <linux/platform_data/asoc-palm27x.h>
+#include "palm27x.h"
 
 #include "generic.h"
 #include "devices.h"
@@ -48,14 +45,10 @@ static struct pxamci_platform_data palm27x_mci_platform_data = {
 	.detect_delay_ms	= 200,
 };
 
-void __init palm27x_mmc_init(int detect, int ro, int power,
-					int power_inverted)
+void __init palm27x_mmc_init(struct gpiod_lookup_table *gtable)
 {
-	palm27x_mci_platform_data.gpio_card_detect	= detect;
-	palm27x_mci_platform_data.gpio_card_ro		= ro;
-	palm27x_mci_platform_data.gpio_power		= power;
-	palm27x_mci_platform_data.gpio_power_invert	= power_inverted;
-
+	if (gtable)
+		gpiod_add_lookup_table(gtable);
 	pxa_set_mci_info(&palm27x_mci_platform_data);
 }
 #endif
@@ -166,32 +159,32 @@ void __init palm27x_lcd_init(int power, struct pxafb_mode_info *mode)
  ******************************************************************************/
 #if	defined(CONFIG_USB_PXA27X) || \
 	defined(CONFIG_USB_PXA27X_MODULE)
-static struct gpio_vbus_mach_info palm27x_udc_info = {
-	.gpio_vbus_inverted	= 1,
+
+/* The actual GPIO offsets get filled in in the palm27x_udc_init() call */
+static struct gpiod_lookup_table palm27x_udc_gpiod_table = {
+	.dev_id = "gpio-vbus",
+	.table = {
+		GPIO_LOOKUP("gpio-pxa", 0,
+			    "vbus", GPIO_ACTIVE_HIGH),
+		GPIO_LOOKUP("gpio-pxa", 0,
+			    "pullup", GPIO_ACTIVE_HIGH),
+		{ },
+	},
 };
 
 static struct platform_device palm27x_gpio_vbus = {
 	.name	= "gpio-vbus",
 	.id	= -1,
-	.dev	= {
-		.platform_data	= &palm27x_udc_info,
-	},
 };
 
 void __init palm27x_udc_init(int vbus, int pullup, int vbus_inverted)
 {
-	palm27x_udc_info.gpio_vbus	= vbus;
-	palm27x_udc_info.gpio_pullup	= pullup;
+	palm27x_udc_gpiod_table.table[0].chip_hwnum = vbus;
+	palm27x_udc_gpiod_table.table[1].chip_hwnum = pullup;
+	if (vbus_inverted)
+		palm27x_udc_gpiod_table.table[0].flags = GPIO_ACTIVE_LOW;
 
-	palm27x_udc_info.gpio_vbus_inverted = vbus_inverted;
-
-	if (!gpio_request(pullup, "USB Pullup")) {
-		gpio_direction_output(pullup,
-			palm27x_udc_info.gpio_vbus_inverted);
-		gpio_free(pullup);
-	} else
-		return;
-
+	gpiod_add_lookup_table(&palm27x_udc_gpiod_table);
 	platform_device_register(&palm27x_gpio_vbus);
 }
 #endif
@@ -219,7 +212,6 @@ void __init palm27x_irda_init(int pwdn)
 static struct wm97xx_batt_pdata palm27x_batt_pdata = {
 	.batt_aux	= WM97XX_AUX_ID3,
 	.temp_aux	= WM97XX_AUX_ID2,
-	.charge_gpio	= -1,
 	.batt_mult	= 1000,
 	.batt_div	= 414,
 	.temp_mult	= 1,
@@ -270,6 +262,11 @@ void __init palm27x_ac97_init(int minv, int maxv, int jack, int reset)
  * Backlight
  ******************************************************************************/
 #if defined(CONFIG_BACKLIGHT_PWM) || defined(CONFIG_BACKLIGHT_PWM_MODULE)
+static struct pwm_lookup palm27x_pwm_lookup[] = {
+	PWM_LOOKUP("pxa27x-pwm.0", 0, "pwm-backlight.0", NULL, 3500 * 1024,
+		   PWM_POLARITY_NORMAL),
+};
+
 static int palm_bl_power;
 static int palm_lcd_power;
 
@@ -318,10 +315,8 @@ static void palm27x_backlight_exit(struct device *dev)
 }
 
 static struct platform_pwm_backlight_data palm27x_backlight_data = {
-	.pwm_id		= 0,
 	.max_brightness	= 0xfe,
 	.dft_brightness	= 0x7e,
-	.pwm_period_ns	= 3500 * 1024,
 	.init		= palm27x_backlight_init,
 	.notify		= palm27x_backlight_notify,
 	.exit		= palm27x_backlight_exit,
@@ -339,6 +334,7 @@ void __init palm27x_pwm_init(int bl, int lcd)
 {
 	palm_bl_power	= bl;
 	palm_lcd_power	= lcd;
+	pwm_add_table(palm27x_pwm_lookup, ARRAY_SIZE(palm27x_pwm_lookup));
 	platform_device_register(&palm27x_backlight);
 }
 #endif
@@ -429,9 +425,7 @@ void __init palm27x_power_init(int ac, int usb)
 #if defined(CONFIG_REGULATOR_MAX1586) || \
     defined(CONFIG_REGULATOR_MAX1586_MODULE)
 static struct regulator_consumer_supply palm27x_max1587a_consumers[] = {
-	{
-		.supply	= "vcc_core",
-	}
+	REGULATOR_SUPPLY("vcc_core", NULL),
 };
 
 static struct regulator_init_data palm27x_max1587a_v3_info = {

@@ -1,21 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /* 
  *    Interfaces to retrieve and set PDC Stable options (firmware)
  *
  *    Copyright (C) 2005-2006 Thibaut VARENE <varenet@parisc-linux.org>
- *
- *    This program is free software; you can redistribute it and/or modify
- *    it under the terms of the GNU General Public License, version 2, as
- *    published by the Free Software Foundation.
- *
- *    This program is distributed in the hope that it will be useful,
- *    but WITHOUT ANY WARRANTY; without even the implied warranty of
- *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *    GNU General Public License for more details.
- *
- *    You should have received a copy of the GNU General Public License
- *    along with this program; if not, write to the Free Software
- *    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
- *
  *
  *    DEV NOTE: the PDC Procedures reference states that:
  *    "A minimum of 96 bytes of Stable Storage is required. Providing more than
@@ -68,7 +55,7 @@
 
 #include <asm/pdc.h>
 #include <asm/page.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/hardware.h>
 
 #define PDCS_VERSION	"0.30"
@@ -212,12 +199,10 @@ pdcspath_store(struct pdcspath_entry *entry)
 			entry, devpath, entry->addr);
 
 	/* addr, devpath and count must be word aligned */
-	if (pdc_stable_write(entry->addr, devpath, sizeof(*devpath)) != PDC_OK) {
-		printk(KERN_ERR "%s: an error occurred when writing to PDC.\n"
+	if (pdc_stable_write(entry->addr, devpath, sizeof(*devpath)) != PDC_OK)
+		WARN(1, KERN_ERR "%s: an error occurred when writing to PDC.\n"
 				"It is likely that the Stable Storage data has been corrupted.\n"
 				"Please check it carefully upon next reboot.\n", __func__);
-		WARN_ON(1);
-	}
 		
 	/* kobject is already registered */
 	entry->ready = 2;
@@ -280,7 +265,7 @@ pdcspath_hwpath_write(struct pdcspath_entry *entry, const char *buf, size_t coun
 {
 	struct hardware_path hwpath;
 	unsigned short i;
-	char in[count+1], *temp;
+	char in[64], *temp;
 	struct device *dev;
 	int ret;
 
@@ -288,8 +273,9 @@ pdcspath_hwpath_write(struct pdcspath_entry *entry, const char *buf, size_t coun
 		return -EINVAL;
 
 	/* We'll use a local copy of buf */
-	memset(in, 0, count+1);
+	count = min_t(size_t, count, sizeof(in)-1);
 	strncpy(in, buf, count);
+	in[count] = '\0';
 	
 	/* Let's clean up the target. 0xff is a blank pattern */
 	memset(&hwpath, 0xff, sizeof(hwpath));
@@ -334,11 +320,11 @@ pdcspath_hwpath_write(struct pdcspath_entry *entry, const char *buf, size_t coun
 	
 	/* Update the symlink to the real device */
 	sysfs_remove_link(&entry->kobj, "device");
+	write_unlock(&entry->rw_lock);
+
 	ret = sysfs_create_link(&entry->kobj, &entry->dev->kobj, "device");
 	WARN_ON(ret);
 
-	write_unlock(&entry->rw_lock);
-	
 	printk(KERN_INFO PDCS_PREFIX ": changed \"%s\" path to \"%s\"\n",
 		entry->name, buf);
 	
@@ -395,14 +381,15 @@ pdcspath_layer_write(struct pdcspath_entry *entry, const char *buf, size_t count
 {
 	unsigned int layers[6]; /* device-specific info (ctlr#, unit#, ...) */
 	unsigned short i;
-	char in[count+1], *temp;
+	char in[64], *temp;
 
 	if (!entry || !buf || !count)
 		return -EINVAL;
 
 	/* We'll use a local copy of buf */
-	memset(in, 0, count+1);
+	count = min_t(size_t, count, sizeof(in)-1);
 	strncpy(in, buf, count);
+	in[count] = '\0';
 	
 	/* Let's clean up the target. 0 is a blank pattern */
 	memset(&layers, 0, sizeof(layers));
@@ -757,7 +744,7 @@ static ssize_t pdcs_auto_write(struct kobject *kobj,
 {
 	struct pdcspath_entry *pathentry;
 	unsigned char flags;
-	char in[count+1], *temp;
+	char in[8], *temp;
 	char c;
 
 	if (!capable(CAP_SYS_ADMIN))
@@ -767,8 +754,9 @@ static ssize_t pdcs_auto_write(struct kobject *kobj,
 		return -EINVAL;
 
 	/* We'll use a local copy of buf */
-	memset(in, 0, count+1);
+	count = min_t(size_t, count, sizeof(in)-1);
 	strncpy(in, buf, count);
+	in[count] = '\0';
 
 	/* Current flags are stored in primary boot path entry */
 	pathentry = &pdcspath_entry_primary;
@@ -953,7 +941,7 @@ static struct attribute *pdcs_subsys_attrs[] = {
 	NULL,
 };
 
-static struct attribute_group pdcs_attr_group = {
+static const struct attribute_group pdcs_attr_group = {
 	.attrs = pdcs_subsys_attrs,
 };
 
@@ -991,12 +979,15 @@ pdcs_register_pathentries(void)
 		entry->kobj.kset = paths_kset;
 		err = kobject_init_and_add(&entry->kobj, &ktype_pdcspath, NULL,
 					   "%s", entry->name);
-		if (err)
+		if (err) {
+			kobject_put(&entry->kobj);
 			return err;
+		}
 
 		/* kobject is now registered */
 		write_lock(&entry->rw_lock);
 		entry->ready = 2;
+		write_unlock(&entry->rw_lock);
 		
 		/* Add a nice symlink to the real device */
 		if (entry->dev) {
@@ -1004,7 +995,6 @@ pdcs_register_pathentries(void)
 			WARN_ON(err);
 		}
 
-		write_unlock(&entry->rw_lock);
 		kobject_uevent(&entry->kobj, KOBJ_ADD);
 	}
 	

@@ -1,27 +1,16 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * SPI master driver using generic bitbanged GPIO
  *
  * Copyright (C) 2006,2008 David Brownell
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ * Copyright (C) 2017 Linus Walleij
  */
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/init.h>
 #include <linux/platform_device.h>
-#include <linux/gpio.h>
+#include <linux/gpio/consumer.h>
+#include <linux/of.h>
+#include <linux/of_device.h>
 
 #include <linux/spi/spi.h>
 #include <linux/spi/spi_bitbang.h>
@@ -37,15 +26,16 @@
  * platform_device->driver_data ... points to spi_gpio
  *
  * spi->controller_state ... reserved for bitbang framework code
- * spi->controller_data ... holds chipselect GPIO
  *
  * spi->master->dev.driver_data ... points to spi_gpio->bitbang
  */
 
 struct spi_gpio {
 	struct spi_bitbang		bitbang;
-	struct spi_gpio_platform_data	pdata;
-	struct platform_device		*pdev;
+	struct gpio_desc		*sck;
+	struct gpio_desc		*miso;
+	struct gpio_desc		*mosi;
+	struct gpio_desc		**cs_gpios;
 };
 
 /*----------------------------------------------------------------------*/
@@ -78,47 +68,45 @@ struct spi_gpio {
 
 #define GENERIC_BITBANG	/* vs tight inlines */
 
-/* all functions referencing these symbols must define pdata */
-#define SPI_MISO_GPIO	((pdata)->miso)
-#define SPI_MOSI_GPIO	((pdata)->mosi)
-#define SPI_SCK_GPIO	((pdata)->sck)
-
-#define SPI_N_CHIPSEL	((pdata)->num_chipselect)
-
 #endif
 
 /*----------------------------------------------------------------------*/
 
-static inline const struct spi_gpio_platform_data * __pure
-spi_to_pdata(const struct spi_device *spi)
+static inline struct spi_gpio *__pure
+spi_to_spi_gpio(const struct spi_device *spi)
 {
 	const struct spi_bitbang	*bang;
-	const struct spi_gpio		*spi_gpio;
+	struct spi_gpio			*spi_gpio;
 
 	bang = spi_master_get_devdata(spi->master);
 	spi_gpio = container_of(bang, struct spi_gpio, bitbang);
-	return &spi_gpio->pdata;
+	return spi_gpio;
 }
 
-/* this is #defined to avoid unused-variable warnings when inlining */
-#define pdata		spi_to_pdata(spi)
-
+/* These helpers are in turn called by the bitbang inlines */
 static inline void setsck(const struct spi_device *spi, int is_on)
 {
-	gpio_set_value(SPI_SCK_GPIO, is_on);
+	struct spi_gpio *spi_gpio = spi_to_spi_gpio(spi);
+
+	gpiod_set_value_cansleep(spi_gpio->sck, is_on);
 }
 
 static inline void setmosi(const struct spi_device *spi, int is_on)
 {
-	gpio_set_value(SPI_MOSI_GPIO, is_on);
+	struct spi_gpio *spi_gpio = spi_to_spi_gpio(spi);
+
+	gpiod_set_value_cansleep(spi_gpio->mosi, is_on);
 }
 
 static inline int getmiso(const struct spi_device *spi)
 {
-	return !!gpio_get_value(SPI_MISO_GPIO);
-}
+	struct spi_gpio *spi_gpio = spi_to_spi_gpio(spi);
 
-#undef pdata
+	if (spi->mode & SPI_3WIRE)
+		return !!gpiod_get_value_cansleep(spi_gpio->mosi);
+	else
+		return !!gpiod_get_value_cansleep(spi_gpio->miso);
+}
 
 /*
  * NOTE:  this clocks "as fast as we can".  It "should" be a function of the
@@ -145,27 +133,27 @@ static inline int getmiso(const struct spi_device *spi)
  */
 
 static u32 spi_gpio_txrx_word_mode0(struct spi_device *spi,
-		unsigned nsecs, u32 word, u8 bits)
+		unsigned nsecs, u32 word, u8 bits, unsigned flags)
 {
-	return bitbang_txrx_be_cpha0(spi, nsecs, 0, 0, word, bits);
+	return bitbang_txrx_be_cpha0(spi, nsecs, 0, flags, word, bits);
 }
 
 static u32 spi_gpio_txrx_word_mode1(struct spi_device *spi,
-		unsigned nsecs, u32 word, u8 bits)
+		unsigned nsecs, u32 word, u8 bits, unsigned flags)
 {
-	return bitbang_txrx_be_cpha1(spi, nsecs, 0, 0, word, bits);
+	return bitbang_txrx_be_cpha1(spi, nsecs, 0, flags, word, bits);
 }
 
 static u32 spi_gpio_txrx_word_mode2(struct spi_device *spi,
-		unsigned nsecs, u32 word, u8 bits)
+		unsigned nsecs, u32 word, u8 bits, unsigned flags)
 {
-	return bitbang_txrx_be_cpha0(spi, nsecs, 1, 0, word, bits);
+	return bitbang_txrx_be_cpha0(spi, nsecs, 1, flags, word, bits);
 }
 
 static u32 spi_gpio_txrx_word_mode3(struct spi_device *spi,
-		unsigned nsecs, u32 word, u8 bits)
+		unsigned nsecs, u32 word, u8 bits, unsigned flags)
 {
-	return bitbang_txrx_be_cpha1(spi, nsecs, 1, 0, word, bits);
+	return bitbang_txrx_be_cpha1(spi, nsecs, 1, flags, word, bits);
 }
 
 /*
@@ -179,30 +167,30 @@ static u32 spi_gpio_txrx_word_mode3(struct spi_device *spi,
  */
 
 static u32 spi_gpio_spec_txrx_word_mode0(struct spi_device *spi,
-		unsigned nsecs, u32 word, u8 bits)
+		unsigned nsecs, u32 word, u8 bits, unsigned flags)
 {
-	unsigned flags = spi->master->flags;
+	flags = spi->master->flags;
 	return bitbang_txrx_be_cpha0(spi, nsecs, 0, flags, word, bits);
 }
 
 static u32 spi_gpio_spec_txrx_word_mode1(struct spi_device *spi,
-		unsigned nsecs, u32 word, u8 bits)
+		unsigned nsecs, u32 word, u8 bits, unsigned flags)
 {
-	unsigned flags = spi->master->flags;
+	flags = spi->master->flags;
 	return bitbang_txrx_be_cpha1(spi, nsecs, 0, flags, word, bits);
 }
 
 static u32 spi_gpio_spec_txrx_word_mode2(struct spi_device *spi,
-		unsigned nsecs, u32 word, u8 bits)
+		unsigned nsecs, u32 word, u8 bits, unsigned flags)
 {
-	unsigned flags = spi->master->flags;
+	flags = spi->master->flags;
 	return bitbang_txrx_be_cpha0(spi, nsecs, 1, flags, word, bits);
 }
 
 static u32 spi_gpio_spec_txrx_word_mode3(struct spi_device *spi,
-		unsigned nsecs, u32 word, u8 bits)
+		unsigned nsecs, u32 word, u8 bits, unsigned flags)
 {
-	unsigned flags = spi->master->flags;
+	flags = spi->master->flags;
 	return bitbang_txrx_be_cpha1(spi, nsecs, 1, flags, word, bits);
 }
 
@@ -210,207 +198,240 @@ static u32 spi_gpio_spec_txrx_word_mode3(struct spi_device *spi,
 
 static void spi_gpio_chipselect(struct spi_device *spi, int is_active)
 {
-	unsigned long cs = (unsigned long) spi->controller_data;
+	struct spi_gpio *spi_gpio = spi_to_spi_gpio(spi);
 
-	/* set initial clock polarity */
+	/* set initial clock line level */
 	if (is_active)
-		setsck(spi, spi->mode & SPI_CPOL);
+		gpiod_set_value_cansleep(spi_gpio->sck, spi->mode & SPI_CPOL);
 
-	if (cs != SPI_GPIO_NO_CHIPSELECT) {
-		/* SPI is normally active-low */
-		gpio_set_value(cs, (spi->mode & SPI_CS_HIGH) ? is_active : !is_active);
+	/* Drive chip select line, if we have one */
+	if (spi_gpio->cs_gpios) {
+		struct gpio_desc *cs = spi_gpio->cs_gpios[spi->chip_select];
+
+		/* SPI chip selects are normally active-low */
+		gpiod_set_value_cansleep(cs, (spi->mode & SPI_CS_HIGH) ? is_active : !is_active);
 	}
 }
 
 static int spi_gpio_setup(struct spi_device *spi)
 {
-	unsigned long	cs = (unsigned long) spi->controller_data;
-	int		status = 0;
+	struct gpio_desc	*cs;
+	int			status = 0;
+	struct spi_gpio		*spi_gpio = spi_to_spi_gpio(spi);
 
-	if (spi->bits_per_word > 32)
-		return -EINVAL;
-
-	if (!spi->controller_state) {
-		if (cs != SPI_GPIO_NO_CHIPSELECT) {
-			status = gpio_request(cs, dev_name(&spi->dev));
-			if (status)
-				return status;
-			status = gpio_direction_output(cs, spi->mode & SPI_CS_HIGH);
-		}
+	/*
+	 * The CS GPIOs have already been
+	 * initialized from the descriptor lookup.
+	 */
+	if (spi_gpio->cs_gpios) {
+		cs = spi_gpio->cs_gpios[spi->chip_select];
+		if (!spi->controller_state && cs)
+			status = gpiod_direction_output(cs,
+						  !(spi->mode & SPI_CS_HIGH));
 	}
+
 	if (!status)
 		status = spi_bitbang_setup(spi);
-	if (status) {
-		if (!spi->controller_state && cs != SPI_GPIO_NO_CHIPSELECT)
-			gpio_free(cs);
-	}
+
 	return status;
+}
+
+static int spi_gpio_set_direction(struct spi_device *spi, bool output)
+{
+	struct spi_gpio *spi_gpio = spi_to_spi_gpio(spi);
+	int ret;
+
+	if (output)
+		return gpiod_direction_output(spi_gpio->mosi, 1);
+
+	ret = gpiod_direction_input(spi_gpio->mosi);
+	if (ret)
+		return ret;
+	/*
+	 * Send a turnaround high impedance cycle when switching
+	 * from output to input. Theoretically there should be
+	 * a clock delay here, but as has been noted above, the
+	 * nsec delay function for bit-banged GPIO is simply
+	 * {} because bit-banging just doesn't get fast enough
+	 * anyway.
+	 */
+	if (spi->mode & SPI_3WIRE_HIZ) {
+		gpiod_set_value_cansleep(spi_gpio->sck,
+					 !(spi->mode & SPI_CPOL));
+		gpiod_set_value_cansleep(spi_gpio->sck,
+					 !!(spi->mode & SPI_CPOL));
+	}
+	return 0;
 }
 
 static void spi_gpio_cleanup(struct spi_device *spi)
 {
-	unsigned long	cs = (unsigned long) spi->controller_data;
-
-	if (cs != SPI_GPIO_NO_CHIPSELECT)
-		gpio_free(cs);
 	spi_bitbang_cleanup(spi);
 }
 
-static int __devinit spi_gpio_alloc(unsigned pin, const char *label, bool is_in)
+/*
+ * It can be convenient to use this driver with pins that have alternate
+ * functions associated with a "native" SPI controller if a driver for that
+ * controller is not available, or is missing important functionality.
+ *
+ * On platforms which can do so, configure MISO with a weak pullup unless
+ * there's an external pullup on that signal.  That saves power by avoiding
+ * floating signals.  (A weak pulldown would save power too, but many
+ * drivers expect to see all-ones data as the no slave "response".)
+ */
+static int spi_gpio_request(struct device *dev, struct spi_gpio *spi_gpio)
 {
-	int value;
+	spi_gpio->mosi = devm_gpiod_get_optional(dev, "mosi", GPIOD_OUT_LOW);
+	if (IS_ERR(spi_gpio->mosi))
+		return PTR_ERR(spi_gpio->mosi);
 
-	value = gpio_request(pin, label);
-	if (value == 0) {
-		if (is_in)
-			value = gpio_direction_input(pin);
-		else
-			value = gpio_direction_output(pin, 0);
-	}
-	return value;
+	spi_gpio->miso = devm_gpiod_get_optional(dev, "miso", GPIOD_IN);
+	if (IS_ERR(spi_gpio->miso))
+		return PTR_ERR(spi_gpio->miso);
+
+	spi_gpio->sck = devm_gpiod_get(dev, "sck", GPIOD_OUT_LOW);
+	return PTR_ERR_OR_ZERO(spi_gpio->sck);
 }
 
-static int __devinit
-spi_gpio_request(struct spi_gpio_platform_data *pdata, const char *label,
-	u16 *res_flags)
+#ifdef CONFIG_OF
+static const struct of_device_id spi_gpio_dt_ids[] = {
+	{ .compatible = "spi-gpio" },
+	{}
+};
+MODULE_DEVICE_TABLE(of, spi_gpio_dt_ids);
+
+static int spi_gpio_probe_dt(struct platform_device *pdev,
+			     struct spi_master *master)
 {
-	int value;
+	master->dev.of_node = pdev->dev.of_node;
+	master->use_gpio_descriptors = true;
 
-	/* NOTE:  SPI_*_GPIO symbols may reference "pdata" */
-
-	if (SPI_MOSI_GPIO != SPI_GPIO_NO_MOSI) {
-		value = spi_gpio_alloc(SPI_MOSI_GPIO, label, false);
-		if (value)
-			goto done;
-	} else {
-		/* HW configuration without MOSI pin */
-		*res_flags |= SPI_MASTER_NO_TX;
-	}
-
-	if (SPI_MISO_GPIO != SPI_GPIO_NO_MISO) {
-		value = spi_gpio_alloc(SPI_MISO_GPIO, label, true);
-		if (value)
-			goto free_mosi;
-	} else {
-		/* HW configuration without MISO pin */
-		*res_flags |= SPI_MASTER_NO_RX;
-	}
-
-	value = spi_gpio_alloc(SPI_SCK_GPIO, label, false);
-	if (value)
-		goto free_miso;
-
-	goto done;
-
-free_miso:
-	if (SPI_MISO_GPIO != SPI_GPIO_NO_MISO)
-		gpio_free(SPI_MISO_GPIO);
-free_mosi:
-	if (SPI_MOSI_GPIO != SPI_GPIO_NO_MOSI)
-		gpio_free(SPI_MOSI_GPIO);
-done:
-	return value;
+	return 0;
 }
-
-static int __devinit spi_gpio_probe(struct platform_device *pdev)
+#else
+static inline int spi_gpio_probe_dt(struct platform_device *pdev,
+				    struct spi_master *master)
 {
-	int				status;
-	struct spi_master		*master;
-	struct spi_gpio			*spi_gpio;
-	struct spi_gpio_platform_data	*pdata;
-	u16 master_flags = 0;
+	return 0;
+}
+#endif
 
-	pdata = pdev->dev.platform_data;
+static int spi_gpio_probe_pdata(struct platform_device *pdev,
+				struct spi_master *master)
+{
+	struct device *dev = &pdev->dev;
+	struct spi_gpio_platform_data *pdata = dev_get_platdata(dev);
+	struct spi_gpio *spi_gpio = spi_master_get_devdata(master);
+	int i;
+
 #ifdef GENERIC_BITBANG
 	if (!pdata || !pdata->num_chipselect)
 		return -ENODEV;
 #endif
+	/*
+	 * The master needs to think there is a chipselect even if not
+	 * connected
+	 */
+	master->num_chipselect = pdata->num_chipselect ?: 1;
 
-	status = spi_gpio_request(pdata, dev_name(&pdev->dev), &master_flags);
-	if (status < 0)
+	spi_gpio->cs_gpios = devm_kcalloc(dev, master->num_chipselect,
+					  sizeof(*spi_gpio->cs_gpios),
+					  GFP_KERNEL);
+	if (!spi_gpio->cs_gpios)
+		return -ENOMEM;
+
+	for (i = 0; i < master->num_chipselect; i++) {
+		spi_gpio->cs_gpios[i] = devm_gpiod_get_index(dev, "cs", i,
+							     GPIOD_OUT_HIGH);
+		if (IS_ERR(spi_gpio->cs_gpios[i]))
+			return PTR_ERR(spi_gpio->cs_gpios[i]);
+	}
+
+	return 0;
+}
+
+static int spi_gpio_probe(struct platform_device *pdev)
+{
+	int				status;
+	struct spi_master		*master;
+	struct spi_gpio			*spi_gpio;
+	struct device			*dev = &pdev->dev;
+	struct spi_bitbang		*bb;
+
+	master = devm_spi_alloc_master(dev, sizeof(*spi_gpio));
+	if (!master)
+		return -ENOMEM;
+
+	if (pdev->dev.of_node)
+		status = spi_gpio_probe_dt(pdev, master);
+	else
+		status = spi_gpio_probe_pdata(pdev, master);
+
+	if (status)
 		return status;
 
-	master = spi_alloc_master(&pdev->dev, sizeof *spi_gpio);
-	if (!master) {
-		status = -ENOMEM;
-		goto gpio_free;
-	}
 	spi_gpio = spi_master_get_devdata(master);
-	platform_set_drvdata(pdev, spi_gpio);
 
-	spi_gpio->pdev = pdev;
-	if (pdata)
-		spi_gpio->pdata = *pdata;
+	status = spi_gpio_request(dev, spi_gpio);
+	if (status)
+		return status;
 
-	master->flags = master_flags;
+	master->bits_per_word_mask = SPI_BPW_RANGE_MASK(1, 32);
+	master->mode_bits = SPI_3WIRE | SPI_3WIRE_HIZ | SPI_CPHA | SPI_CPOL |
+			    SPI_CS_HIGH;
+	if (!spi_gpio->mosi) {
+		/* HW configuration without MOSI pin
+		 *
+		 * No setting SPI_MASTER_NO_RX here - if there is only
+		 * a MOSI pin connected the host can still do RX by
+		 * changing the direction of the line.
+		 */
+		master->flags = SPI_MASTER_NO_TX;
+	}
+
 	master->bus_num = pdev->id;
-	master->num_chipselect = SPI_N_CHIPSEL;
 	master->setup = spi_gpio_setup;
 	master->cleanup = spi_gpio_cleanup;
 
-	spi_gpio->bitbang.master = spi_master_get(master);
-	spi_gpio->bitbang.chipselect = spi_gpio_chipselect;
+	bb = &spi_gpio->bitbang;
+	bb->master = master;
+	/*
+	 * There is some additional business, apart from driving the CS GPIO
+	 * line, that we need to do on selection. This makes the local
+	 * callback for chipselect always get called.
+	 */
+	master->flags |= SPI_MASTER_GPIO_SS;
+	bb->chipselect = spi_gpio_chipselect;
+	bb->set_line_direction = spi_gpio_set_direction;
 
-	if ((master_flags & (SPI_MASTER_NO_TX | SPI_MASTER_NO_RX)) == 0) {
-		spi_gpio->bitbang.txrx_word[SPI_MODE_0] = spi_gpio_txrx_word_mode0;
-		spi_gpio->bitbang.txrx_word[SPI_MODE_1] = spi_gpio_txrx_word_mode1;
-		spi_gpio->bitbang.txrx_word[SPI_MODE_2] = spi_gpio_txrx_word_mode2;
-		spi_gpio->bitbang.txrx_word[SPI_MODE_3] = spi_gpio_txrx_word_mode3;
+	if (master->flags & SPI_MASTER_NO_TX) {
+		bb->txrx_word[SPI_MODE_0] = spi_gpio_spec_txrx_word_mode0;
+		bb->txrx_word[SPI_MODE_1] = spi_gpio_spec_txrx_word_mode1;
+		bb->txrx_word[SPI_MODE_2] = spi_gpio_spec_txrx_word_mode2;
+		bb->txrx_word[SPI_MODE_3] = spi_gpio_spec_txrx_word_mode3;
 	} else {
-		spi_gpio->bitbang.txrx_word[SPI_MODE_0] = spi_gpio_spec_txrx_word_mode0;
-		spi_gpio->bitbang.txrx_word[SPI_MODE_1] = spi_gpio_spec_txrx_word_mode1;
-		spi_gpio->bitbang.txrx_word[SPI_MODE_2] = spi_gpio_spec_txrx_word_mode2;
-		spi_gpio->bitbang.txrx_word[SPI_MODE_3] = spi_gpio_spec_txrx_word_mode3;
+		bb->txrx_word[SPI_MODE_0] = spi_gpio_txrx_word_mode0;
+		bb->txrx_word[SPI_MODE_1] = spi_gpio_txrx_word_mode1;
+		bb->txrx_word[SPI_MODE_2] = spi_gpio_txrx_word_mode2;
+		bb->txrx_word[SPI_MODE_3] = spi_gpio_txrx_word_mode3;
 	}
-	spi_gpio->bitbang.setup_transfer = spi_bitbang_setup_transfer;
-	spi_gpio->bitbang.flags = SPI_CS_HIGH;
+	bb->setup_transfer = spi_bitbang_setup_transfer;
 
-	status = spi_bitbang_start(&spi_gpio->bitbang);
-	if (status < 0) {
-		spi_master_put(spi_gpio->bitbang.master);
-gpio_free:
-		if (SPI_MISO_GPIO != SPI_GPIO_NO_MISO)
-			gpio_free(SPI_MISO_GPIO);
-		if (SPI_MOSI_GPIO != SPI_GPIO_NO_MOSI)
-			gpio_free(SPI_MOSI_GPIO);
-		gpio_free(SPI_SCK_GPIO);
-		spi_master_put(master);
-	}
+	status = spi_bitbang_init(&spi_gpio->bitbang);
+	if (status)
+		return status;
 
-	return status;
-}
-
-static int __devexit spi_gpio_remove(struct platform_device *pdev)
-{
-	struct spi_gpio			*spi_gpio;
-	struct spi_gpio_platform_data	*pdata;
-	int				status;
-
-	spi_gpio = platform_get_drvdata(pdev);
-	pdata = pdev->dev.platform_data;
-
-	/* stop() unregisters child devices too */
-	status = spi_bitbang_stop(&spi_gpio->bitbang);
-	spi_master_put(spi_gpio->bitbang.master);
-
-	platform_set_drvdata(pdev, NULL);
-
-	if (SPI_MISO_GPIO != SPI_GPIO_NO_MISO)
-		gpio_free(SPI_MISO_GPIO);
-	if (SPI_MOSI_GPIO != SPI_GPIO_NO_MOSI)
-		gpio_free(SPI_MOSI_GPIO);
-	gpio_free(SPI_SCK_GPIO);
-
-	return status;
+	return devm_spi_register_master(&pdev->dev, master);
 }
 
 MODULE_ALIAS("platform:" DRIVER_NAME);
 
 static struct platform_driver spi_gpio_driver = {
-	.driver.name	= DRIVER_NAME,
-	.driver.owner	= THIS_MODULE,
+	.driver = {
+		.name	= DRIVER_NAME,
+		.of_match_table = of_match_ptr(spi_gpio_dt_ids),
+	},
 	.probe		= spi_gpio_probe,
-	.remove		= __devexit_p(spi_gpio_remove),
 };
 module_platform_driver(spi_gpio_driver);
 

@@ -1,8 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef FS_ENET_FEC_H
 #define FS_ENET_FEC_H
-
-/* CRC polynomium used by the FEC for the multicast group filtering */
-#define FEC_CRC_POLY   0x04C11DB7
 
 #define FEC_MAX_MULTICAST_ADDRS	64
 
@@ -23,6 +21,10 @@
 #define FEC_ECNTRL_ETHER_EN	0x00000002
 #define FEC_ECNTRL_RESET	0x00000001
 
+/* RMII mode enabled only when MII_MODE bit is set too. */
+#define FEC_RCNTRL_RMII_MODE	(0x00000100 | \
+				 FEC_RCNTRL_MII_MODE | FEC_RCNTRL_FCE)
+#define FEC_RCNTRL_FCE		0x00000020
 #define FEC_RCNTRL_BC_REJ	0x00000010
 #define FEC_RCNTRL_PROM		0x00000008
 #define FEC_RCNTRL_MII_MODE	0x00000004
@@ -32,8 +34,6 @@
 #define FEC_TCNTRL_FDEN		0x00000004
 #define FEC_TCNTRL_HBC		0x00000002
 #define FEC_TCNTRL_GTS		0x00000001
-
-
 
 /*
  * Delay to wait for FEC reset command to complete (in us)

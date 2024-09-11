@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/arch/arm/mm/iomap.c
  *
@@ -8,6 +9,8 @@
 #include <linux/pci.h>
 #include <linux/ioport.h>
 #include <linux/io.h>
+
+#include <asm/vga.h>
 
 unsigned long vga_base;
 EXPORT_SYMBOL(vga_base);
@@ -31,9 +34,6 @@ EXPORT_SYMBOL(pcibios_min_io);
 
 unsigned long pcibios_min_mem = 0x01000000;
 EXPORT_SYMBOL(pcibios_min_mem);
-
-unsigned int pci_flags = PCI_REASSIGN_ALL_RSRC;
-EXPORT_SYMBOL(pci_flags);
 
 void pci_iounmap(struct pci_dev *dev, void __iomem *addr)
 {

@@ -1,10 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (C) 2009 IBM Corporation
  * Author: Mimi Zohar <zohar@us.ibm.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, version 2 of the License.
  */
 
 #ifndef _LINUX_INTEGRITY_H
@@ -14,7 +11,9 @@
 
 enum integrity_status {
 	INTEGRITY_PASS = 0,
+	INTEGRITY_PASS_IMMUTABLE,
 	INTEGRITY_FAIL,
+	INTEGRITY_FAIL_IMMUTABLE,
 	INTEGRITY_NOLABEL,
 	INTEGRITY_NOXATTRS,
 	INTEGRITY_UNKNOWN,
@@ -22,18 +21,38 @@ enum integrity_status {
 
 /* List of EVM protected security xattrs */
 #ifdef CONFIG_INTEGRITY
-extern int integrity_inode_alloc(struct inode *inode);
+extern struct integrity_iint_cache *integrity_inode_get(struct inode *inode);
 extern void integrity_inode_free(struct inode *inode);
+extern void __init integrity_load_keys(void);
 
 #else
-static inline int integrity_inode_alloc(struct inode *inode)
+static inline struct integrity_iint_cache *
+				integrity_inode_get(struct inode *inode)
 {
-	return 0;
+	return NULL;
 }
 
 static inline void integrity_inode_free(struct inode *inode)
 {
 	return;
 }
-#endif /* CONFIG_INTEGRITY_H */
+
+static inline void integrity_load_keys(void)
+{
+}
+#endif /* CONFIG_INTEGRITY */
+
+#ifdef CONFIG_INTEGRITY_ASYMMETRIC_KEYS
+
+extern int integrity_kernel_module_request(char *kmod_name);
+
+#else
+
+static inline int integrity_kernel_module_request(char *kmod_name)
+{
+	return 0;
+}
+
+#endif /* CONFIG_INTEGRITY_ASYMMETRIC_KEYS */
+
 #endif /* _LINUX_INTEGRITY_H */

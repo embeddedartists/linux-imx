@@ -1,17 +1,11 @@
-/*
- * soc-util.c  --  ALSA SoC Audio Layer utility functions
- *
- * Copyright 2009 Wolfson Microelectronics PLC.
- *
- * Author: Mark Brown <broonie@opensource.wolfsonmicro.com>
- *         Liam Girdwood <lrg@slimlogic.co.uk>
- *         
- *
- *  This program is free software; you can redistribute  it and/or modify it
- *  under  the terms of  the GNU General  Public License as published by the
- *  Free Software Foundation;  either version 2 of the  License, or (at your
- *  option) any later version.
- */
+// SPDX-License-Identifier: GPL-2.0+
+//
+// soc-util.c  --  ALSA SoC Audio Layer utility functions
+//
+// Copyright 2009 Wolfson Microelectronics PLC.
+//
+// Author: Mark Brown <broonie@opensource.wolfsonmicro.com>
+//         Liam Girdwood <lrg@slimlogic.co.uk>
 
 #include <linux/platform_device.h>
 #include <linux/export.h>
@@ -59,10 +53,6 @@ int snd_soc_params_to_bclk(struct snd_pcm_hw_params *params)
 EXPORT_SYMBOL_GPL(snd_soc_params_to_bclk);
 
 static const struct snd_pcm_hardware dummy_dma_hardware = {
-	.formats		= 0xffffffff,
-	.channels_min		= 1,
-	.channels_max		= UINT_MAX,
-
 	/* Random values to keep userspace happy when checking constraints */
 	.info			= SNDRV_PCM_INFO_INTERLEAVED |
 				  SNDRV_PCM_INFO_BLOCK_TRANSFER,
@@ -73,41 +63,132 @@ static const struct snd_pcm_hardware dummy_dma_hardware = {
 	.periods_max		= 128,
 };
 
-static int dummy_dma_open(struct snd_pcm_substream *substream)
+static int dummy_dma_open(struct snd_soc_component *component,
+			  struct snd_pcm_substream *substream)
 {
-	snd_soc_set_runtime_hwparams(substream, &dummy_dma_hardware);
+	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
+
+	/* BE's dont need dummy params */
+	if (!rtd->dai_link->no_pcm)
+		snd_soc_set_runtime_hwparams(substream, &dummy_dma_hardware);
 
 	return 0;
 }
 
-static struct snd_pcm_ops dummy_dma_ops = {
+static const struct snd_soc_component_driver dummy_platform = {
 	.open		= dummy_dma_open,
-	.ioctl		= snd_pcm_lib_ioctl,
 };
 
-static struct snd_soc_platform_driver dummy_platform = {
-	.ops = &dummy_dma_ops,
+static const struct snd_soc_component_driver dummy_codec = {
+	.idle_bias_on		= 1,
+	.use_pmdown_time	= 1,
+	.endianness		= 1,
+	.non_legacy_dai_naming	= 1,
 };
 
-static __devinit int snd_soc_dummy_probe(struct platform_device *pdev)
+#define STUB_RATES	SNDRV_PCM_RATE_8000_384000
+#define STUB_FORMATS	(SNDRV_PCM_FMTBIT_S8 | \
+			SNDRV_PCM_FMTBIT_U8 | \
+			SNDRV_PCM_FMTBIT_S16_LE | \
+			SNDRV_PCM_FMTBIT_U16_LE | \
+			SNDRV_PCM_FMTBIT_S24_LE | \
+			SNDRV_PCM_FMTBIT_S24_3LE | \
+			SNDRV_PCM_FMTBIT_U24_LE | \
+			SNDRV_PCM_FMTBIT_S32_LE | \
+			SNDRV_PCM_FMTBIT_U32_LE | \
+			SNDRV_PCM_FMTBIT_DSD_U8 | \
+			SNDRV_PCM_FMTBIT_DSD_U16_LE | \
+			SNDRV_PCM_FMTBIT_DSD_U32_LE | \
+			SNDRV_PCM_FMTBIT_IEC958_SUBFRAME_LE)
+
+/*
+ * Select these from Sound Card Manually
+ *	SND_SOC_POSSIBLE_DAIFMT_CBP_CFP
+ *	SND_SOC_POSSIBLE_DAIFMT_CBP_CFC
+ *	SND_SOC_POSSIBLE_DAIFMT_CBC_CFP
+ *	SND_SOC_POSSIBLE_DAIFMT_CBC_CFC
+ */
+static u64 dummy_dai_formats =
+	SND_SOC_POSSIBLE_DAIFMT_I2S	|
+	SND_SOC_POSSIBLE_DAIFMT_RIGHT_J	|
+	SND_SOC_POSSIBLE_DAIFMT_LEFT_J	|
+	SND_SOC_POSSIBLE_DAIFMT_DSP_A	|
+	SND_SOC_POSSIBLE_DAIFMT_DSP_B	|
+	SND_SOC_POSSIBLE_DAIFMT_AC97	|
+	SND_SOC_POSSIBLE_DAIFMT_PDM	|
+	SND_SOC_POSSIBLE_DAIFMT_GATED	|
+	SND_SOC_POSSIBLE_DAIFMT_CONT	|
+	SND_SOC_POSSIBLE_DAIFMT_NB_NF	|
+	SND_SOC_POSSIBLE_DAIFMT_NB_IF	|
+	SND_SOC_POSSIBLE_DAIFMT_IB_NF	|
+	SND_SOC_POSSIBLE_DAIFMT_IB_IF;
+
+static const struct snd_soc_dai_ops dummy_dai_ops = {
+	.auto_selectable_formats	= &dummy_dai_formats,
+	.num_auto_selectable_formats	= 1,
+};
+
+/*
+ * The dummy CODEC is only meant to be used in situations where there is no
+ * actual hardware.
+ *
+ * If there is actual hardware even if it does not have a control bus
+ * the hardware will still have constraints like supported samplerates, etc.
+ * which should be modelled. And the data flow graph also should be modelled
+ * using DAPM.
+ */
+static struct snd_soc_dai_driver dummy_dai = {
+	.name = "snd-soc-dummy-dai",
+	.playback = {
+		.stream_name	= "Playback",
+		.channels_min	= 1,
+		.channels_max	= 384,
+		.rates		= STUB_RATES,
+		.formats	= STUB_FORMATS,
+	},
+	.capture = {
+		.stream_name	= "Capture",
+		.channels_min	= 1,
+		.channels_max	= 384,
+		.rates = STUB_RATES,
+		.formats = STUB_FORMATS,
+	 },
+	.ops = &dummy_dai_ops,
+};
+
+int snd_soc_dai_is_dummy(struct snd_soc_dai *dai)
 {
-	return snd_soc_register_platform(&pdev->dev, &dummy_platform);
+	if (dai->driver == &dummy_dai)
+		return 1;
+	return 0;
 }
 
-static __devexit int snd_soc_dummy_remove(struct platform_device *pdev)
+int snd_soc_component_is_dummy(struct snd_soc_component *component)
 {
-	snd_soc_unregister_platform(&pdev->dev);
+	return ((component->driver == &dummy_platform) ||
+		(component->driver == &dummy_codec));
+}
 
-	return 0;
+static int snd_soc_dummy_probe(struct platform_device *pdev)
+{
+	int ret;
+
+	ret = devm_snd_soc_register_component(&pdev->dev,
+					      &dummy_codec, &dummy_dai, 1);
+	if (ret < 0)
+		return ret;
+
+	ret = devm_snd_soc_register_component(&pdev->dev, &dummy_platform,
+					      NULL, 0);
+
+	return ret;
 }
 
 static struct platform_driver soc_dummy_driver = {
 	.driver = {
 		.name = "snd-soc-dummy",
-		.owner = THIS_MODULE,
 	},
 	.probe = snd_soc_dummy_probe,
-	.remove = __devexit_p(snd_soc_dummy_remove),
 };
 
 static struct platform_device *soc_dummy_dev;
@@ -116,15 +197,10 @@ int __init snd_soc_util_init(void)
 {
 	int ret;
 
-	soc_dummy_dev = platform_device_alloc("snd-soc-dummy", -1);
-	if (!soc_dummy_dev)
-		return -ENOMEM;
-
-	ret = platform_device_add(soc_dummy_dev);
-	if (ret != 0) {
-		platform_device_put(soc_dummy_dev);
-		return ret;
-	}
+	soc_dummy_dev =
+		platform_device_register_simple("snd-soc-dummy", -1, NULL, 0);
+	if (IS_ERR(soc_dummy_dev))
+		return PTR_ERR(soc_dummy_dev);
 
 	ret = platform_driver_register(&soc_dummy_driver);
 	if (ret != 0)
@@ -135,6 +211,6 @@ int __init snd_soc_util_init(void)
 
 void __exit snd_soc_util_exit(void)
 {
-	platform_device_unregister(soc_dummy_dev);
 	platform_driver_unregister(&soc_dummy_driver);
+	platform_device_unregister(soc_dummy_dev);
 }

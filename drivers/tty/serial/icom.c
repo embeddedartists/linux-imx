@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
   * icom.c
   *
@@ -6,23 +7,7 @@
   * Serial device driver.
   *
   * Based on code from serial.c
-  *
-  * This program is free software; you can redistribute it and/or modify
-  * it under the terms of the GNU General Public License as published by
-  * the Free Software Foundation; either version 2 of the License, or
-  * (at your option) any later version.
-  *
-  * This program is distributed in the hope that it will be useful,
-  * but WITHOUT ANY WARRANTY; without even the implied warranty of
-  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  * GNU General Public License for more details.
-  *
-  * You should have received a copy of the GNU General Public License
-  * along with this program; if not, write to the Free Software
-  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
-  *
   */
-#define SERIAL_DO_RESTART
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/errno.h>
@@ -52,10 +37,9 @@
 #include <linux/firmware.h>
 #include <linux/bitops.h>
 
-#include <asm/system.h>
-#include <asm/io.h>
+#include <linux/io.h>
 #include <asm/irq.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #include "icom.h"
 
@@ -106,7 +90,7 @@ static const struct pci_device_id icom_pci_table[] = {
 	{}
 };
 
-struct lookup_proc_table start_proc[4] = {
+static struct lookup_proc_table start_proc[4] = {
 	{NULL, ICOM_CONTROL_START_A},
 	{NULL, ICOM_CONTROL_START_B},
 	{NULL, ICOM_CONTROL_START_C},
@@ -114,14 +98,14 @@ struct lookup_proc_table start_proc[4] = {
 };
 
 
-struct lookup_proc_table stop_proc[4] = {
+static struct lookup_proc_table stop_proc[4] = {
 	{NULL, ICOM_CONTROL_STOP_A},
 	{NULL, ICOM_CONTROL_STOP_B},
 	{NULL, ICOM_CONTROL_STOP_C},
 	{NULL, ICOM_CONTROL_STOP_D}
 };
 
-struct lookup_int_table int_mask_tbl[4] = {
+static struct lookup_int_table int_mask_tbl[4] = {
 	{NULL, ICOM_INT_MASK_PRC_A},
 	{NULL, ICOM_INT_MASK_PRC_B},
 	{NULL, ICOM_INT_MASK_PRC_C},
@@ -134,7 +118,7 @@ MODULE_DEVICE_TABLE(pci, icom_pci_table);
 static LIST_HEAD(icom_adapter_head);
 
 /* spinlock for adapter initialization and changing adapter operations */
-static spinlock_t icom_lock;
+static DEFINE_SPINLOCK(icom_lock);
 
 #ifdef ICOM_TRACE
 static inline void trace(struct icom_port *icom_port, char *trace_pt,
@@ -154,29 +138,29 @@ static void free_port_memory(struct icom_port *icom_port)
 
 	trace(icom_port, "RET_PORT_MEM", 0);
 	if (icom_port->recv_buf) {
-		pci_free_consistent(dev, 4096, icom_port->recv_buf,
-				    icom_port->recv_buf_pci);
+		dma_free_coherent(&dev->dev, 4096, icom_port->recv_buf,
+				  icom_port->recv_buf_pci);
 		icom_port->recv_buf = NULL;
 	}
 	if (icom_port->xmit_buf) {
-		pci_free_consistent(dev, 4096, icom_port->xmit_buf,
-				    icom_port->xmit_buf_pci);
+		dma_free_coherent(&dev->dev, 4096, icom_port->xmit_buf,
+				  icom_port->xmit_buf_pci);
 		icom_port->xmit_buf = NULL;
 	}
 	if (icom_port->statStg) {
-		pci_free_consistent(dev, 4096, icom_port->statStg,
-				    icom_port->statStg_pci);
+		dma_free_coherent(&dev->dev, 4096, icom_port->statStg,
+				  icom_port->statStg_pci);
 		icom_port->statStg = NULL;
 	}
 
 	if (icom_port->xmitRestart) {
-		pci_free_consistent(dev, 4096, icom_port->xmitRestart,
-				    icom_port->xmitRestart_pci);
+		dma_free_coherent(&dev->dev, 4096, icom_port->xmitRestart,
+				  icom_port->xmitRestart_pci);
 		icom_port->xmitRestart = NULL;
 	}
 }
 
-static int __devinit get_port_memory(struct icom_port *icom_port)
+static int get_port_memory(struct icom_port *icom_port)
 {
 	int index;
 	unsigned long stgAddr;
@@ -185,7 +169,8 @@ static int __devinit get_port_memory(struct icom_port *icom_port)
 	struct pci_dev *dev = icom_port->adapter->pci_dev;
 
 	icom_port->xmit_buf =
-	    pci_alloc_consistent(dev, 4096, &icom_port->xmit_buf_pci);
+	    dma_alloc_coherent(&dev->dev, 4096, &icom_port->xmit_buf_pci,
+			       GFP_KERNEL);
 	if (!icom_port->xmit_buf) {
 		dev_err(&dev->dev, "Can not allocate Transmit buffer\n");
 		return -ENOMEM;
@@ -195,7 +180,8 @@ static int __devinit get_port_memory(struct icom_port *icom_port)
 	      (unsigned long) icom_port->xmit_buf);
 
 	icom_port->recv_buf =
-	    pci_alloc_consistent(dev, 4096, &icom_port->recv_buf_pci);
+	    dma_alloc_coherent(&dev->dev, 4096, &icom_port->recv_buf_pci,
+			       GFP_KERNEL);
 	if (!icom_port->recv_buf) {
 		dev_err(&dev->dev, "Can not allocate Receive buffer\n");
 		free_port_memory(icom_port);
@@ -205,7 +191,8 @@ static int __devinit get_port_memory(struct icom_port *icom_port)
 	      (unsigned long) icom_port->recv_buf);
 
 	icom_port->statStg =
-	    pci_alloc_consistent(dev, 4096, &icom_port->statStg_pci);
+	    dma_alloc_coherent(&dev->dev, 4096, &icom_port->statStg_pci,
+			       GFP_KERNEL);
 	if (!icom_port->statStg) {
 		dev_err(&dev->dev, "Can not allocate Status buffer\n");
 		free_port_memory(icom_port);
@@ -215,15 +202,14 @@ static int __devinit get_port_memory(struct icom_port *icom_port)
 	      (unsigned long) icom_port->statStg);
 
 	icom_port->xmitRestart =
-	    pci_alloc_consistent(dev, 4096, &icom_port->xmitRestart_pci);
+	    dma_alloc_coherent(&dev->dev, 4096, &icom_port->xmitRestart_pci,
+			       GFP_KERNEL);
 	if (!icom_port->xmitRestart) {
 		dev_err(&dev->dev,
 			"Can not allocate xmit Restart buffer\n");
 		free_port_memory(icom_port);
 		return -ENOMEM;
 	}
-
-	memset(icom_port->statStg, 0, 4096);
 
 	/* FODs: Frame Out Descriptor Queue, this is a FIFO queue that
            indicates that frames are to be transmitted
@@ -298,25 +284,25 @@ static void stop_processor(struct icom_port *icom_port)
 	spin_lock_irqsave(&icom_lock, flags);
 
 	port = icom_port->port;
+	if (port >= ARRAY_SIZE(stop_proc)) {
+		dev_err(&icom_port->adapter->pci_dev->dev,
+			"Invalid port assignment\n");
+		goto unlock;
+	}
+
 	if (port == 0 || port == 1)
 		stop_proc[port].global_control_reg = &icom_port->global_reg->control;
 	else
 		stop_proc[port].global_control_reg = &icom_port->global_reg->control_2;
 
+	temp = readl(stop_proc[port].global_control_reg);
+	temp = (temp & ~start_proc[port].processor_id) | stop_proc[port].processor_id;
+	writel(temp, stop_proc[port].global_control_reg);
 
-	if (port < 4) {
-		temp = readl(stop_proc[port].global_control_reg);
-		temp =
-			(temp & ~start_proc[port].processor_id) | stop_proc[port].processor_id;
-		writel(temp, stop_proc[port].global_control_reg);
+	/* write flush */
+	readl(stop_proc[port].global_control_reg);
 
-		/* write flush */
-		readl(stop_proc[port].global_control_reg);
-	} else {
-		dev_err(&icom_port->adapter->pci_dev->dev,
-                        "Invalid port assignment\n");
-	}
-
+unlock:
 	spin_unlock_irqrestore(&icom_lock, flags);
 }
 
@@ -329,23 +315,25 @@ static void start_processor(struct icom_port *icom_port)
 	spin_lock_irqsave(&icom_lock, flags);
 
 	port = icom_port->port;
+	if (port >= ARRAY_SIZE(start_proc)) {
+		dev_err(&icom_port->adapter->pci_dev->dev,
+			"Invalid port assignment\n");
+		goto unlock;
+	}
+
 	if (port == 0 || port == 1)
 		start_proc[port].global_control_reg = &icom_port->global_reg->control;
 	else
 		start_proc[port].global_control_reg = &icom_port->global_reg->control_2;
-	if (port < 4) {
-		temp = readl(start_proc[port].global_control_reg);
-		temp =
-			(temp & ~stop_proc[port].processor_id) | start_proc[port].processor_id;
-		writel(temp, start_proc[port].global_control_reg);
 
-		/* write flush */
-		readl(start_proc[port].global_control_reg);
-	} else {
-		dev_err(&icom_port->adapter->pci_dev->dev,
-                        "Invalid port assignment\n");
-	}
+	temp = readl(start_proc[port].global_control_reg);
+	temp = (temp & ~stop_proc[port].processor_id) | start_proc[port].processor_id;
+	writel(temp, start_proc[port].global_control_reg);
 
+	/* write flush */
+	readl(start_proc[port].global_control_reg);
+
+unlock:
 	spin_unlock_irqrestore(&icom_lock, flags);
 }
 
@@ -430,7 +418,7 @@ static void load_code(struct icom_port *icom_port)
 	/*Set up data in icom DRAM to indicate where personality
 	 *code is located and its length.
 	 */
-	new_page = pci_alloc_consistent(dev, 4096, &temp_pci);
+	new_page = dma_alloc_coherent(&dev->dev, 4096, &temp_pci, GFP_KERNEL);
 
 	if (!new_page) {
 		dev_err(&dev->dev, "Can not allocate DMA buffer\n");
@@ -454,10 +442,10 @@ static void load_code(struct icom_port *icom_port)
 	for (index = 0; index < fw->size; index++)
 		new_page[index] = fw->data[index];
 
-	release_firmware(fw);
-
 	writeb((char) ((fw->size + 16)/16), &icom_port->dram->mac_length);
 	writel(temp_pci, &icom_port->dram->mac_load_addr);
+
+	release_firmware(fw);
 
 	/*Setting the syncReg to 0x80 causes adapter to start downloading
 	   the personality code into adapter instruction RAM.
@@ -506,11 +494,11 @@ static void load_code(struct icom_port *icom_port)
 		/* Stop processor */
 		stop_processor(icom_port);
 
-		dev_err(&icom_port->adapter->pci_dev->dev,"Port not opertional\n");
+		dev_err(&icom_port->adapter->pci_dev->dev,"Port not operational\n");
 	}
 
 	if (new_page != NULL)
-		pci_free_consistent(dev, 4096, new_page, temp_pci);
+		dma_free_coherent(&dev->dev, 4096, new_page, temp_pci);
 }
 
 static int startup(struct icom_port *icom_port)
@@ -558,6 +546,12 @@ static int startup(struct icom_port *icom_port)
 	 */
 	spin_lock_irqsave(&icom_lock, flags);
 	port = icom_port->port;
+	if (port >= ARRAY_SIZE(int_mask_tbl)) {
+		dev_err(&icom_port->adapter->pci_dev->dev,
+			"Invalid port assignment\n");
+		goto unlock;
+	}
+
 	if (port == 0 || port == 1)
 		int_mask_tbl[port].global_int_mask = &icom_port->global_reg->int_mask;
 	else
@@ -567,17 +561,14 @@ static int startup(struct icom_port *icom_port)
 		writew(0x00FF, icom_port->int_reg);
 	else
 		writew(0x3F00, icom_port->int_reg);
-	if (port < 4) {
-		temp = readl(int_mask_tbl[port].global_int_mask);
-		writel(temp & ~int_mask_tbl[port].processor_id, int_mask_tbl[port].global_int_mask);
 
-		/* write flush */
-		readl(int_mask_tbl[port].global_int_mask);
-	} else {
-		dev_err(&icom_port->adapter->pci_dev->dev,
-                        "Invalid port assignment\n");
-	}
+	temp = readl(int_mask_tbl[port].global_int_mask);
+	writel(temp & ~int_mask_tbl[port].processor_id, int_mask_tbl[port].global_int_mask);
 
+	/* write flush */
+	readl(int_mask_tbl[port].global_int_mask);
+
+unlock:
 	spin_unlock_irqrestore(&icom_lock, flags);
 	return 0;
 }
@@ -596,21 +587,23 @@ static void shutdown(struct icom_port *icom_port)
 	 * disable all interrupts
 	 */
 	port = icom_port->port;
+	if (port >= ARRAY_SIZE(int_mask_tbl)) {
+		dev_err(&icom_port->adapter->pci_dev->dev,
+			"Invalid port assignment\n");
+		goto unlock;
+	}
 	if (port == 0 || port == 1)
 		int_mask_tbl[port].global_int_mask = &icom_port->global_reg->int_mask;
 	else
 		int_mask_tbl[port].global_int_mask = &icom_port->global_reg->int_mask_2;
 
-	if (port < 4) {
-		temp = readl(int_mask_tbl[port].global_int_mask);
-		writel(temp | int_mask_tbl[port].processor_id, int_mask_tbl[port].global_int_mask);
+	temp = readl(int_mask_tbl[port].global_int_mask);
+	writel(temp | int_mask_tbl[port].processor_id, int_mask_tbl[port].global_int_mask);
 
-		/* write flush */
-		readl(int_mask_tbl[port].global_int_mask);
-	} else {
-		dev_err(&icom_port->adapter->pci_dev->dev,
-                        "Invalid port assignment\n");
-	}
+	/* write flush */
+	readl(int_mask_tbl[port].global_int_mask);
+
+unlock:
 	spin_unlock_irqrestore(&icom_lock, flags);
 
 	/*
@@ -735,7 +728,7 @@ static void xmit_interrupt(u16 port_int_reg, struct icom_port *icom_port)
 static void recv_interrupt(u16 port_int_reg, struct icom_port *icom_port)
 {
 	short int count, rcv_buff;
-	struct tty_struct *tty = icom_port->uart_port.state->port.tty;
+	struct tty_port *port = &icom_port->uart_port.state->port;
 	unsigned short int status;
 	struct uart_icount *icount;
 	unsigned long offset;
@@ -762,7 +755,7 @@ static void recv_interrupt(u16 port_int_reg, struct icom_port *icom_port)
 		/* Block copy all but the last byte as this may have status */
 		if (count > 0) {
 			first = icom_port->recv_buf[offset];
-			tty_insert_flip_string(tty, icom_port->recv_buf + offset, count - 1);
+			tty_insert_flip_string(port, icom_port->recv_buf + offset, count - 1);
 		}
 
 		icount = &icom_port->uart_port.icount;
@@ -813,7 +806,7 @@ static void recv_interrupt(u16 port_int_reg, struct icom_port *icom_port)
 
 		}
 
-		tty_insert_flip_char(tty, *(icom_port->recv_buf + offset + count - 1), flag);
+		tty_insert_flip_char(port, *(icom_port->recv_buf + offset + count - 1), flag);
 
 		if (status & SA_FLAGS_OVERRUN)
 			/*
@@ -821,7 +814,7 @@ static void recv_interrupt(u16 port_int_reg, struct icom_port *icom_port)
 			 * reported immediately, and doesn't
 			 * affect the current character
 			 */
-			tty_insert_flip_char(tty, 0, TTY_OVERRUN);
+			tty_insert_flip_char(port, 0, TTY_OVERRUN);
 ignore_char:
 		icom_port->statStg->rcv[rcv_buff].flags = 0;
 		icom_port->statStg->rcv[rcv_buff].leLength = 0;
@@ -835,7 +828,8 @@ ignore_char:
 		status = cpu_to_le16(icom_port->statStg->rcv[rcv_buff].flags);
 	}
 	icom_port->next_rcv = rcv_buff;
-	tty_flip_buffer_push(tty);
+
+	tty_flip_buffer_push(port);
 }
 
 static void process_interrupt(u16 port_int_reg,
@@ -1043,11 +1037,6 @@ static void icom_stop_rx(struct uart_port *port)
 	writeb(cmdReg & ~CMD_RCV_ENABLE, &ICOM_PORT->dram->CmdReg);
 }
 
-static void icom_enable_ms(struct uart_port *port)
-{
-	/* no-op */
-}
-
 static void icom_break(struct uart_port *port, int break_state)
 {
 	unsigned char cmdReg;
@@ -1088,8 +1077,7 @@ static void icom_close(struct uart_port *port)
 
 	/* stop receiver */
 	cmdReg = readb(&ICOM_PORT->dram->CmdReg);
-	writeb(cmdReg & (unsigned char) ~CMD_RCV_ENABLE,
-	       &ICOM_PORT->dram->CmdReg);
+	writeb(cmdReg & ~CMD_RCV_ENABLE, &ICOM_PORT->dram->CmdReg);
 
 	shutdown(ICOM_PORT);
 
@@ -1284,7 +1272,7 @@ static void icom_config_port(struct uart_port *port, int flags)
 	port->type = PORT_ICOM;
 }
 
-static struct uart_ops icom_ops = {
+static const struct uart_ops icom_ops = {
 	.tx_empty = icom_tx_empty,
 	.set_mctrl = icom_set_mctrl,
 	.get_mctrl = icom_get_mctrl,
@@ -1292,7 +1280,6 @@ static struct uart_ops icom_ops = {
 	.start_tx = icom_start_tx,
 	.send_xchar = icom_send_xchar,
 	.stop_rx = icom_stop_rx,
-	.enable_ms = icom_enable_ms,
 	.break_ctl = icom_break,
 	.startup = icom_open,
 	.shutdown = icom_close,
@@ -1315,7 +1302,7 @@ static struct uart_driver icom_uart_driver = {
 	.cons = ICOM_CONSOLE,
 };
 
-static int __devinit icom_init_ports(struct icom_adapter *icom_adapter)
+static int icom_init_ports(struct icom_adapter *icom_adapter)
 {
 	u32 subsystem_id = icom_adapter->subsystem_id;
 	int i;
@@ -1382,7 +1369,7 @@ static void icom_port_active(struct icom_port *icom_port, struct icom_adapter *i
 			    0x8024 + 2 - 2 * (icom_port->port - 2);
 	}
 }
-static int __devinit icom_load_ports(struct icom_adapter *icom_adapter)
+static int icom_load_ports(struct icom_adapter *icom_adapter)
 {
 	struct icom_port *icom_port;
 	int port_num;
@@ -1408,7 +1395,7 @@ static int __devinit icom_load_ports(struct icom_adapter *icom_adapter)
 	return 0;
 }
 
-static int __devinit icom_alloc_adapter(struct icom_adapter
+static int icom_alloc_adapter(struct icom_adapter
 					**icom_adapter_ref)
 {
 	int adapter_count = 0;
@@ -1416,8 +1403,7 @@ static int __devinit icom_alloc_adapter(struct icom_adapter
 	struct icom_adapter *cur_adapter_entry;
 	struct list_head *tmp;
 
-	icom_adapter = (struct icom_adapter *)
-	    kzalloc(sizeof(struct icom_adapter), GFP_KERNEL);
+	icom_adapter = kzalloc(sizeof(struct icom_adapter), GFP_KERNEL);
 
 	if (!icom_adapter) {
 		return -ENOMEM;
@@ -1488,7 +1474,7 @@ static void icom_kref_release(struct kref *kref)
 	icom_remove_adapter(icom_adapter);
 }
 
-static int __devinit icom_probe(struct pci_dev *dev,
+static int icom_probe(struct pci_dev *dev,
 				const struct pci_device_id *ent)
 {
 	int index;
@@ -1503,7 +1489,8 @@ static int __devinit icom_probe(struct pci_dev *dev,
 		return retval;
 	}
 
-	if ( (retval = pci_request_regions(dev, "icom"))) {
+	retval = pci_request_regions(dev, "icom");
+	if (retval) {
 		 dev_err(&dev->dev, "pci_request_regions FAILED\n");
 		 pci_disable_device(dev);
 		 return retval;
@@ -1511,7 +1498,8 @@ static int __devinit icom_probe(struct pci_dev *dev,
 
 	pci_set_master(dev);
 
-	if ( (retval = pci_read_config_dword(dev, PCI_COMMAND, &command_reg))) {
+	retval = pci_read_config_dword(dev, PCI_COMMAND, &command_reg);
+	if (retval) {
 		dev_err(&dev->dev, "PCI Config read FAILED\n");
 		return retval;
 	}
@@ -1549,13 +1537,14 @@ static int __devinit icom_probe(struct pci_dev *dev,
 
 	icom_adapter->base_addr = pci_ioremap_bar(dev, 0);
 
-	if (!icom_adapter->base_addr)
+	if (!icom_adapter->base_addr) {
+		retval = -ENOMEM;
 		goto probe_exit1;
+	}
 
 	 /* save off irq and request irq line */
-	 if ( (retval = request_irq(dev->irq, icom_interrupt,
-				   IRQF_SHARED, ICOM_DRIVER_NAME,
-				   (void *) icom_adapter))) {
+	 retval = request_irq(dev->irq, icom_interrupt, IRQF_SHARED, ICOM_DRIVER_NAME, (void *)icom_adapter);
+	 if (retval) {
 		  goto probe_exit2;
 	 }
 
@@ -1569,7 +1558,7 @@ static int __devinit icom_probe(struct pci_dev *dev,
 			icom_port->uart_port.type = PORT_ICOM;
 			icom_port->uart_port.iotype = UPIO_MEM;
 			icom_port->uart_port.membase =
-					       (char *) icom_adapter->base_addr_pci;
+				(unsigned char __iomem *)icom_adapter->base_addr_pci;
 			icom_port->uart_port.fifosize = 16;
 			icom_port->uart_port.ops = &icom_ops;
 			icom_port->uart_port.line =
@@ -1597,7 +1586,7 @@ probe_exit0:
 	return retval;
 }
 
-static void __devexit icom_remove(struct pci_dev *dev)
+static void icom_remove(struct pci_dev *dev)
 {
 	struct icom_adapter *icom_adapter;
 	struct list_head *tmp;
@@ -1618,14 +1607,12 @@ static struct pci_driver icom_pci_driver = {
 	.name = ICOM_DRIVER_NAME,
 	.id_table = icom_pci_table,
 	.probe = icom_probe,
-	.remove = __devexit_p(icom_remove),
+	.remove = icom_remove,
 };
 
 static int __init icom_init(void)
 {
 	int ret;
-
-	spin_lock_init(&icom_lock);
 
 	ret = uart_register_driver(&icom_uart_driver);
 	if (ret)
@@ -1650,8 +1637,6 @@ module_exit(icom_exit);
 
 MODULE_AUTHOR("Michael Anderson <mjanders@us.ibm.com>");
 MODULE_DESCRIPTION("IBM iSeries Serial IOA driver");
-MODULE_SUPPORTED_DEVICE
-    ("IBM iSeries 2745, 2771, 2772, 2742, 2793 and 2805 Communications adapters");
 MODULE_LICENSE("GPL");
 MODULE_FIRMWARE("icom_call_setup.bin");
 MODULE_FIRMWARE("icom_res_dce.bin");

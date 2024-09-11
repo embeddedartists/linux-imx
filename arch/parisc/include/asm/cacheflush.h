@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _PARISC_CACHEFLUSH_H
 #define _PARISC_CACHEFLUSH_H
 
@@ -25,10 +26,9 @@ void flush_user_icache_range_asm(unsigned long, unsigned long);
 void flush_kernel_icache_range_asm(unsigned long, unsigned long);
 void flush_user_dcache_range_asm(unsigned long, unsigned long);
 void flush_kernel_dcache_range_asm(unsigned long, unsigned long);
+void purge_kernel_dcache_range_asm(unsigned long, unsigned long);
 void flush_kernel_dcache_page_asm(void *);
 void flush_kernel_icache_page(void *);
-void flush_user_dcache_range(unsigned long, unsigned long);
-void flush_user_icache_range(unsigned long, unsigned long);
 
 /* Cache flush operations */
 
@@ -36,37 +36,14 @@ void flush_cache_all_local(void);
 void flush_cache_all(void);
 void flush_cache_mm(struct mm_struct *mm);
 
-#define ARCH_HAS_FLUSH_KERNEL_DCACHE_PAGE
 void flush_kernel_dcache_page_addr(void *addr);
-static inline void flush_kernel_dcache_page(struct page *page)
-{
-	flush_kernel_dcache_page_addr(page_address(page));
-}
 
 #define flush_kernel_dcache_range(start,size) \
 	flush_kernel_dcache_range_asm((start), (start)+(size));
-/* vmap range flushes and invalidates.  Architecturally, we don't need
- * the invalidate, because the CPU should refuse to speculate once an
- * area has been flushed, so invalidate is left empty */
-static inline void flush_kernel_vmap_range(void *vaddr, int size)
-{
-	unsigned long start = (unsigned long)vaddr;
 
-	flush_kernel_dcache_range_asm(start, start + size);
-}
-static inline void invalidate_kernel_vmap_range(void *vaddr, int size)
-{
-	unsigned long start = (unsigned long)vaddr;
-	void *cursor = vaddr;
-
-	for ( ; cursor < vaddr + size; cursor += PAGE_SIZE) {
-		struct page *page = vmalloc_to_page(cursor);
-
-		if (test_and_clear_bit(PG_dcache_dirty, &page->flags))
-			flush_kernel_dcache_page(page);
-	}
-	flush_kernel_dcache_range_asm(start, start + size);
-}
+#define ARCH_IMPLEMENTS_FLUSH_KERNEL_VMAP_RANGE 1
+void flush_kernel_vmap_range(void *vaddr, int size);
+void invalidate_kernel_vmap_range(void *vaddr, int size);
 
 #define flush_cache_vmap(start, end)		flush_cache_all()
 #define flush_cache_vunmap(start, end)		flush_cache_all()
@@ -74,13 +51,11 @@ static inline void invalidate_kernel_vmap_range(void *vaddr, int size)
 #define ARCH_IMPLEMENTS_FLUSH_DCACHE_PAGE 1
 extern void flush_dcache_page(struct page *page);
 
-#define flush_dcache_mmap_lock(mapping) \
-	spin_lock_irq(&(mapping)->tree_lock)
-#define flush_dcache_mmap_unlock(mapping) \
-	spin_unlock_irq(&(mapping)->tree_lock)
+#define flush_dcache_mmap_lock(mapping)		xa_lock_irq(&mapping->i_pages)
+#define flush_dcache_mmap_unlock(mapping)	xa_unlock_irq(&mapping->i_pages)
 
 #define flush_icache_page(vma,page)	do { 		\
-	flush_kernel_dcache_page(page);			\
+	flush_kernel_dcache_page_addr(page_address(page)); \
 	flush_kernel_icache_page(page_address(page)); 	\
 } while (0)
 
@@ -115,47 +90,17 @@ flush_anon_page(struct vm_area_struct *vma, struct page *page, unsigned long vma
 {
 	if (PageAnon(page)) {
 		flush_tlb_page(vma, vmaddr);
+		preempt_disable();
 		flush_dcache_page_asm(page_to_phys(page), vmaddr);
+		preempt_enable();
 	}
 }
 
-#ifdef CONFIG_DEBUG_RODATA
-void mark_rodata_ro(void);
-#endif
-
-#ifdef CONFIG_PA8X00
-/* Only pa8800, pa8900 needs this */
-
-#include <asm/kmap_types.h>
-
-#define ARCH_HAS_KMAP
-
-void kunmap_parisc(void *addr);
-
-static inline void *kmap(struct page *page)
+#define ARCH_HAS_FLUSH_ON_KUNMAP
+static inline void kunmap_flush_on_unmap(void *addr)
 {
-	might_sleep();
-	return page_address(page);
+	flush_kernel_dcache_page_addr(addr);
 }
-
-#define kunmap(page)			kunmap_parisc(page_address(page))
-
-static inline void *__kmap_atomic(struct page *page)
-{
-	pagefault_disable();
-	return page_address(page);
-}
-
-static inline void __kunmap_atomic(void *addr)
-{
-	kunmap_parisc(addr);
-	pagefault_enable();
-}
-
-#define kmap_atomic_prot(page, prot)	kmap_atomic(page)
-#define kmap_atomic_pfn(pfn)	kmap_atomic(pfn_to_page(pfn))
-#define kmap_atomic_to_page(ptr)	virt_to_page(ptr)
-#endif
 
 #endif /* _PARISC_CACHEFLUSH_H */
 

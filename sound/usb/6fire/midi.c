@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Linux driver for TerraTec DMX 6Fire USB
  *
@@ -5,13 +6,7 @@
  *
  * Author:	Torsten Schenk <torsten.schenk@zoho.com>
  * Created:	Jan 01, 2011
- * Version:	0.3.0
  * Copyright:	(C) Torsten Schenk
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
  */
 
 #include <sound/rawmidi.h>
@@ -19,6 +14,10 @@
 #include "midi.h"
 #include "chip.h"
 #include "comm.h"
+
+enum {
+	MIDI_BUFSIZE = 64
+};
 
 static void usb6fire_midi_out_handler(struct urb *urb)
 {
@@ -38,8 +37,9 @@ static void usb6fire_midi_out_handler(struct urb *urb)
 
 			ret = usb_submit_urb(urb, GFP_ATOMIC);
 			if (ret < 0)
-				snd_printk(KERN_ERR PREFIX "midi out urb "
-						"submit failed: %d\n", ret);
+				dev_err(&urb->dev->dev,
+					"midi out urb submit failed: %d\n",
+					ret);
 		} else /* no more data to transmit */
 			rt->out = NULL;
 	}
@@ -91,8 +91,9 @@ static void usb6fire_midi_out_trigger(
 
 			ret = usb_submit_urb(urb, GFP_ATOMIC);
 			if (ret < 0)
-				snd_printk(KERN_ERR PREFIX "midi out urb "
-						"submit failed: %d\n", ret);
+				dev_err(&urb->dev->dev,
+					"midi out urb submit failed: %d\n",
+					ret);
 			else
 				rt->out = alsa_sub;
 		}
@@ -134,20 +135,20 @@ static void usb6fire_midi_in_trigger(
 	spin_unlock_irqrestore(&rt->in_lock, flags);
 }
 
-static struct snd_rawmidi_ops out_ops = {
+static const struct snd_rawmidi_ops out_ops = {
 	.open = usb6fire_midi_out_open,
 	.close = usb6fire_midi_out_close,
 	.trigger = usb6fire_midi_out_trigger,
 	.drain = usb6fire_midi_out_drain
 };
 
-static struct snd_rawmidi_ops in_ops = {
+static const struct snd_rawmidi_ops in_ops = {
 	.open = usb6fire_midi_in_open,
 	.close = usb6fire_midi_in_close,
 	.trigger = usb6fire_midi_in_trigger
 };
 
-int __devinit usb6fire_midi_init(struct sfire_chip *chip)
+int usb6fire_midi_init(struct sfire_chip *chip)
 {
 	int ret;
 	struct midi_runtime *rt = kzalloc(sizeof(struct midi_runtime),
@@ -156,6 +157,12 @@ int __devinit usb6fire_midi_init(struct sfire_chip *chip)
 
 	if (!rt)
 		return -ENOMEM;
+
+	rt->out_buffer = kzalloc(MIDI_BUFSIZE, GFP_KERNEL);
+	if (!rt->out_buffer) {
+		kfree(rt);
+		return -ENOMEM;
+	}
 
 	rt->chip = chip;
 	rt->in_received = usb6fire_midi_in_received;
@@ -170,8 +177,9 @@ int __devinit usb6fire_midi_init(struct sfire_chip *chip)
 
 	ret = snd_rawmidi_new(chip->card, "6FireUSB", 0, 1, 1, &rt->instance);
 	if (ret < 0) {
+		kfree(rt->out_buffer);
 		kfree(rt);
-		snd_printk(KERN_ERR PREFIX "unable to create midi.\n");
+		dev_err(&chip->dev->dev, "unable to create midi.\n");
 		return ret;
 	}
 	rt->instance->private_data = rt;
@@ -198,6 +206,9 @@ void usb6fire_midi_abort(struct sfire_chip *chip)
 
 void usb6fire_midi_destroy(struct sfire_chip *chip)
 {
-	kfree(chip->midi);
+	struct midi_runtime *rt = chip->midi;
+
+	kfree(rt->out_buffer);
+	kfree(rt);
 	chip->midi = NULL;
 }

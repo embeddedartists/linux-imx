@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * arch/arm/mach-iop32x/n2100.c
  *
@@ -7,11 +8,6 @@
  * Copyright (C) 2002 Rory Bolt
  * Copyright 2003 (c) MontaVista, Software, Inc.
  * Copyright (C) 2004 Intel Corp.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
  */
 
 #include <linux/mm.h>
@@ -30,7 +26,8 @@
 #include <linux/platform_device.h>
 #include <linux/reboot.h>
 #include <linux/io.h>
-#include <mach/hardware.h>
+#include <linux/gpio.h>
+#include <linux/gpio/machine.h>
 #include <asm/irq.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
@@ -38,8 +35,10 @@
 #include <asm/mach/time.h>
 #include <asm/mach-types.h>
 #include <asm/page.h>
-#include <asm/pgtable.h>
-#include <mach/time.h>
+
+#include "hardware.h"
+#include "irqs.h"
+#include "gpio-iop32x.h"
 
 /*
  * N2100 timer tick configuration.
@@ -49,10 +48,6 @@ static void __init n2100_timer_init(void)
 	/* 33.000 MHz crystal.  */
 	iop_init_time(198000000);
 }
-
-static struct sys_timer n2100_timer = {
-	.init		= n2100_timer_init,
-};
 
 
 /*
@@ -77,8 +72,7 @@ void __init n2100_map_io(void)
 /*
  * N2100 PCI.
  */
-static int __init
-n2100_pci_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
+static int n2100_pci_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
 	int irq;
 
@@ -114,25 +108,24 @@ n2100_pci_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 }
 
 static struct hw_pci n2100_pci __initdata = {
-	.swizzle	= pci_std_swizzle,
 	.nr_controllers = 1,
+	.ops		= &iop3xx_ops,
 	.setup		= iop3xx_pci_setup,
 	.preinit	= iop3xx_pci_preinit,
-	.scan		= iop3xx_pci_scan_bus,
 	.map_irq	= n2100_pci_map_irq,
 };
 
 /*
- * Both r8169 chips on the n2100 exhibit PCI parity problems.  Set
- * the ->broken_parity_status flag for both ports so that the r8169
- * driver knows it should ignore error interrupts.
+ * Both r8169 chips on the n2100 exhibit PCI parity problems.  Turn
+ * off parity reporting for both ports so we don't get error interrupts
+ * for them.
  */
 static void n2100_fixup_r8169(struct pci_dev *dev)
 {
 	if (dev->bus->number == 0 &&
 	    (dev->devfn == PCI_DEVFN(1, 0) ||
 	     dev->devfn == PCI_DEVFN(2, 0)))
-		dev->broken_parity_status = 1;
+		pci_disable_parity(dev);
 }
 DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_REALTEK, PCI_ANY_ID, n2100_fixup_r8169);
 
@@ -291,10 +284,16 @@ static void n2100_power_off(void)
 		;
 }
 
-static void n2100_restart(char mode, const char *cmd)
+static void n2100_restart(enum reboot_mode mode, const char *cmd)
 {
-	gpio_line_set(N2100_HARDWARE_RESET, GPIO_LOW);
-	gpio_line_config(N2100_HARDWARE_RESET, GPIO_OUT);
+	int ret;
+
+	ret = gpio_direction_output(N2100_HARDWARE_RESET, 0);
+	if (ret) {
+		pr_crit("could not drive reset GPIO low\n");
+		return;
+	}
+	/* Wait for reset to happen */
 	while (1)
 		;
 }
@@ -302,9 +301,9 @@ static void n2100_restart(char mode, const char *cmd)
 
 static struct timer_list power_button_poll_timer;
 
-static void power_button_poll(unsigned long dummy)
+static void power_button_poll(struct timer_list *unused)
 {
-	if (gpio_line_get(N2100_POWER_BUTTON) == 0) {
+	if (gpio_get_value(N2100_POWER_BUTTON) == 0) {
 		ctrl_alt_del();
 		return;
 	}
@@ -313,9 +312,37 @@ static void power_button_poll(unsigned long dummy)
 	add_timer(&power_button_poll_timer);
 }
 
+static int __init n2100_request_gpios(void)
+{
+	int ret;
+
+	if (!machine_is_n2100())
+		return 0;
+
+	ret = gpio_request(N2100_HARDWARE_RESET, "reset");
+	if (ret)
+		pr_err("could not request reset GPIO\n");
+
+	ret = gpio_request(N2100_POWER_BUTTON, "power");
+	if (ret)
+		pr_err("could not request power GPIO\n");
+	else {
+		ret = gpio_direction_input(N2100_POWER_BUTTON);
+		if (ret)
+			pr_err("could not set power GPIO as input\n");
+	}
+	/* Set up power button poll timer */
+	timer_setup(&power_button_poll_timer, power_button_poll, 0);
+	power_button_poll_timer.expires = jiffies + (HZ / 10);
+	add_timer(&power_button_poll_timer);
+	return 0;
+}
+device_initcall(n2100_request_gpios);
 
 static void __init n2100_init_machine(void)
 {
+	register_iop32x_gpio();
+	gpiod_add_lookup_table(&iop3xx_i2c0_gpio_lookup);
 	platform_device_register(&iop3xx_i2c0_device);
 	platform_device_register(&n2100_flash_device);
 	platform_device_register(&n2100_serial_device);
@@ -326,11 +353,6 @@ static void __init n2100_init_machine(void)
 		ARRAY_SIZE(n2100_i2c_devices));
 
 	pm_power_off = n2100_power_off;
-
-	init_timer(&power_button_poll_timer);
-	power_button_poll_timer.function = power_button_poll;
-	power_button_poll_timer.expires = jiffies + (HZ / 10);
-	add_timer(&power_button_poll_timer);
 }
 
 MACHINE_START(N2100, "Thecus N2100")
@@ -338,7 +360,7 @@ MACHINE_START(N2100, "Thecus N2100")
 	.atag_offset	= 0x100,
 	.map_io		= n2100_map_io,
 	.init_irq	= iop32x_init_irq,
-	.timer		= &n2100_timer,
+	.init_time	= n2100_timer_init,
 	.init_machine	= n2100_init_machine,
 	.restart	= n2100_restart,
 MACHINE_END

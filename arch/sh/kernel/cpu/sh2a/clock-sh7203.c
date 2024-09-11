@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * arch/sh/kernel/cpu/sh2a/clock-sh7203.c
  *
@@ -10,10 +11,6 @@
  *
  * Based on clock-sh4.c
  *  Copyright (C) 2005  Paul Mundt
- *
- * This file is subject to the terms and conditions of the GNU General Public
- * License.  See the file "COPYING" in the main directory of this archive
- * for more details.
  */
 #include <linux/init.h>
 #include <linux/kernel.h>
@@ -32,7 +29,7 @@ static void master_clk_init(struct clk *clk)
 	clk->rate *= pll1rate[(__raw_readw(FREQCR) >> 8) & 0x0003] * pll2_mult;
 }
 
-static struct clk_ops sh7203_master_clk_ops = {
+static struct sh_clk_ops sh7203_master_clk_ops = {
 	.init		= master_clk_init,
 };
 
@@ -42,7 +39,7 @@ static unsigned long module_clk_recalc(struct clk *clk)
 	return clk->parent->rate / pfc_divisors[idx];
 }
 
-static struct clk_ops sh7203_module_clk_ops = {
+static struct sh_clk_ops sh7203_module_clk_ops = {
 	.recalc		= module_clk_recalc,
 };
 
@@ -52,22 +49,22 @@ static unsigned long bus_clk_recalc(struct clk *clk)
 	return clk->parent->rate / pfc_divisors[idx-2];
 }
 
-static struct clk_ops sh7203_bus_clk_ops = {
+static struct sh_clk_ops sh7203_bus_clk_ops = {
 	.recalc		= bus_clk_recalc,
 };
 
-static struct clk_ops sh7203_cpu_clk_ops = {
+static struct sh_clk_ops sh7203_cpu_clk_ops = {
 	.recalc		= followparent_recalc,
 };
 
-static struct clk_ops *sh7203_clk_ops[] = {
+static struct sh_clk_ops *sh7203_clk_ops[] = {
 	&sh7203_master_clk_ops,
 	&sh7203_module_clk_ops,
 	&sh7203_bus_clk_ops,
 	&sh7203_cpu_clk_ops,
 };
 
-void __init arch_init_clk_ops(struct clk_ops **ops, int idx)
+void __init arch_init_clk_ops(struct sh_clk_ops **ops, int idx)
 {
 	if (test_mode_pin(MODE_PIN1))
 		pll2_mult = 4;

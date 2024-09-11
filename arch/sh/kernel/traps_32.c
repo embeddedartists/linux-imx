@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * 'traps.c' handles hardware traps and faults after we have saved some
  * state in 'entry.S'.
@@ -6,31 +7,28 @@
  *                  Copyright (C) 2000 Philipp Rumpf
  *                  Copyright (C) 2000 David Howells
  *                  Copyright (C) 2002 - 2010 Paul Mundt
- *
- * This file is subject to the terms and conditions of the GNU General Public
- * License.  See the file "COPYING" in the main directory of this archive
- * for more details.
  */
 #include <linux/kernel.h>
 #include <linux/ptrace.h>
 #include <linux/hardirq.h>
 #include <linux/init.h>
 #include <linux/spinlock.h>
-#include <linux/module.h>
 #include <linux/kallsyms.h>
 #include <linux/io.h>
 #include <linux/bug.h>
 #include <linux/debug_locks.h>
 #include <linux/kdebug.h>
-#include <linux/kexec.h>
 #include <linux/limits.h>
 #include <linux/sysfs.h>
 #include <linux/uaccess.h>
 #include <linux/perf_event.h>
-#include <asm/system.h>
+#include <linux/sched/task_stack.h>
+
 #include <asm/alignment.h>
 #include <asm/fpu.h>
 #include <asm/kprobes.h>
+#include <asm/traps.h>
+#include <asm/bl_bit.h>
 
 #ifdef CONFIG_CPU_SH2
 # define TRAP_RESERVED_INST	4
@@ -46,102 +44,6 @@
 #define TRAP_RESERVED_INST	12
 #define TRAP_ILLEGAL_SLOT_INST	13
 #endif
-
-static void dump_mem(const char *str, unsigned long bottom, unsigned long top)
-{
-	unsigned long p;
-	int i;
-
-	printk("%s(0x%08lx to 0x%08lx)\n", str, bottom, top);
-
-	for (p = bottom & ~31; p < top; ) {
-		printk("%04lx: ", p & 0xffff);
-
-		for (i = 0; i < 8; i++, p += 4) {
-			unsigned int val;
-
-			if (p < bottom || p >= top)
-				printk("         ");
-			else {
-				if (__get_user(val, (unsigned int __user *)p)) {
-					printk("\n");
-					return;
-				}
-				printk("%08x ", val);
-			}
-		}
-		printk("\n");
-	}
-}
-
-static DEFINE_SPINLOCK(die_lock);
-
-void die(const char * str, struct pt_regs * regs, long err)
-{
-	static int die_counter;
-
-	oops_enter();
-
-	spin_lock_irq(&die_lock);
-	console_verbose();
-	bust_spinlocks(1);
-
-	printk("%s: %04lx [#%d]\n", str, err & 0xffff, ++die_counter);
-	print_modules();
-	show_regs(regs);
-
-	printk("Process: %s (pid: %d, stack limit = %p)\n", current->comm,
-			task_pid_nr(current), task_stack_page(current) + 1);
-
-	if (!user_mode(regs) || in_interrupt())
-		dump_mem("Stack: ", regs->regs[15], THREAD_SIZE +
-			 (unsigned long)task_stack_page(current));
-
-	notify_die(DIE_OOPS, str, regs, err, 255, SIGSEGV);
-
-	bust_spinlocks(0);
-	add_taint(TAINT_DIE);
-	spin_unlock_irq(&die_lock);
-	oops_exit();
-
-	if (kexec_should_crash(current))
-		crash_kexec(regs);
-
-	if (in_interrupt())
-		panic("Fatal exception in interrupt");
-
-	if (panic_on_oops)
-		panic("Fatal exception");
-
-	do_exit(SIGSEGV);
-}
-
-static inline void die_if_kernel(const char *str, struct pt_regs *regs,
-				 long err)
-{
-	if (!user_mode(regs))
-		die(str, regs, err);
-}
-
-/*
- * try and fix up kernelspace address errors
- * - userspace errors just cause EFAULT to be returned, resulting in SEGV
- * - kernel/userspace interfaces cause a jump to an appropriate handler
- * - other kernel errors are bad
- */
-static void die_if_no_fixup(const char * str, struct pt_regs * regs, long err)
-{
-	if (!user_mode(regs)) {
-		const struct exception_table_entry *fixup;
-		fixup = search_exception_tables(regs->pc);
-		if (fixup) {
-			regs->pc = fixup->fixup;
-			return;
-		}
-
-		die(str, regs, err);
-	}
-}
 
 static inline void sign_extend(unsigned int count, unsigned char *dst)
 {
@@ -572,7 +474,6 @@ asmlinkage void do_address_error(struct pt_regs *regs,
 {
 	unsigned long error_code = 0;
 	mm_segment_t oldfs;
-	siginfo_t info;
 	insn_size_t instruction;
 	int tmp;
 
@@ -581,8 +482,6 @@ asmlinkage void do_address_error(struct pt_regs *regs,
 	error_code = lookup_exception_vector();
 #endif
 
-	oldfs = get_fs();
-
 	if (user_mode(regs)) {
 		int si_code = BUS_ADRERR;
 		unsigned int user_action;
@@ -590,13 +489,13 @@ asmlinkage void do_address_error(struct pt_regs *regs,
 		local_irq_enable();
 		inc_unaligned_user_access();
 
-		set_fs(USER_DS);
+		oldfs = force_uaccess_begin();
 		if (copy_from_user(&instruction, (insn_size_t *)(regs->pc & ~1),
 				   sizeof(instruction))) {
-			set_fs(oldfs);
+			force_uaccess_end(oldfs);
 			goto uspace_segv;
 		}
-		set_fs(oldfs);
+		force_uaccess_end(oldfs);
 
 		/* shout about userspace fixups */
 		unaligned_fixups_notify(current, instruction, regs);
@@ -619,11 +518,11 @@ fixup:
 			goto uspace_segv;
 		}
 
-		set_fs(USER_DS);
+		oldfs = force_uaccess_begin();
 		tmp = handle_unaligned_access(instruction, regs,
 					      &user_mem_access, 0,
 					      address);
-		set_fs(oldfs);
+		force_uaccess_end(oldfs);
 
 		if (tmp == 0)
 			return; /* sorted */
@@ -632,11 +531,7 @@ uspace_segv:
 		       "access (PC %lx PR %lx)\n", current->comm, regs->pc,
 		       regs->pr);
 
-		info.si_signo = SIGBUS;
-		info.si_errno = 0;
-		info.si_code = si_code;
-		info.si_addr = (void __user *)address;
-		force_sig_info(SIGBUS, &info, current);
+		force_sig_fault(SIGBUS, si_code, (void __user *)address);
 	} else {
 		inc_unaligned_kernel_access();
 
@@ -691,32 +586,29 @@ int is_dsp_inst(struct pt_regs *regs)
 #endif /* CONFIG_SH_DSP */
 
 #ifdef CONFIG_CPU_SH2A
-asmlinkage void do_divide_error(unsigned long r4, unsigned long r5,
-				unsigned long r6, unsigned long r7,
-				struct pt_regs __regs)
+asmlinkage void do_divide_error(unsigned long r4)
 {
-	siginfo_t info;
+	int code;
 
 	switch (r4) {
 	case TRAP_DIVZERO_ERROR:
-		info.si_code = FPE_INTDIV;
+		code = FPE_INTDIV;
 		break;
 	case TRAP_DIVOVF_ERROR:
-		info.si_code = FPE_INTOVF;
+		code = FPE_INTOVF;
 		break;
+	default:
+		/* Let gcc know unhandled cases don't make it past here */
+		return;
 	}
-
-	force_sig_info(SIGFPE, &info, current);
+	force_sig_fault(SIGFPE, code, NULL);
 }
 #endif
 
-asmlinkage void do_reserved_inst(unsigned long r4, unsigned long r5,
-				unsigned long r6, unsigned long r7,
-				struct pt_regs __regs)
+asmlinkage void do_reserved_inst(void)
 {
-	struct pt_regs *regs = RELOC_HIDE(&__regs, 0);
+	struct pt_regs *regs = current_pt_regs();
 	unsigned long error_code;
-	struct task_struct *tsk = current;
 
 #ifdef CONFIG_SH_FPU_EMU
 	unsigned short inst = 0;
@@ -738,7 +630,7 @@ asmlinkage void do_reserved_inst(unsigned long r4, unsigned long r5,
 		/* Enable DSP mode, and restart instruction. */
 		regs->sr |= SR_DSP;
 		/* Save DSP mode */
-		tsk->thread.dsp_status.status |= SR_DSP;
+		current->thread.dsp_status.status |= SR_DSP;
 		return;
 	}
 #endif
@@ -746,7 +638,7 @@ asmlinkage void do_reserved_inst(unsigned long r4, unsigned long r5,
 	error_code = lookup_exception_vector();
 
 	local_irq_enable();
-	force_sig(SIGILL, tsk);
+	force_sig(SIGILL);
 	die_if_no_fixup("reserved instruction", regs, error_code);
 }
 
@@ -798,13 +690,10 @@ static int emulate_branch(unsigned short inst, struct pt_regs *regs)
 }
 #endif
 
-asmlinkage void do_illegal_slot_inst(unsigned long r4, unsigned long r5,
-				unsigned long r6, unsigned long r7,
-				struct pt_regs __regs)
+asmlinkage void do_illegal_slot_inst(void)
 {
-	struct pt_regs *regs = RELOC_HIDE(&__regs, 0);
+	struct pt_regs *regs = current_pt_regs();
 	unsigned long inst;
-	struct task_struct *tsk = current;
 
 	if (kprobe_handle_illslot(regs->pc) == 0)
 		return;
@@ -823,22 +712,19 @@ asmlinkage void do_illegal_slot_inst(unsigned long r4, unsigned long r5,
 	inst = lookup_exception_vector();
 
 	local_irq_enable();
-	force_sig(SIGILL, tsk);
+	force_sig(SIGILL);
 	die_if_no_fixup("illegal slot instruction", regs, inst);
 }
 
-asmlinkage void do_exception_error(unsigned long r4, unsigned long r5,
-				   unsigned long r6, unsigned long r7,
-				   struct pt_regs __regs)
+asmlinkage void do_exception_error(void)
 {
-	struct pt_regs *regs = RELOC_HIDE(&__regs, 0);
 	long ex;
 
 	ex = lookup_exception_vector();
-	die_if_kernel("exception", regs, ex);
+	die_if_kernel("exception", current_pt_regs(), ex);
 }
 
-void __cpuinit per_cpu_trap_init(void)
+void per_cpu_trap_init(void)
 {
 	extern void *vbr_base;
 
@@ -899,26 +785,3 @@ void __init trap_init(void)
 	set_exception_table_vec(TRAP_UBC, breakpoint_trap_handler);
 #endif
 }
-
-void show_stack(struct task_struct *tsk, unsigned long *sp)
-{
-	unsigned long stack;
-
-	if (!tsk)
-		tsk = current;
-	if (tsk == current)
-		sp = (unsigned long *)current_stack_pointer;
-	else
-		sp = (unsigned long *)tsk->thread.sp;
-
-	stack = (unsigned long)sp;
-	dump_mem("Stack: ", stack, THREAD_SIZE +
-		 (unsigned long)task_stack_page(tsk));
-	show_trace(tsk, sp, NULL);
-}
-
-void dump_stack(void)
-{
-	show_stack(NULL, NULL);
-}
-EXPORT_SYMBOL(dump_stack);

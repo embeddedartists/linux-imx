@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2007-2011 Atheros Communications Inc.
+ * Copyright (c) 2011-2012 Qualcomm Atheros, Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,10 +16,13 @@
  */
 #include "hif.h"
 
+#include <linux/export.h>
+
 #include "core.h"
 #include "target.h"
 #include "hif-ops.h"
 #include "debug.h"
+#include "trace.h"
 
 #define MAILBOX_FOR_BLOCK_SIZE          1
 
@@ -33,7 +37,6 @@ static int ath6kl_hif_cp_scat_dma_buf(struct hif_scatter_req *req,
 	buf = req->virt_dma_buf;
 
 	for (i = 0; i < req->scat_entries; i++) {
-
 		if (from_dma)
 			memcpy(req->scat_list[i].buf, buf,
 			       req->scat_list[i].len);
@@ -59,7 +62,9 @@ int ath6kl_hif_rw_comp_handler(void *context, int status)
 
 	return 0;
 }
-#define REG_DUMP_COUNT_AR6003   60
+EXPORT_SYMBOL(ath6kl_hif_rw_comp_handler);
+
+#define REGISTER_DUMP_COUNT     60
 #define REGISTER_DUMP_LEN_MAX   60
 
 static void ath6kl_hif_dump_fw_crash(struct ath6kl *ar)
@@ -67,9 +72,6 @@ static void ath6kl_hif_dump_fw_crash(struct ath6kl *ar)
 	__le32 regdump_val[REGISTER_DUMP_LEN_MAX];
 	u32 i, address, regdump_addr = 0;
 	int ret;
-
-	if (ar->target_type != TARGET_TYPE_AR6003)
-		return;
 
 	/* the reg dump pointer is copied to the host interest area */
 	address = ath6kl_get_hi_item_addr(ar, HI_ITEM(hi_failure_state));
@@ -85,12 +87,12 @@ static void ath6kl_hif_dump_fw_crash(struct ath6kl *ar)
 	}
 
 	ath6kl_dbg(ATH6KL_DBG_IRQ, "register dump data address 0x%x\n",
-		regdump_addr);
+		   regdump_addr);
 	regdump_addr = TARG_VTOP(ar->target_type, regdump_addr);
 
 	/* fetch register dump data */
 	ret = ath6kl_diag_read(ar, regdump_addr, (u8 *)&regdump_val[0],
-				  REG_DUMP_COUNT_AR6003 * (sizeof(u32)));
+				  REGISTER_DUMP_COUNT * (sizeof(u32)));
 	if (ret) {
 		ath6kl_warn("failed to get register dump: %d\n", ret);
 		return;
@@ -100,17 +102,16 @@ static void ath6kl_hif_dump_fw_crash(struct ath6kl *ar)
 	ath6kl_info("hw 0x%x fw %s\n", ar->wiphy->hw_version,
 		    ar->wiphy->fw_version);
 
-	BUILD_BUG_ON(REG_DUMP_COUNT_AR6003 % 4);
+	BUILD_BUG_ON(REGISTER_DUMP_COUNT % 4);
 
-	for (i = 0; i < REG_DUMP_COUNT_AR6003 / 4; i++) {
+	for (i = 0; i < REGISTER_DUMP_COUNT; i += 4) {
 		ath6kl_info("%d: 0x%8.8x 0x%8.8x 0x%8.8x 0x%8.8x\n",
-			    4 * i,
+			    i,
 			    le32_to_cpu(regdump_val[i]),
 			    le32_to_cpu(regdump_val[i + 1]),
 			    le32_to_cpu(regdump_val[i + 2]),
 			    le32_to_cpu(regdump_val[i + 3]));
 	}
-
 }
 
 static int ath6kl_hif_proc_dbg_intr(struct ath6kl_device *dev)
@@ -130,6 +131,8 @@ static int ath6kl_hif_proc_dbg_intr(struct ath6kl_device *dev)
 		ath6kl_warn("Failed to clear debug interrupt: %d\n", ret);
 
 	ath6kl_hif_dump_fw_crash(dev->ar);
+	ath6kl_read_fwlogs(dev->ar);
+	ath6kl_recovery_err_notify(dev->ar, ATH6KL_FW_ASSERT);
 
 	return ret;
 }
@@ -279,7 +282,7 @@ static int ath6kl_hif_proc_counter_intr(struct ath6kl_device *dev)
 			     dev->irq_en_reg.cntr_int_status_en;
 
 	ath6kl_dbg(ATH6KL_DBG_IRQ,
-		"valid interrupt source(s) in COUNTER_INT_STATUS: 0x%x\n",
+		   "valid interrupt source(s) in COUNTER_INT_STATUS: 0x%x\n",
 		counter_int_status);
 
 	/*
@@ -332,8 +335,7 @@ static int ath6kl_hif_proc_err_intr(struct ath6kl_device *dev)
 	status = hif_read_write_sync(dev->ar, ERROR_INT_STATUS_ADDRESS,
 				     reg_buf, 4, HIF_WR_SYNC_BYTE_FIX);
 
-	if (status)
-		WARN_ON(1);
+	WARN_ON(status);
 
 	return status;
 }
@@ -354,7 +356,7 @@ static int ath6kl_hif_proc_cpu_intr(struct ath6kl_device *dev)
 	}
 
 	ath6kl_dbg(ATH6KL_DBG_IRQ,
-		"valid interrupt source(s) in CPU_INT_STATUS: 0x%x\n",
+		   "valid interrupt source(s) in CPU_INT_STATUS: 0x%x\n",
 		cpu_int_status);
 
 	/* Clear the interrupt */
@@ -377,8 +379,7 @@ static int ath6kl_hif_proc_cpu_intr(struct ath6kl_device *dev)
 	status = hif_read_write_sync(dev->ar, CPU_INT_STATUS_ADDRESS,
 				     reg_buf, 4, HIF_WR_SYNC_BYTE_FIX);
 
-	if (status)
-		WARN_ON(1);
+	WARN_ON(status);
 
 	return status;
 }
@@ -429,9 +430,10 @@ static int proc_pending_irqs(struct ath6kl_device *dev, bool *done)
 		if (status)
 			goto out;
 
-		if (AR_DBG_LVL_CHECK(ATH6KL_DBG_IRQ))
-			ath6kl_dump_registers(dev, &dev->irq_proc_reg,
-					 &dev->irq_en_reg);
+		ath6kl_dump_registers(dev, &dev->irq_proc_reg,
+				      &dev->irq_en_reg);
+		trace_ath6kl_sdio_irq(&dev->irq_en_reg,
+				      sizeof(dev->irq_en_reg));
 
 		/* Update only those registers that are enabled */
 		host_int_status = dev->irq_proc_reg.host_int_status &
@@ -561,6 +563,7 @@ int ath6kl_hif_intr_bh_handler(struct ath6kl *ar)
 
 	return status;
 }
+EXPORT_SYMBOL(ath6kl_hif_intr_bh_handler);
 
 static int ath6kl_hif_enable_intrs(struct ath6kl_device *dev)
 {
@@ -693,5 +696,4 @@ int ath6kl_hif_setup(struct ath6kl_device *dev)
 
 fail_setup:
 	return status;
-
 }

@@ -1,11 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  *  Atheros AR933X UART defines
  *
  *  Copyright (C) 2011 Gabor Juhos <juhosg@openwrt.org>
- *
- *  This program is free software; you can redistribute it and/or modify it
- *  under the terms of the GNU General Public License version 2 as published
- *  by the Free Software Foundation.
  */
 
 #ifndef __AR933X_UART_H
@@ -26,14 +23,14 @@
 
 #define AR933X_UART_CS_PARITY_S		0
 #define AR933X_UART_CS_PARITY_M		0x3
-#define   AR933X_UART_CS_PARITY_NONE	0
-#define   AR933X_UART_CS_PARITY_ODD	1
-#define   AR933X_UART_CS_PARITY_EVEN	2
+#define	  AR933X_UART_CS_PARITY_NONE	0
+#define	  AR933X_UART_CS_PARITY_ODD	2
+#define	  AR933X_UART_CS_PARITY_EVEN	3
 #define AR933X_UART_CS_IF_MODE_S	2
 #define AR933X_UART_CS_IF_MODE_M	0x3
-#define   AR933X_UART_CS_IF_MODE_NONE	0
-#define   AR933X_UART_CS_IF_MODE_DTE	1
-#define   AR933X_UART_CS_IF_MODE_DCE	2
+#define	  AR933X_UART_CS_IF_MODE_NONE	0
+#define	  AR933X_UART_CS_IF_MODE_DTE	1
+#define	  AR933X_UART_CS_IF_MODE_DCE	2
 #define AR933X_UART_CS_FLOW_CTRL_S	4
 #define AR933X_UART_CS_FLOW_CTRL_M	0x3
 #define AR933X_UART_CS_DMA_EN		BIT(6)

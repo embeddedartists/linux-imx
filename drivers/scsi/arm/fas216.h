@@ -1,20 +1,13 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  *  linux/drivers/acorn/scsi/fas216.h
  *
  *  Copyright (C) 1997-2000 Russell King
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
  *  FAS216 generic driver
  */
 #ifndef FAS216_H
 #define FAS216_H
-
-#ifndef NO_IRQ
-#define NO_IRQ 255
-#endif
 
 #include <scsi/scsi_eh.h>
 
@@ -362,9 +355,9 @@ extern void fas216_remove (struct Scsi_Host *instance);
  */
 extern void fas216_release (struct Scsi_Host *instance);
 
-extern int fas216_print_host(FAS216_Info *info, char *buffer);
-extern int fas216_print_stats(FAS216_Info *info, char *buffer);
-extern int fas216_print_devices(FAS216_Info *info, char *buffer);
+extern void fas216_print_host(FAS216_Info *info, struct seq_file *m);
+extern void fas216_print_stats(FAS216_Info *info, struct seq_file *m);
+extern void fas216_print_devices(FAS216_Info *info, struct seq_file *m);
 
 /* Function: int fas216_eh_abort(struct scsi_cmnd *SCpnt)
  * Purpose : abort this command

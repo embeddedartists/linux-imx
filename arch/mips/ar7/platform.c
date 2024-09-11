@@ -1,25 +1,11 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (C) 2006,2007 Felix Fietkau <nbd@openwrt.org>
  * Copyright (C) 2006,2007 Eugene Konev <ejka@openwrt.org>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
 #include <linux/init.h>
 #include <linux/types.h>
-#include <linux/module.h>
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
 #include <linux/platform_device.h>
@@ -39,7 +25,6 @@
 
 #include <asm/addrspace.h>
 #include <asm/mach-ar7/ar7.h>
-#include <asm/mach-ar7/gpio.h>
 #include <asm/mach-ar7/prom.h>
 
 /*****************************************************************************
@@ -202,8 +187,11 @@ static struct resource physmap_flash_resource = {
 	.end	= 0x107fffff,
 };
 
+static const char *ar7_probe_types[] = { "ar7part", NULL };
+
 static struct physmap_flash_data physmap_flash_data = {
 	.width	= 2,
+	.part_probe_types = ar7_probe_types,
 };
 
 static struct platform_device physmap_flash = {
@@ -304,16 +292,12 @@ static void __init cpmac_get_mac(int instance, unsigned char *dev_addr)
 	}
 
 	if (mac) {
-		if (sscanf(mac, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
-					&dev_addr[0], &dev_addr[1],
-					&dev_addr[2], &dev_addr[3],
-					&dev_addr[4], &dev_addr[5]) != 6) {
-			pr_warning("cannot parse mac address, "
-					"using random address\n");
-			random_ether_addr(dev_addr);
+		if (!mac_pton(mac, dev_addr)) {
+			pr_warn("cannot parse mac address, using random address\n");
+			eth_random_addr(dev_addr);
 		}
 	} else
-		random_ether_addr(dev_addr);
+		eth_random_addr(dev_addr);
 }
 
 /*****************************************************************************
@@ -349,7 +333,7 @@ static struct platform_device ar7_udc = {
 /*****************************************************************************
  * LEDs
  ****************************************************************************/
-static struct gpio_led default_leds[] = {
+static const struct gpio_led default_leds[] = {
 	{
 		.name			= "status",
 		.gpio			= 8,
@@ -357,12 +341,12 @@ static struct gpio_led default_leds[] = {
 	},
 };
 
-static struct gpio_led titan_leds[] = {
+static const struct gpio_led titan_leds[] = {
 	{ .name = "status", .gpio = 8, .active_low = 1, },
 	{ .name = "wifi", .gpio = 13, .active_low = 1, },
 };
 
-static struct gpio_led dsl502t_leds[] = {
+static const struct gpio_led dsl502t_leds[] = {
 	{
 		.name			= "status",
 		.gpio			= 9,
@@ -380,7 +364,7 @@ static struct gpio_led dsl502t_leds[] = {
 	},
 };
 
-static struct gpio_led dg834g_leds[] = {
+static const struct gpio_led dg834g_leds[] = {
 	{
 		.name			= "ppp",
 		.gpio			= 6,
@@ -409,7 +393,7 @@ static struct gpio_led dg834g_leds[] = {
 	},
 };
 
-static struct gpio_led fb_sl_leds[] = {
+static const struct gpio_led fb_sl_leds[] = {
 	{
 		.name			= "1",
 		.gpio			= 7,
@@ -436,7 +420,7 @@ static struct gpio_led fb_sl_leds[] = {
 	},
 };
 
-static struct gpio_led fb_fon_leds[] = {
+static const struct gpio_led fb_fon_leds[] = {
 	{
 		.name			= "1",
 		.gpio			= 8,
@@ -462,7 +446,7 @@ static struct gpio_led fb_fon_leds[] = {
 	},
 };
 
-static struct gpio_led gt701_leds[] = {
+static const struct gpio_led gt701_leds[] = {
 	{
 		.name			= "inet:green",
 		.gpio			= 13,
@@ -489,11 +473,11 @@ static struct gpio_led gt701_leds[] = {
 		.active_low		= 1,
 		.default_trigger	= "default-on",
 	},
-        {
-                .name                   = "ethernet",
-                .gpio                   = 10,
-                .active_low             = 1,
-        },
+	{
+		.name			= "ethernet",
+		.gpio			= 10,
+		.active_low		= 1,
+	},
 };
 
 static struct gpio_led_platform_data ar7_led_data;
@@ -509,7 +493,7 @@ static void __init detect_leds(void)
 {
 	char *prid, *usb_prod;
 
-	/* Default LEDs	*/
+	/* Default LEDs */
 	ar7_led_data.num_leds = ARRAY_SIZE(default_leds);
 	ar7_led_data.leds = default_leds;
 
@@ -578,6 +562,7 @@ static int __init ar7_register_uarts(void)
 	uart_port.type		= PORT_AR7;
 	uart_port.uartclk	= clk_get_rate(bus_clk) / 2;
 	uart_port.iotype	= UPIO_MEM32;
+	uart_port.flags		= UPF_FIXED_TYPE | UPF_BOOT_AUTOCONF;
 	uart_port.regshift	= 2;
 
 	uart_port.line		= 0;
@@ -656,13 +641,17 @@ static int __init ar7_register_devices(void)
 	u32 val;
 	int res;
 
+	res = ar7_gpio_init();
+	if (res)
+		pr_warn("unable to register gpios: %d\n", res);
+
 	res = ar7_register_uarts();
 	if (res)
 		pr_err("unable to setup uart(s): %d\n", res);
 
 	res = platform_device_register(&physmap_flash);
 	if (res)
-		pr_warning("unable to register physmap-flash: %d\n", res);
+		pr_warn("unable to register physmap-flash: %d\n", res);
 
 	if (ar7_is_titan())
 		titan_fixup_devices();
@@ -670,25 +659,27 @@ static int __init ar7_register_devices(void)
 	ar7_device_disable(vlynq_low_data.reset_bit);
 	res = platform_device_register(&vlynq_low);
 	if (res)
-		pr_warning("unable to register vlynq-low: %d\n", res);
+		pr_warn("unable to register vlynq-low: %d\n", res);
 
 	if (ar7_has_high_vlynq()) {
 		ar7_device_disable(vlynq_high_data.reset_bit);
 		res = platform_device_register(&vlynq_high);
 		if (res)
-			pr_warning("unable to register vlynq-high: %d\n", res);
+			pr_warn("unable to register vlynq-high: %d\n", res);
 	}
 
 	if (ar7_has_high_cpmac()) {
-		res = fixed_phy_add(PHY_POLL, cpmac_high.id, &fixed_phy_status);
+		res = fixed_phy_add(PHY_POLL, cpmac_high.id,
+				    &fixed_phy_status);
 		if (!res) {
 			cpmac_get_mac(1, cpmac_high_data.dev_addr);
 
 			res = platform_device_register(&cpmac_high);
 			if (res)
-				pr_warning("unable to register cpmac-high: %d\n", res);
+				pr_warn("unable to register cpmac-high: %d\n",
+					res);
 		} else
-			pr_warning("unable to add cpmac-high phy: %d\n", res);
+			pr_warn("unable to add cpmac-high phy: %d\n", res);
 	} else
 		cpmac_low_data.phy_mask = 0xffffffff;
 
@@ -697,21 +688,21 @@ static int __init ar7_register_devices(void)
 		cpmac_get_mac(0, cpmac_low_data.dev_addr);
 		res = platform_device_register(&cpmac_low);
 		if (res)
-			pr_warning("unable to register cpmac-low: %d\n", res);
+			pr_warn("unable to register cpmac-low: %d\n", res);
 	} else
-		pr_warning("unable to add cpmac-low phy: %d\n", res);
+		pr_warn("unable to add cpmac-low phy: %d\n", res);
 
 	detect_leds();
 	res = platform_device_register(&ar7_gpio_leds);
 	if (res)
-		pr_warning("unable to register leds: %d\n", res);
+		pr_warn("unable to register leds: %d\n", res);
 
 	res = platform_device_register(&ar7_udc);
 	if (res)
-		pr_warning("unable to register usb slave: %d\n", res);
+		pr_warn("unable to register usb slave: %d\n", res);
 
 	/* Register watchdog only if enabled in hardware */
-	bootcr = ioremap_nocache(AR7_REGS_DCL, 4);
+	bootcr = ioremap(AR7_REGS_DCL, 4);
 	val = readl(bootcr);
 	iounmap(bootcr);
 	if (val & AR7_WDT_HW_ENA) {
@@ -723,7 +714,7 @@ static int __init ar7_register_devices(void)
 		ar7_wdt_res.end = ar7_wdt_res.start + 0x20;
 		res = platform_device_register(&ar7_wdt);
 		if (res)
-			pr_warning("unable to register watchdog: %d\n", res);
+			pr_warn("unable to register watchdog: %d\n", res);
 	}
 
 	return 0;

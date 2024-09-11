@@ -1,11 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Virtual EISA root driver.
  * Acts as a placeholder if we don't have a proper EISA bridge.
  *
  * (C) 2003 Marc Zyngier <maz@wild-wind.fr.eu.org>
  * modified for SNI usage by Thomas Bogendoerfer
- *
- * This code is released under the GPL version 2.
  */
 
 #include <linux/kernel.h>
@@ -22,7 +21,7 @@ static struct platform_device eisa_root_dev = {
 };
 
 static struct eisa_root_device eisa_bus_root = {
-	.dev           = &eisa_root_dev.dev,
+	.dev	       = &eisa_root_dev.dev,
 	.bus_base_addr = 0,
 	.res	       = &ioport_resource,
 	.slots	       = EISA_MAX_SLOTS,

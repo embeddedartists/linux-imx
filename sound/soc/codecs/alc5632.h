@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
 * alc5632.h  --  ALC5632 ALSA SoC Audio Codec
 *
@@ -9,10 +10,6 @@
 *           Marc Dietrich <marvin24@gmx.de>
 *
 * Based on alc5623.h by Arnaud Patard
-*
-* This program is free software; you can redistribute it and/or modify
-* it under the terms of the GNU General Public License version 2 as
-* published by the Free Software Foundation.
 */
 
 #ifndef _ALC5632_H
@@ -51,6 +48,7 @@
 #define ALC5632_ADC_REC_MONOMIX			(1 << 0)
 
 #define ALC5632_VOICE_DAC_VOL			0x18 /* voice dac vol */
+#define ALC5632_I2S_OUT_CTL				0x1A /* undocumented reg. found in path scheme */
 /* ALC5632_OUTPUT_MIXER_CTRL :			*/
 /* same remark as for reg 2 line vs speaker	*/
 #define ALC5632_OUTPUT_MIXER_CTRL		0x1C /* out mix ctrl */

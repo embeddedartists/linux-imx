@@ -19,12 +19,14 @@
 
 KBUILD_DEFCONFIG := or1ksim_defconfig
 
-LDFLAGS         :=
 OBJCOPYFLAGS    := -O binary -R .note -R .comment -S
-LDFLAGS_vmlinux :=
 LIBGCC 		:= $(shell $(CC) $(KBUILD_CFLAGS) -print-libgcc-file-name)
 
-KBUILD_CFLAGS	+= -pipe -ffixed-r10
+KBUILD_CFLAGS	+= -pipe -ffixed-r10 -D__linux__
+
+all: vmlinux.bin
+
+boot := arch/$(ARCH)/boot
 
 ifeq ($(CONFIG_OPENRISC_HAVE_INST_MUL),y)
 	KBUILD_CFLAGS += $(call cc-option,-mhard-mul)
@@ -38,18 +40,14 @@ else
 	KBUILD_CFLAGS += $(call cc-option,-msoft-div)
 endif
 
-head-y 		:= arch/openrisc/kernel/head.o arch/openrisc/kernel/init_task.o
+head-y 		:= arch/openrisc/kernel/head.o
 
-core-y		+= arch/openrisc/lib/ \
-		   arch/openrisc/kernel/ \
-		   arch/openrisc/mm/
 libs-y		+= $(LIBGCC)
 
-ifneq '$(CONFIG_OPENRISC_BUILTIN_DTB)' '""'
-BUILTIN_DTB := y
-else
-BUILTIN_DTB := n
-endif
-core-$(BUILTIN_DTB) += arch/openrisc/boot/
+PHONY += vmlinux.bin
 
-all: vmlinux
+vmlinux.bin: vmlinux
+	$(Q)$(MAKE) $(build)=$(boot) $(boot)/$@
+
+archclean:
+	$(Q)$(MAKE) $(clean)=$(boot)

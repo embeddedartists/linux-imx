@@ -31,7 +31,9 @@
 #define _PSB_POWERMGMT_H_
 
 #include <linux/pci.h>
-#include <drm/drmP.h>
+
+struct device;
+struct drm_device;
 
 void gma_power_init(struct drm_device *dev);
 void gma_power_uninit(struct drm_device *dev);
@@ -41,6 +43,9 @@ void gma_power_uninit(struct drm_device *dev);
  */
 int gma_power_suspend(struct device *dev);
 int gma_power_resume(struct device *dev);
+int gma_power_thaw(struct device *dev);
+int gma_power_freeze(struct device *dev);
+int gma_power_restore(struct device *_dev);
 
 /*
  * These are the functions the driver should use to wrap all hw access

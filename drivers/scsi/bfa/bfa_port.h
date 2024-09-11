@@ -1,18 +1,11 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2005-2010 Brocade Communications Systems, Inc.
+ * Copyright (c) 2005-2014 Brocade Communications Systems, Inc.
+ * Copyright (c) 2014- QLogic Corporation.
  * All rights reserved
- * www.brocade.com
+ * www.qlogic.com
  *
- * Linux driver for Brocade Fibre Channel Host Bus Adapter.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License (GPL) Version 2 as
- * published by the Free Software Foundation
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
+ * Linux driver for QLogic BR-series Fibre Channel Host Bus Adapter.
  */
 
 #ifndef __BFA_PORT_H__
@@ -35,7 +28,7 @@ struct bfa_port_s {
 	bfa_port_stats_cbfn_t		stats_cbfn;
 	void				*stats_cbarg;
 	bfa_status_t			stats_status;
-	u32			stats_reset_time;
+	time64_t			stats_reset_time;
 	union bfa_port_stats_u		*stats;
 	struct bfa_dma_s		stats_dma;
 	bfa_boolean_t			endis_pending;
@@ -45,6 +38,7 @@ struct bfa_port_s {
 	bfa_status_t			endis_status;
 	struct bfa_ioc_notify_s		ioc_notify;
 	bfa_boolean_t			pbc_disabled;
+	bfa_boolean_t			dport_enabled;
 	struct bfa_mem_dma_s		port_dma;
 };
 
@@ -66,6 +60,8 @@ bfa_status_t bfa_port_disable(struct bfa_port_s *port,
 u32     bfa_port_meminfo(void);
 void	     bfa_port_mem_claim(struct bfa_port_s *port,
 				 u8 *dma_kva, u64 dma_pa);
+void	bfa_port_set_dportenabled(struct bfa_port_s *port,
+				  bfa_boolean_t enabled);
 
 /*
  * CEE declaration

@@ -1,34 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
- *  ==FILEVERSION 980319==
- *
  * ppp_deflate.c - interface the zlib procedures for Deflate compression
  * and decompression (as used by gzip) to the PPP code.
- * This version is for use with Linux kernel 1.3.X.
  *
- * Copyright (c) 1994 The Australian National University.
- * All rights reserved.
- *
- * Permission to use, copy, modify, and distribute this software and its
- * documentation is hereby granted, provided that the above copyright
- * notice appears in all copies.  This software is provided without any
- * warranty, express or implied. The Australian National University
- * makes no representations about the suitability of this software for
- * any purpose.
- *
- * IN NO EVENT SHALL THE AUSTRALIAN NATIONAL UNIVERSITY BE LIABLE TO ANY
- * PARTY FOR DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES
- * ARISING OUT OF THE USE OF THIS SOFTWARE AND ITS DOCUMENTATION, EVEN IF
- * THE AUSTRALIAN NATIONAL UNIVERSITY HAS BEEN ADVISED OF THE POSSIBILITY
- * OF SUCH DAMAGE.
- *
- * THE AUSTRALIAN NATIONAL UNIVERSITY SPECIFICALLY DISCLAIMS ANY WARRANTIES,
- * INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
- * AND FITNESS FOR A PARTICULAR PURPOSE.  THE SOFTWARE PROVIDED HEREUNDER IS
- * ON AN "AS IS" BASIS, AND THE AUSTRALIAN NATIONAL UNIVERSITY HAS NO
- * OBLIGATION TO PROVIDE MAINTENANCE, SUPPORT, UPDATES, ENHANCEMENTS,
- * OR MODIFICATIONS.
- *
- * From: deflate.c,v 1.1 1996/01/18 03:17:48 paulus Exp
+ * Copyright 1994-1998 Paul Mackerras.
  */
 
 #include <linux/module.h>
@@ -268,7 +243,7 @@ static int z_compress(void *arg, unsigned char *rptr, unsigned char *obuf,
 	/*
 	 * See if we managed to reduce the size of the packet.
 	 */
-	if (olen < isize) {
+	if (olen < isize && olen <= osize) {
 		state->stats.comp_bytes += olen;
 		state->stats.comp_packets++;
 	} else {
@@ -304,7 +279,6 @@ static void z_decomp_free(void *arg)
 	struct ppp_deflate_state *state = (struct ppp_deflate_state *) arg;
 
 	if (state) {
-		zlib_inflateEnd(&state->strm);
 		vfree(state->strm.workspace);
 		kfree(state);
 	}
@@ -632,12 +606,20 @@ static struct compressor ppp_deflate_draft = {
 
 static int __init deflate_init(void)
 {
-        int answer = ppp_register_compressor(&ppp_deflate);
-        if (answer == 0)
-                printk(KERN_INFO
-		       "PPP Deflate Compression module registered\n");
-	ppp_register_compressor(&ppp_deflate_draft);
-        return answer;
+	int rc;
+
+	rc = ppp_register_compressor(&ppp_deflate);
+	if (rc)
+		return rc;
+
+	rc = ppp_register_compressor(&ppp_deflate_draft);
+	if (rc) {
+		ppp_unregister_compressor(&ppp_deflate);
+		return rc;
+	}
+
+	pr_info("PPP Deflate Compression module registered\n");
+	return 0;
 }
 
 static void __exit deflate_cleanup(void)

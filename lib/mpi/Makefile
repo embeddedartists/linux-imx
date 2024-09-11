@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 #
 # MPI multiprecision maths library (from gpg)
 #
@@ -12,21 +13,18 @@ mpi-y = \
 	generic_mpih-rshift.o		\
 	generic_mpih-sub1.o		\
 	generic_mpih-add1.o		\
+	ec.o				\
 	mpicoder.o			\
+	mpi-add.o			\
 	mpi-bit.o			\
+	mpi-cmp.o			\
+	mpi-sub-ui.o			\
+	mpi-div.o			\
+	mpi-inv.o			\
+	mpi-mod.o			\
+	mpi-mul.o			\
 	mpih-cmp.o			\
 	mpih-div.o			\
 	mpih-mul.o			\
 	mpi-pow.o			\
 	mpiutil.o
-
-mpi-$(CONFIG_MPILIB_EXTRA) += \
-	mpi-add.o			\
-	mpi-div.o			\
-	mpi-cmp.o			\
-	mpi-gcd.o			\
-	mpi-inline.o			\
-	mpi-inv.o			\
-	mpi-mpow.o			\
-	mpi-mul.o			\
-	mpi-scan.o

@@ -22,8 +22,15 @@
  * CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-#include "drmP.h"
-#include "savage_drm.h"
+
+#include <linux/slab.h>
+#include <linux/uaccess.h>
+
+#include <drm/drm_device.h>
+#include <drm/drm_file.h>
+#include <drm/drm_print.h>
+#include <drm/savage_drm.h>
+
 #include "savage_drv.h"
 
 void savage_emit_clip_rect_s3d(drm_savage_private_t * dev_priv,
@@ -299,6 +306,7 @@ static int savage_dispatch_dma_prim(drm_savage_private_t * dev_priv,
 	case SAVAGE_PRIM_TRILIST_201:
 		reorder = 1;
 		prim = SAVAGE_PRIM_TRILIST;
+		fallthrough;
 	case SAVAGE_PRIM_TRILIST:
 		if (n % 3 != 0) {
 			DRM_ERROR("wrong number of vertices %u in TRILIST\n",
@@ -436,6 +444,7 @@ static int savage_dispatch_vb_prim(drm_savage_private_t * dev_priv,
 	case SAVAGE_PRIM_TRILIST_201:
 		reorder = 1;
 		prim = SAVAGE_PRIM_TRILIST;
+		fallthrough;
 	case SAVAGE_PRIM_TRILIST:
 		if (n % 3 != 0) {
 			DRM_ERROR("wrong number of vertices %u in TRILIST\n",
@@ -557,6 +566,7 @@ static int savage_dispatch_dma_idx(drm_savage_private_t * dev_priv,
 	case SAVAGE_PRIM_TRILIST_201:
 		reorder = 1;
 		prim = SAVAGE_PRIM_TRILIST;
+		fallthrough;
 	case SAVAGE_PRIM_TRILIST:
 		if (n % 3 != 0) {
 			DRM_ERROR("wrong number of indices %u in TRILIST\n", n);
@@ -695,6 +705,7 @@ static int savage_dispatch_vb_idx(drm_savage_private_t * dev_priv,
 	case SAVAGE_PRIM_TRILIST_201:
 		reorder = 1;
 		prim = SAVAGE_PRIM_TRILIST;
+		fallthrough;
 	case SAVAGE_PRIM_TRILIST:
 		if (n % 3 != 0) {
 			DRM_ERROR("wrong number of indices %u in TRILIST\n", n);
@@ -971,7 +982,7 @@ int savage_bci_cmdbuf(struct drm_device *dev, void *data, struct drm_file *file_
 	LOCK_TEST_WITH_RETURN(dev, file_priv);
 
 	if (dma && dma->buflist) {
-		if (cmdbuf->dma_idx > dma->buf_count) {
+		if (cmdbuf->dma_idx >= dma->buf_count) {
 			DRM_ERROR
 			    ("vertex buffer index %u out of range (0-%u)\n",
 			     cmdbuf->dma_idx, dma->buf_count - 1);
@@ -988,11 +999,11 @@ int savage_bci_cmdbuf(struct drm_device *dev, void *data, struct drm_file *file_
 	 * for locking on FreeBSD.
 	 */
 	if (cmdbuf->size) {
-		kcmd_addr = kmalloc(cmdbuf->size * 8, GFP_KERNEL);
+		kcmd_addr = kmalloc_array(cmdbuf->size, 8, GFP_KERNEL);
 		if (kcmd_addr == NULL)
 			return -ENOMEM;
 
-		if (DRM_COPY_FROM_USER(kcmd_addr, cmdbuf->cmd_addr,
+		if (copy_from_user(kcmd_addr, cmdbuf->cmd_addr,
 				       cmdbuf->size * 8))
 		{
 			kfree(kcmd_addr);
@@ -1001,28 +1012,23 @@ int savage_bci_cmdbuf(struct drm_device *dev, void *data, struct drm_file *file_
 		cmdbuf->cmd_addr = kcmd_addr;
 	}
 	if (cmdbuf->vb_size) {
-		kvb_addr = kmalloc(cmdbuf->vb_size, GFP_KERNEL);
-		if (kvb_addr == NULL) {
-			ret = -ENOMEM;
-			goto done;
-		}
-
-		if (DRM_COPY_FROM_USER(kvb_addr, cmdbuf->vb_addr,
-				       cmdbuf->vb_size)) {
-			ret = -EFAULT;
+		kvb_addr = memdup_user(cmdbuf->vb_addr, cmdbuf->vb_size);
+		if (IS_ERR(kvb_addr)) {
+			ret = PTR_ERR(kvb_addr);
+			kvb_addr = NULL;
 			goto done;
 		}
 		cmdbuf->vb_addr = kvb_addr;
 	}
 	if (cmdbuf->nbox) {
-		kbox_addr = kmalloc(cmdbuf->nbox * sizeof(struct drm_clip_rect),
-				    GFP_KERNEL);
+		kbox_addr = kmalloc_array(cmdbuf->nbox, sizeof(struct drm_clip_rect),
+					  GFP_KERNEL);
 		if (kbox_addr == NULL) {
 			ret = -ENOMEM;
 			goto done;
 		}
 
-		if (DRM_COPY_FROM_USER(kbox_addr, cmdbuf->box_addr,
+		if (copy_from_user(kbox_addr, cmdbuf->box_addr,
 				       cmdbuf->nbox * sizeof(struct drm_clip_rect))) {
 			ret = -EFAULT;
 			goto done;
@@ -1032,7 +1038,7 @@ int savage_bci_cmdbuf(struct drm_device *dev, void *data, struct drm_file *file_
 
 	/* Make sure writes to DMA buffers are finished before sending
 	 * DMA commands to the graphics hardware. */
-	DRM_MEMORYBARRIER();
+	mb();
 
 	/* Coming from user space. Don't know if the Xserver has
 	 * emitted wait commands. Assuming the worst. */
@@ -1057,9 +1063,10 @@ int savage_bci_cmdbuf(struct drm_device *dev, void *data, struct drm_file *file_
 				DRM_ERROR("indexed drawing command extends "
 					  "beyond end of command buffer\n");
 				DMA_FLUSH();
-				return -EINVAL;
+				ret = -EINVAL;
+				goto done;
 			}
-			/* fall through */
+			fallthrough;
 		case SAVAGE_CMD_DMA_PRIM:
 		case SAVAGE_CMD_VB_PRIM:
 			if (!first_draw_cmd)
@@ -1076,7 +1083,7 @@ int savage_bci_cmdbuf(struct drm_device *dev, void *data, struct drm_file *file_
 				      cmdbuf->vb_stride,
 				      cmdbuf->nbox, cmdbuf->box_addr);
 				if (ret != 0)
-					return ret;
+					goto done;
 				first_draw_cmd = NULL;
 			}
 		}

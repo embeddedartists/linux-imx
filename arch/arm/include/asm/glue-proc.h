@@ -1,12 +1,9 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  *  arch/arm/include/asm/glue-proc.h
  *
  *  Copyright (C) 1997-1999 Russell King
  *  Copyright (C) 2000 Deep Blue Solutions Ltd
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 #ifndef ASM_GLUE_PROC_H
 #define ASM_GLUE_PROC_H
@@ -23,30 +20,12 @@
  * CPU_NAME - the prefix for CPU related functions
  */
 
-#ifdef CONFIG_CPU_ARM610
-# ifdef CPU_NAME
-#  undef  MULTI_CPU
-#  define MULTI_CPU
-# else
-#  define CPU_NAME cpu_arm6
-# endif
-#endif
-
 #ifdef CONFIG_CPU_ARM7TDMI
 # ifdef CPU_NAME
 #  undef  MULTI_CPU
 #  define MULTI_CPU
 # else
 #  define CPU_NAME cpu_arm7tdmi
-# endif
-#endif
-
-#ifdef CONFIG_CPU_ARM710
-# ifdef CPU_NAME
-#  undef  MULTI_CPU
-#  define MULTI_CPU
-# else
-#  define CPU_NAME cpu_arm7
 # endif
 #endif
 
@@ -239,13 +218,31 @@
 # endif
 #endif
 
-#ifdef CONFIG_CPU_V7
+#ifdef CONFIG_CPU_V7M
 # ifdef CPU_NAME
 #  undef  MULTI_CPU
 #  define MULTI_CPU
 # else
-#  define CPU_NAME cpu_v7
+#  define CPU_NAME cpu_v7m
 # endif
+#endif
+
+#ifdef CONFIG_CPU_PJ4B
+# ifdef CPU_NAME
+#  undef  MULTI_CPU
+#  define MULTI_CPU
+# else
+#  define CPU_NAME cpu_pj4b
+# endif
+#endif
+
+#ifdef CONFIG_CPU_V7
+/*
+ * Cortex-A9 needs a different suspend/resume function, so we need
+ * multiple CPU support for ARMv7 anyway.
+ */
+#  undef  MULTI_CPU
+#  define MULTI_CPU
 #endif
 
 #ifndef MULTI_CPU

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  pata_rdc		-	Driver for later RDC PATA controllers
  *
@@ -5,26 +6,11 @@
  *  INCITS 370-2004 (1510D): ATA Host Adapter Standards
  *
  *  Based on ata_piix.
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2, or (at your option)
- *  any later version.
- *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with this program; see the file COPYING.  If not, write to
- *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/pci.h>
-#include <linux/init.h>
 #include <linux/blkdev.h>
 #include <linux/delay.h>
 #include <linux/device.h>
@@ -293,7 +279,7 @@ static struct ata_port_operations rdc_pata_ops = {
 	.prereset		= rdc_pata_prereset,
 };
 
-static struct ata_port_info rdc_port_info = {
+static const struct ata_port_info rdc_port_info = {
 
 	.flags		= ATA_FLAG_SLAVE_POSS,
 	.pio_mask	= ATA_PIO4,
@@ -321,13 +307,11 @@ static struct scsi_host_template rdc_sht = {
  *	Zero on success, or -ERRNO value.
  */
 
-static int __devinit rdc_init_one(struct pci_dev *pdev,
-				   const struct pci_device_id *ent)
+static int rdc_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	struct device *dev = &pdev->dev;
 	struct ata_port_info port_info[2];
 	const struct ata_port_info *ppi[] = { &port_info[0], &port_info[1] };
-	unsigned long port_flags;
 	struct ata_host *host;
 	struct rdc_host_priv *hpriv;
 	int rc;
@@ -336,8 +320,6 @@ static int __devinit rdc_init_one(struct pci_dev *pdev,
 
 	port_info[0] = rdc_port_info;
 	port_info[1] = rdc_port_info;
-
-	port_flags = port_info[0].flags;
 
 	/* enable device and prepare host */
 	rc = pcim_enable_device(pdev);
@@ -368,7 +350,7 @@ static int __devinit rdc_init_one(struct pci_dev *pdev,
 
 static void rdc_remove_one(struct pci_dev *pdev)
 {
-	struct ata_host *host = dev_get_drvdata(&pdev->dev);
+	struct ata_host *host = pci_get_drvdata(pdev);
 	struct rdc_host_priv *hpriv = host->private_data;
 
 	pci_write_config_dword(pdev, 0x54, hpriv->saved_iocfg);
@@ -387,25 +369,14 @@ static struct pci_driver rdc_pci_driver = {
 	.id_table		= rdc_pci_tbl,
 	.probe			= rdc_init_one,
 	.remove			= rdc_remove_one,
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 	.suspend		= ata_pci_device_suspend,
 	.resume			= ata_pci_device_resume,
 #endif
 };
 
 
-static int __init rdc_init(void)
-{
-	return pci_register_driver(&rdc_pci_driver);
-}
-
-static void __exit rdc_exit(void)
-{
-	pci_unregister_driver(&rdc_pci_driver);
-}
-
-module_init(rdc_init);
-module_exit(rdc_exit);
+module_pci_driver(rdc_pci_driver);
 
 MODULE_AUTHOR("Alan Cox (based on ata_piix)");
 MODULE_DESCRIPTION("SCSI low-level driver for RDC PATA controllers");

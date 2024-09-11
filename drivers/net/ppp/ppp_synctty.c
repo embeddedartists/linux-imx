@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * PPP synchronous tty channel driver for Linux.
  *
@@ -14,11 +15,6 @@
  * Copyright 1999 Paul Mackerras.
  *
  * Also touched by the grubby hands of Paul Fulghum paulkf@microgate.com
- *
- *  This program is free software; you can redistribute it and/or
- *  modify it under the terms of the GNU General Public License
- *  as published by the Free Software Foundation; either version
- *  2 of the License, or (at your option) any later version.
  *
  * This driver provides the encapsulation and framing for sending
  * and receiving PPP frames over sync serial lines.  It relies on
@@ -39,15 +35,16 @@
 #include <linux/netdevice.h>
 #include <linux/poll.h>
 #include <linux/ppp_defs.h>
-#include <linux/if_ppp.h>
+#include <linux/ppp-ioctl.h>
 #include <linux/ppp_channel.h>
 #include <linux/spinlock.h>
 #include <linux/completion.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/slab.h>
+#include <linux/refcount.h>
 #include <asm/unaligned.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #define PPP_VERSION	"2.4.2"
 
@@ -72,7 +69,7 @@ struct syncppp {
 
 	struct tasklet_struct tsk;
 
-	atomic_t	refcnt;
+	refcount_t	refcnt;
 	struct completion dead_cmp;
 	struct ppp_channel chan;	/* interface to generic ppp layer */
 };
@@ -93,11 +90,11 @@ static struct sk_buff* ppp_sync_txmunge(struct syncppp *ap, struct sk_buff *);
 static int ppp_sync_send(struct ppp_channel *chan, struct sk_buff *skb);
 static int ppp_sync_ioctl(struct ppp_channel *chan, unsigned int cmd,
 			  unsigned long arg);
-static void ppp_sync_process(unsigned long arg);
+static void ppp_sync_process(struct tasklet_struct *t);
 static int ppp_sync_push(struct syncppp *ap);
 static void ppp_sync_flush_output(struct syncppp *ap);
 static void ppp_sync_input(struct syncppp *ap, const unsigned char *buf,
-			   char *flags, int count);
+			   const char *flags, int count);
 
 static const struct ppp_channel_ops sync_ops = {
 	.start_xmit = ppp_sync_send,
@@ -105,64 +102,15 @@ static const struct ppp_channel_ops sync_ops = {
 };
 
 /*
- * Utility procedures to print a buffer in hex/ascii
+ * Utility procedure to print a buffer in hex/ascii
  */
-static void
-ppp_print_hex (register __u8 * out, const __u8 * in, int count)
-{
-	register __u8 next_ch;
-	static const char hex[] = "0123456789ABCDEF";
-
-	while (count-- > 0) {
-		next_ch = *in++;
-		*out++ = hex[(next_ch >> 4) & 0x0F];
-		*out++ = hex[next_ch & 0x0F];
-		++out;
-	}
-}
-
-static void
-ppp_print_char (register __u8 * out, const __u8 * in, int count)
-{
-	register __u8 next_ch;
-
-	while (count-- > 0) {
-		next_ch = *in++;
-
-		if (next_ch < 0x20 || next_ch > 0x7e)
-			*out++ = '.';
-		else {
-			*out++ = next_ch;
-			if (next_ch == '%')   /* printk/syslogd has a bug !! */
-				*out++ = '%';
-		}
-	}
-	*out = '\0';
-}
-
 static void
 ppp_print_buffer (const char *name, const __u8 *buf, int count)
 {
-	__u8 line[44];
-
 	if (name != NULL)
 		printk(KERN_DEBUG "ppp_synctty: %s, count = %d\n", name, count);
 
-	while (count > 8) {
-		memset (line, 32, 44);
-		ppp_print_hex (line, buf, 8);
-		ppp_print_char (&line[8 * 3], buf, 8);
-		printk(KERN_DEBUG "%s\n", line);
-		count -= 8;
-		buf += 8;
-	}
-
-	if (count > 0) {
-		memset (line, 32, 44);
-		ppp_print_hex (line, buf, count);
-		ppp_print_char (&line[8 * 3], buf, count);
-		printk(KERN_DEBUG "%s\n", line);
-	}
+	print_hex_dump_bytes("", DUMP_PREFIX_NONE, buf, count);
 }
 
 
@@ -190,14 +138,14 @@ static struct syncppp *sp_get(struct tty_struct *tty)
 	read_lock(&disc_data_lock);
 	ap = tty->disc_data;
 	if (ap != NULL)
-		atomic_inc(&ap->refcnt);
+		refcount_inc(&ap->refcnt);
 	read_unlock(&disc_data_lock);
 	return ap;
 }
 
 static void sp_put(struct syncppp *ap)
 {
-	if (atomic_dec_and_test(&ap->refcnt))
+	if (refcount_dec_and_test(&ap->refcnt))
 		complete(&ap->dead_cmp);
 }
 
@@ -229,9 +177,9 @@ ppp_sync_open(struct tty_struct *tty)
 	ap->raccm = ~0U;
 
 	skb_queue_head_init(&ap->rqueue);
-	tasklet_init(&ap->tsk, ppp_sync_process, (unsigned long) ap);
+	tasklet_setup(&ap->tsk, ppp_sync_process);
 
-	atomic_set(&ap->refcnt, 1);
+	refcount_set(&ap->refcnt, 1);
 	init_completion(&ap->dead_cmp);
 
 	ap->chan.private = ap;
@@ -281,7 +229,7 @@ ppp_sync_close(struct tty_struct *tty)
 	 * our channel ops (i.e. ppp_sync_send/ioctl) are in progress
 	 * by the time it returns.
 	 */
-	if (!atomic_dec_and_test(&ap->refcnt))
+	if (!refcount_dec_and_test(&ap->refcnt))
 		wait_for_completion(&ap->dead_cmp);
 	tasklet_kill(&ap->tsk);
 
@@ -309,7 +257,8 @@ static int ppp_sync_hangup(struct tty_struct *tty)
  */
 static ssize_t
 ppp_sync_read(struct tty_struct *tty, struct file *file,
-	       unsigned char __user *buf, size_t count)
+	      unsigned char *buf, size_t count,
+	      void **cookie, unsigned long offset)
 {
 	return -EAGAIN;
 }
@@ -355,7 +304,7 @@ ppp_synctty_ioctl(struct tty_struct *tty, struct file *file,
 		/* flush our buffers and the serial port's buffer */
 		if (arg == TCIOFLUSH || arg == TCOFLUSH)
 			ppp_sync_flush_output(ap);
-		err = tty_perform_flush(tty, arg);
+		err = n_tty_ioctl_helper(tty, file, cmd, arg);
 		break;
 
 	case FIONREAD:
@@ -375,7 +324,7 @@ ppp_synctty_ioctl(struct tty_struct *tty, struct file *file,
 }
 
 /* No kernel lock - fine */
-static unsigned int
+static __poll_t
 ppp_sync_poll(struct tty_struct *tty, struct file *file, poll_table *wait)
 {
 	return 0;
@@ -384,7 +333,7 @@ ppp_sync_poll(struct tty_struct *tty, struct file *file, poll_table *wait)
 /* May sleep, don't call from interrupt level or with interrupts disabled */
 static void
 ppp_sync_receive(struct tty_struct *tty, const unsigned char *buf,
-		  char *cflags, int count)
+		  const char *cflags, int count)
 {
 	struct syncppp *ap = sp_get(tty);
 	unsigned long flags;
@@ -416,7 +365,7 @@ ppp_sync_wakeup(struct tty_struct *tty)
 
 static struct tty_ldisc_ops ppp_sync_ldisc = {
 	.owner	= THIS_MODULE,
-	.magic	= TTY_LDISC_MAGIC,
+	.num	= N_SYNC_PPP,
 	.name	= "pppsync",
 	.open	= ppp_sync_open,
 	.close	= ppp_sync_close,
@@ -434,7 +383,7 @@ ppp_sync_init(void)
 {
 	int err;
 
-	err = tty_register_ldisc(N_SYNC_PPP, &ppp_sync_ldisc);
+	err = tty_register_ldisc(&ppp_sync_ldisc);
 	if (err != 0)
 		printk(KERN_ERR "PPP_sync: error %d registering line disc.\n",
 		       err);
@@ -532,9 +481,9 @@ ppp_sync_ioctl(struct ppp_channel *chan, unsigned int cmd, unsigned long arg)
  * to the ppp_generic code, and to tell the ppp_generic code
  * if we can accept more output now.
  */
-static void ppp_sync_process(unsigned long arg)
+static void ppp_sync_process(struct tasklet_struct *t)
 {
-	struct syncppp *ap = (struct syncppp *) arg;
+	struct syncppp *ap = from_tasklet(ap, t, tsk);
 	struct sk_buff *skb;
 
 	/* process received packets */
@@ -588,7 +537,7 @@ ppp_sync_txmunge(struct syncppp *ap, struct sk_buff *skb)
 			skb_reserve(npkt,2);
 			skb_copy_from_linear_data(skb,
 				      skb_put(npkt, skb->len), skb->len);
-			kfree_skb(skb);
+			consume_skb(skb);
 			skb = npkt;
 		}
 		skb_push(skb,2);
@@ -656,7 +605,7 @@ ppp_sync_push(struct syncppp *ap)
 			if (sent < ap->tpkt->len) {
 				tty_stuffed = 1;
 			} else {
-				kfree_skb(ap->tpkt);
+				consume_skb(ap->tpkt);
 				ap->tpkt = NULL;
 				clear_bit(XMIT_FULL, &ap->xmit_flags);
 				done = 1;
@@ -717,7 +666,7 @@ ppp_sync_flush_output(struct syncppp *ap)
  */
 static void
 ppp_sync_input(struct syncppp *ap, const unsigned char *buf,
-		char *flags, int count)
+		const char *flags, int count)
 {
 	struct sk_buff *skb;
 	unsigned char *p;
@@ -746,8 +695,7 @@ ppp_sync_input(struct syncppp *ap, const unsigned char *buf,
 		goto err;
 	}
 
-	p = skb_put(skb, count);
-	memcpy(p, buf, count);
+	skb_put_data(skb, buf, count);
 
 	/* strip address/control field if present */
 	p = skb->data;
@@ -758,11 +706,10 @@ ppp_sync_input(struct syncppp *ap, const unsigned char *buf,
 		p = skb_pull(skb, 2);
 	}
 
-	/* decompress protocol field if compressed */
-	if (p[0] & 1) {
-		/* protocol is compressed */
-		skb_push(skb, 1)[0] = 0;
-	} else if (skb->len < 2)
+	/* PPP packet length should be >= 2 bytes when protocol field is not
+	 * compressed.
+	 */
+	if (!(p[0] & 0x01) && skb->len < 2)
 		goto err;
 
 	/* queue the frame to be processed */
@@ -780,8 +727,7 @@ err:
 static void __exit
 ppp_sync_cleanup(void)
 {
-	if (tty_unregister_ldisc(N_SYNC_PPP) != 0)
-		printk(KERN_ERR "failed to unregister Sync PPP line discipline\n");
+	tty_unregister_ldisc(&ppp_sync_ldisc);
 }
 
 module_init(ppp_sync_init);

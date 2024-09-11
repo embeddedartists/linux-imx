@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * opp2420_data.c - old-style "OPP" table for OMAP2420
  *
@@ -27,6 +28,8 @@
  * kernel source at:
  *     http://repository.maemo.org/pool/diablo/free/k/kernel-source-diablo/
  */
+
+#include <linux/kernel.h>
 
 #include "opp2xxx.h"
 #include "sdrc.h"

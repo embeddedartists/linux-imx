@@ -1,16 +1,13 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * generic helper functions for handling video4linux capture buffers
  *
- * (c) 2007 Mauro Carvalho Chehab, <mchehab@infradead.org>
+ * (c) 2007 Mauro Carvalho Chehab, <mchehab@kernel.org>
  *
  * Highly based on video-buf written originally by:
  * (c) 2001,02 Gerd Knorr <kraxel@bytesex.org>
- * (c) 2006 Mauro Carvalho Chehab, <mchehab@infradead.org>
+ * (c) 2006 Mauro Carvalho Chehab, <mchehab@kernel.org>
  * (c) 2006 Ted Walther and John Sokol
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2
  */
 
 #ifndef _VIDEOBUF_CORE_H
@@ -37,13 +34,13 @@ struct videobuf_queue;
  *
  * about the mmap helpers (videobuf_mmap_*):
  *
- * The mmaper function allows to map any subset of contingous buffers.
+ * The mmaper function allows to map any subset of contiguous buffers.
  * This includes one mmap() call for all buffers (which the original
  * video4linux API uses) as well as one mmap() for every single buffer
  * (which v4l2 uses).
  *
  * If there is a valid mapping for a buffer, buffer->baddr/bsize holds
- * userspace address + size which can be feeded into the
+ * userspace address + size which can be fed into the
  * videobuf_dma_init_user function listed above.
  *
  */
@@ -72,7 +69,6 @@ struct videobuf_buffer {
 	unsigned int            height;
 	unsigned int            bytesperline; /* use only if != 0 */
 	unsigned long           size;
-	unsigned int            input;
 	enum v4l2_field         field;
 	enum videobuf_state     state;
 	struct list_head        stream;  /* QBUF/DQBUF list */
@@ -81,7 +77,7 @@ struct videobuf_buffer {
 	struct list_head        queue;
 	wait_queue_head_t       done;
 	unsigned int            field_count;
-	struct timeval          ts;
+	u64			ts;
 
 	/* Memory type */
 	enum v4l2_memory        memory;
@@ -142,7 +138,6 @@ struct videobuf_queue {
 	wait_queue_head_t	   wait; /* wait if queue is empty */
 
 	enum v4l2_buf_type         type;
-	unsigned int               inputs; /* for V4L2_BUF_FLAG_INPUT */
 	unsigned int               msize;
 	enum v4l2_field            field;
 	enum v4l2_field            last;   /* for field=V4L2_FIELD_ALTERNATE */
@@ -221,7 +216,7 @@ ssize_t videobuf_read_stream(struct videobuf_queue *q,
 ssize_t videobuf_read_one(struct videobuf_queue *q,
 			  char __user *data, size_t count, loff_t *ppos,
 			  int nonblocking);
-unsigned int videobuf_poll_stream(struct file *file,
+__poll_t videobuf_poll_stream(struct file *file,
 				  struct videobuf_queue *q,
 				  poll_table *wait);
 

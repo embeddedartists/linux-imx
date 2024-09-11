@@ -1,16 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Driver for CC770 and AN82527 CAN controllers on the legacy ISA bus
  *
  * Copyright (C) 2009, 2011 Wolfgang Grandegger <wg@grandegger.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the version 2 of the GNU General Public License
- * as published by the Free Software Foundation
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
  */
 
 /*
@@ -75,40 +67,45 @@ MODULE_LICENSE("GPL v2");
 
 static unsigned long port[MAXDEV];
 static unsigned long mem[MAXDEV];
-static int __devinitdata irq[MAXDEV];
-static int __devinitdata clk[MAXDEV];
-static u8 __devinitdata cir[MAXDEV] = {[0 ... (MAXDEV - 1)] = 0xff};
-static u8 __devinitdata cor[MAXDEV] = {[0 ... (MAXDEV - 1)] = 0xff};
-static u8 __devinitdata bcr[MAXDEV] = {[0 ... (MAXDEV - 1)] = 0xff};
-static int __devinitdata indirect[MAXDEV] = {[0 ... (MAXDEV - 1)] = -1};
+static int irq[MAXDEV];
+static int clk[MAXDEV];
+static u8 cir[MAXDEV] = {[0 ... (MAXDEV - 1)] = 0xff};
+static u8 cor[MAXDEV] = {[0 ... (MAXDEV - 1)] = 0xff};
+static u8 bcr[MAXDEV] = {[0 ... (MAXDEV - 1)] = 0xff};
+static int indirect[MAXDEV] = {[0 ... (MAXDEV - 1)] = -1};
 
-module_param_array(port, ulong, NULL, S_IRUGO);
+module_param_hw_array(port, ulong, ioport, NULL, 0444);
 MODULE_PARM_DESC(port, "I/O port number");
 
-module_param_array(mem, ulong, NULL, S_IRUGO);
+module_param_hw_array(mem, ulong, iomem, NULL, 0444);
 MODULE_PARM_DESC(mem, "I/O memory address");
 
-module_param_array(indirect, int, NULL, S_IRUGO);
+module_param_hw_array(indirect, int, ioport, NULL, 0444);
 MODULE_PARM_DESC(indirect, "Indirect access via address and data port");
 
-module_param_array(irq, int, NULL, S_IRUGO);
+module_param_hw_array(irq, int, irq, NULL, 0444);
 MODULE_PARM_DESC(irq, "IRQ number");
 
-module_param_array(clk, int, NULL, S_IRUGO);
+module_param_array(clk, int, NULL, 0444);
 MODULE_PARM_DESC(clk, "External oscillator clock frequency "
 		 "(default=16000000 [16 MHz])");
 
-module_param_array(cir, byte, NULL, S_IRUGO);
+module_param_array(cir, byte, NULL, 0444);
 MODULE_PARM_DESC(cir, "CPU interface register (default=0x40 [DSC])");
 
-module_param_array(cor, byte, NULL, S_IRUGO);
+module_param_array(cor, byte, NULL, 0444);
 MODULE_PARM_DESC(cor, "Clockout register (default=0x00)");
 
-module_param_array(bcr, byte, NULL, S_IRUGO);
+module_param_array(bcr, byte, NULL, 0444);
 MODULE_PARM_DESC(bcr, "Bus configuration register (default=0x40 [CBY])");
 
 #define CC770_IOSIZE          0x20
 #define CC770_IOSIZE_INDIRECT 0x02
+
+/* Spinlock for cc770_isa_port_write_reg_indirect
+ * and cc770_isa_port_read_reg_indirect
+ */
+static DEFINE_SPINLOCK(cc770_isa_port_lock);
 
 static struct platform_device *cc770_isa_devs[MAXDEV];
 
@@ -138,21 +135,30 @@ static u8 cc770_isa_port_read_reg_indirect(const struct cc770_priv *priv,
 					     int reg)
 {
 	unsigned long base = (unsigned long)priv->reg_base;
+	unsigned long flags;
+	u8 val;
 
+	spin_lock_irqsave(&cc770_isa_port_lock, flags);
 	outb(reg, base);
-	return inb(base + 1);
+	val = inb(base + 1);
+	spin_unlock_irqrestore(&cc770_isa_port_lock, flags);
+
+	return val;
 }
 
 static void cc770_isa_port_write_reg_indirect(const struct cc770_priv *priv,
 						int reg, u8 val)
 {
 	unsigned long base = (unsigned long)priv->reg_base;
+	unsigned long flags;
 
+	spin_lock_irqsave(&cc770_isa_port_lock, flags);
 	outb(reg, base);
 	outb(val, base + 1);
+	spin_unlock_irqrestore(&cc770_isa_port_lock, flags);
 }
 
-static int __devinit cc770_isa_probe(struct platform_device *pdev)
+static int cc770_isa_probe(struct platform_device *pdev)
 {
 	struct net_device *dev;
 	struct cc770_priv *priv;
@@ -169,7 +175,7 @@ static int __devinit cc770_isa_probe(struct platform_device *pdev)
 			err = -EBUSY;
 			goto exit;
 		}
-		base = ioremap_nocache(mem[idx], iosize);
+		base = ioremap(mem[idx], iosize);
 		if (!base) {
 			err = -ENOMEM;
 			goto exit_release;
@@ -251,7 +257,7 @@ static int __devinit cc770_isa_probe(struct platform_device *pdev)
 	else
 		priv->clkout = COR_DEFAULT;
 
-	dev_set_drvdata(&pdev->dev, dev);
+	platform_set_drvdata(pdev, dev);
 	SET_NETDEV_DEV(dev, &pdev->dev);
 
 	err = register_cc770dev(dev);
@@ -277,14 +283,13 @@ static int __devinit cc770_isa_probe(struct platform_device *pdev)
 	return err;
 }
 
-static int __devexit cc770_isa_remove(struct platform_device *pdev)
+static int cc770_isa_remove(struct platform_device *pdev)
 {
-	struct net_device *dev = dev_get_drvdata(&pdev->dev);
+	struct net_device *dev = platform_get_drvdata(pdev);
 	struct cc770_priv *priv = netdev_priv(dev);
 	int idx = pdev->id;
 
 	unregister_cc770dev(dev);
-	dev_set_drvdata(&pdev->dev, NULL);
 
 	if (mem[idx]) {
 		iounmap(priv->reg_base);
@@ -302,10 +307,9 @@ static int __devexit cc770_isa_remove(struct platform_device *pdev)
 
 static struct platform_driver cc770_isa_driver = {
 	.probe = cc770_isa_probe,
-	.remove = __devexit_p(cc770_isa_remove),
+	.remove = cc770_isa_remove,
 	.driver = {
 		.name = KBUILD_MODNAME,
-		.owner = THIS_MODULE,
 	},
 };
 

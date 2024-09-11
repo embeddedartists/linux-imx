@@ -1,26 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * linux/drivers/mfd/aat2870-core.c
  *
  * Copyright (c) 2011, NVIDIA Corporation.
  * Author: Jin Park <jinyoungp@nvidia.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA
  */
 
 #include <linux/kernel.h>
-#include <linux/module.h>
 #include <linux/init.h>
 #include <linux/debugfs.h>
 #include <linux/slab.h>
@@ -235,7 +221,7 @@ static ssize_t aat2870_dump_reg(struct aat2870_data *aat2870, char *buf)
 
 	count += sprintf(buf, "aat2870 registers\n");
 	for (addr = 0; addr < AAT2870_REG_NUM; addr++) {
-		count += sprintf(buf + count, "0x%02x: ", addr);
+		count += snprintf(buf + count, PAGE_SIZE - count, "0x%02x: ", addr);
 		if (count >= PAGE_SIZE - 1)
 			break;
 
@@ -260,13 +246,6 @@ static ssize_t aat2870_dump_reg(struct aat2870_data *aat2870, char *buf)
 		count = PAGE_SIZE - 1;
 
 	return count;
-}
-
-static int aat2870_reg_open_file(struct inode *inode, struct file *file)
-{
-	file->private_data = inode->i_private;
-
-	return 0;
 }
 
 static ssize_t aat2870_reg_read_file(struct file *file, char __user *user_buf,
@@ -300,7 +279,7 @@ static ssize_t aat2870_reg_write_file(struct file *file,
 	unsigned long addr, val;
 	int ret;
 
-	buf_size = min(count, (sizeof(buf)-1));
+	buf_size = min(count, (size_t)(sizeof(buf)-1));
 	if (copy_from_user(buf, user_buf, buf_size)) {
 		dev_err(aat2870->dev, "Failed to copy from user\n");
 		return -EFAULT;
@@ -310,7 +289,10 @@ static ssize_t aat2870_reg_write_file(struct file *file,
 	while (*start == ' ')
 		start++;
 
-	addr = simple_strtoul(start, &start, 16);
+	ret = kstrtoul(start, 16, &addr);
+	if (ret)
+		return ret;
+
 	if (addr >= AAT2870_REG_NUM) {
 		dev_err(aat2870->dev, "Invalid address, 0x%lx\n", addr);
 		return -EINVAL;
@@ -319,8 +301,9 @@ static ssize_t aat2870_reg_write_file(struct file *file,
 	while (*start == ' ')
 		start++;
 
-	if (strict_strtoul(start, 16, &val))
-		return -EINVAL;
+	ret = kstrtoul(start, 16, &val);
+	if (ret)
+		return ret;
 
 	ret = aat2870->write(aat2870, (u8)addr, (u8)val);
 	if (ret)
@@ -330,7 +313,7 @@ static ssize_t aat2870_reg_write_file(struct file *file,
 }
 
 static const struct file_operations aat2870_reg_fops = {
-	.open = aat2870_reg_open_file,
+	.open = simple_open,
 	.read = aat2870_reg_read_file,
 	.write = aat2870_reg_write_file,
 };
@@ -338,30 +321,13 @@ static const struct file_operations aat2870_reg_fops = {
 static void aat2870_init_debugfs(struct aat2870_data *aat2870)
 {
 	aat2870->dentry_root = debugfs_create_dir("aat2870", NULL);
-	if (!aat2870->dentry_root) {
-		dev_warn(aat2870->dev,
-			 "Failed to create debugfs root directory\n");
-		return;
-	}
 
-	aat2870->dentry_reg = debugfs_create_file("regs", 0644,
-						  aat2870->dentry_root,
-						  aat2870, &aat2870_reg_fops);
-	if (!aat2870->dentry_reg)
-		dev_warn(aat2870->dev,
-			 "Failed to create debugfs register file\n");
+	debugfs_create_file("regs", 0644, aat2870->dentry_root, aat2870,
+			    &aat2870_reg_fops);
 }
 
-static void aat2870_uninit_debugfs(struct aat2870_data *aat2870)
-{
-	debugfs_remove_recursive(aat2870->dentry_root);
-}
 #else
 static inline void aat2870_init_debugfs(struct aat2870_data *aat2870)
-{
-}
-
-static inline void aat2870_uninit_debugfs(struct aat2870_data *aat2870)
 {
 }
 #endif /* CONFIG_DEBUG_FS */
@@ -369,18 +335,15 @@ static inline void aat2870_uninit_debugfs(struct aat2870_data *aat2870)
 static int aat2870_i2c_probe(struct i2c_client *client,
 			     const struct i2c_device_id *id)
 {
-	struct aat2870_platform_data *pdata = client->dev.platform_data;
+	struct aat2870_platform_data *pdata = dev_get_platdata(&client->dev);
 	struct aat2870_data *aat2870;
 	int i, j;
 	int ret = 0;
 
-	aat2870 = kzalloc(sizeof(struct aat2870_data), GFP_KERNEL);
-	if (!aat2870) {
-		dev_err(&client->dev,
-			"Failed to allocate memory for aat2870\n");
-		ret = -ENOMEM;
-		goto out;
-	}
+	aat2870 = devm_kzalloc(&client->dev, sizeof(struct aat2870_data),
+				GFP_KERNEL);
+	if (!aat2870)
+		return -ENOMEM;
 
 	aat2870->dev = &client->dev;
 	dev_set_drvdata(aat2870->dev, aat2870);
@@ -407,12 +370,12 @@ static int aat2870_i2c_probe(struct i2c_client *client,
 		aat2870->init(aat2870);
 
 	if (aat2870->en_pin >= 0) {
-		ret = gpio_request_one(aat2870->en_pin, GPIOF_OUT_INIT_HIGH,
-				       "aat2870-en");
+		ret = devm_gpio_request_one(&client->dev, aat2870->en_pin,
+					GPIOF_OUT_INIT_HIGH, "aat2870-en");
 		if (ret < 0) {
 			dev_err(&client->dev,
 				"Failed to request GPIO %d\n", aat2870->en_pin);
-			goto out_kfree;
+			return ret;
 		}
 	}
 
@@ -431,7 +394,7 @@ static int aat2870_i2c_probe(struct i2c_client *client,
 	}
 
 	ret = mfd_add_devices(aat2870->dev, 0, aat2870_devs,
-			      ARRAY_SIZE(aat2870_devs), NULL, 0);
+			      ARRAY_SIZE(aat2870_devs), NULL, 0, NULL);
 	if (ret != 0) {
 		dev_err(aat2870->dev, "Failed to add subdev: %d\n", ret);
 		goto out_disable;
@@ -443,29 +406,7 @@ static int aat2870_i2c_probe(struct i2c_client *client,
 
 out_disable:
 	aat2870_disable(aat2870);
-	if (aat2870->en_pin >= 0)
-		gpio_free(aat2870->en_pin);
-out_kfree:
-	kfree(aat2870);
-out:
 	return ret;
-}
-
-static int aat2870_i2c_remove(struct i2c_client *client)
-{
-	struct aat2870_data *aat2870 = i2c_get_clientdata(client);
-
-	aat2870_uninit_debugfs(aat2870);
-
-	mfd_remove_devices(aat2870->dev);
-	aat2870_disable(aat2870);
-	if (aat2870->en_pin >= 0)
-		gpio_free(aat2870->en_pin);
-	if (aat2870->uninit)
-		aat2870->uninit(aat2870);
-	kfree(aat2870);
-
-	return 0;
 }
 
 #ifdef CONFIG_PM_SLEEP
@@ -506,16 +447,14 @@ static const struct i2c_device_id aat2870_i2c_id_table[] = {
 	{ "aat2870", 0 },
 	{ }
 };
-MODULE_DEVICE_TABLE(i2c, aat2870_i2c_id_table);
 
 static struct i2c_driver aat2870_i2c_driver = {
 	.driver = {
-		.name	= "aat2870",
-		.owner	= THIS_MODULE,
-		.pm	= &aat2870_pm_ops,
+		.name			= "aat2870",
+		.pm			= &aat2870_pm_ops,
+		.suppress_bind_attrs	= true,
 	},
 	.probe		= aat2870_i2c_probe,
-	.remove		= aat2870_i2c_remove,
 	.id_table	= aat2870_i2c_id_table,
 };
 
@@ -524,13 +463,3 @@ static int __init aat2870_init(void)
 	return i2c_add_driver(&aat2870_i2c_driver);
 }
 subsys_initcall(aat2870_init);
-
-static void __exit aat2870_exit(void)
-{
-	i2c_del_driver(&aat2870_i2c_driver);
-}
-module_exit(aat2870_exit);
-
-MODULE_DESCRIPTION("Core support for the AnalogicTech AAT2870");
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Jin Park <jinyoungp@nvidia.com>");

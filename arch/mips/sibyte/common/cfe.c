@@ -1,19 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (C) 2000, 2001, 2002, 2003 Broadcom Corporation
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
 #include <linux/init.h>
@@ -21,12 +8,13 @@
 #include <linux/linkage.h>
 #include <linux/mm.h>
 #include <linux/blkdev.h>
-#include <linux/bootmem.h>
+#include <linux/memblock.h>
 #include <linux/pm.h>
 #include <linux/smp.h>
 
 #include <asm/bootinfo.h>
 #include <asm/reboot.h>
+#include <asm/setup.h>
 #include <asm/sibyte/board.h>
 #include <asm/smp-ops.h>
 
@@ -38,7 +26,7 @@
 #define MAX_RAM_SIZE (~0ULL)
 #else
 #ifdef CONFIG_HIGHMEM
-#ifdef CONFIG_64BIT_PHYS_ADDR
+#ifdef CONFIG_PHYS_ADDR_T_64BIT
 #define MAX_RAM_SIZE (~0ULL)
 #else
 #define MAX_RAM_SIZE (0xffffffffULL)
@@ -49,8 +37,8 @@
 #endif
 
 #define SIBYTE_MAX_MEM_REGIONS 8
-phys_t board_mem_region_addrs[SIBYTE_MAX_MEM_REGIONS];
-phys_t board_mem_region_sizes[SIBYTE_MAX_MEM_REGIONS];
+phys_addr_t board_mem_region_addrs[SIBYTE_MAX_MEM_REGIONS];
+phys_addr_t board_mem_region_sizes[SIBYTE_MAX_MEM_REGIONS];
 unsigned int board_mem_region_count;
 
 int cfe_cons_handle;
@@ -96,7 +84,7 @@ static void __noreturn cfe_linux_halt(void)
 
 static __init void prom_meminit(void)
 {
-	u64 addr, size, type; /* regardless of 64BIT_PHYS_ADDR */
+	u64 addr, size, type; /* regardless of PHYS_ADDR_T_64BIT */
 	int mem_flags = 0;
 	unsigned int idx;
 	int rd_flag;
@@ -126,16 +114,14 @@ static __init void prom_meminit(void)
 			if (initrd_start) {
 				if ((initrd_pstart > addr) &&
 				    (initrd_pstart < (addr + size))) {
-					add_memory_region(addr,
-					                  initrd_pstart - addr,
-					                  BOOT_MEM_RAM);
+					memblock_add(addr,
+						     initrd_pstart - addr);
 					rd_flag = 1;
 				}
 				if ((initrd_pend > addr) &&
 				    (initrd_pend < (addr + size))) {
-					add_memory_region(initrd_pend,
-						(addr + size) - initrd_pend,
-						 BOOT_MEM_RAM);
+					memblock_add(initrd_pend,
+						(addr + size) - initrd_pend);
 					rd_flag = 1;
 				}
 			}
@@ -154,7 +140,7 @@ static __init void prom_meminit(void)
 				 */
 				if (size > 512)
 					size -= 512;
-				add_memory_region(addr, size, BOOT_MEM_RAM);
+				memblock_add(addr, size);
 			}
 			board_mem_region_addrs[board_mem_region_count] = addr;
 			board_mem_region_sizes[board_mem_region_count] = size;
@@ -170,8 +156,8 @@ static __init void prom_meminit(void)
 	}
 #ifdef CONFIG_BLK_DEV_INITRD
 	if (initrd_start) {
-		add_memory_region(initrd_pstart, initrd_pend - initrd_pstart,
-				  BOOT_MEM_RESERVED);
+		memblock_add(initrd_pstart, initrd_pend - initrd_pstart);
+		memblock_reserve(initrd_pstart, initrd_pend - initrd_pstart);
 	}
 #endif
 }
@@ -195,7 +181,7 @@ static int __init initrd_setup(char *str)
 
 	/*
 	 *Initrd location comes in the form "<hex size of ramdisk in bytes>@<location in memory>"
-	 *  e.g. initrd=3abfd@80010000.  This is set up by the loader.
+	 *  e.g. initrd=3abfd@80010000.	 This is set up by the loader.
 	 */
 	for (tmp = str; *tmp != '@'; tmp++) {
 		if (!*tmp) {
@@ -229,8 +215,8 @@ static int __init initrd_setup(char *str)
 
 #endif
 
-extern struct plat_smp_ops sb_smp_ops;
-extern struct plat_smp_ops bcm1480_smp_ops;
+extern const struct plat_smp_ops sb_smp_ops;
+extern const struct plat_smp_ops bcm1480_smp_ops;
 
 /*
  * prom_init is called just after the cpu type is determined, from setup_arch()
@@ -244,7 +230,7 @@ void __init prom_init(void)
 	int *prom_vec = (int *) fw_arg3;
 
 	_machine_restart   = cfe_linux_restart;
-	_machine_halt      = cfe_linux_halt;
+	_machine_halt	   = cfe_linux_halt;
 	pm_power_off = cfe_linux_halt;
 
 	/*
@@ -299,7 +285,7 @@ void __init prom_init(void)
 #ifdef CONFIG_BLK_DEV_INITRD
 	{
 		char *ptr;
-		/* Need to find out early whether we've got an initrd.  So scan
+		/* Need to find out early whether we've got an initrd.	So scan
 		   the list looking now */
 		for (ptr = arcs_cmdline; *ptr; ptr++) {
 			while (*ptr == ' ') {
@@ -328,11 +314,6 @@ void __init prom_init(void)
 #if defined(CONFIG_SIBYTE_BCM1x55) || defined(CONFIG_SIBYTE_BCM1x80)
 	register_smp_ops(&bcm1480_smp_ops);
 #endif
-}
-
-void __init prom_free_prom_memory(void)
-{
-	/* Not sure what I'm supposed to do here.  Nothing, I think */
 }
 
 void prom_putchar(char c)

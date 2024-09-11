@@ -1,20 +1,8 @@
-/* fschmd.c
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * fschmd.c
  *
  * Copyright (C) 2007 - 2009 Hans de Goede <hdegoede@redhat.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 /*
@@ -52,8 +40,8 @@
 static const unsigned short normal_i2c[] = { 0x73, I2C_CLIENT_END };
 
 /* Insmod parameters */
-static int nowayout = WATCHDOG_NOWAYOUT;
-module_param(nowayout, int, 0);
+static bool nowayout = WATCHDOG_NOWAYOUT;
+module_param(nowayout, bool, 0);
 MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default="
 	__MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
 
@@ -76,12 +64,12 @@ enum chips { fscpos, fscher, fscscy, fschrc, fschmd, fschds, fscsyl };
 #define FSCHMD_CONTROL_ALERT_LED	0x01
 
 /* watchdog */
-static const u8 FSCHMD_REG_WDOG_CONTROL[7] =
-	{ 0x21, 0x21, 0x21, 0x21, 0x21, 0x28, 0x28 };
-static const u8 FSCHMD_REG_WDOG_STATE[7] =
-	{ 0x23, 0x23, 0x23, 0x23, 0x23, 0x29, 0x29 };
-static const u8 FSCHMD_REG_WDOG_PRESET[7] =
-	{ 0x28, 0x28, 0x28, 0x28, 0x28, 0x2a, 0x2a };
+static const u8 FSCHMD_REG_WDOG_CONTROL[7] = {
+	0x21, 0x21, 0x21, 0x21, 0x21, 0x28, 0x28 };
+static const u8 FSCHMD_REG_WDOG_STATE[7] = {
+	0x23, 0x23, 0x23, 0x23, 0x23, 0x29, 0x29 };
+static const u8 FSCHMD_REG_WDOG_PRESET[7] = {
+	0x28, 0x28, 0x28, 0x28, 0x28, 0x2a, 0x2a };
 
 #define FSCHMD_WDOG_CONTROL_TRIGGER	0x10
 #define FSCHMD_WDOG_CONTROL_STARTED	0x10 /* the same as trigger */
@@ -103,10 +91,12 @@ static const u8 FSCHMD_REG_VOLT[7][6] = {
 
 static const int FSCHMD_NO_VOLT_SENSORS[7] = { 3, 3, 3, 3, 3, 3, 6 };
 
-/* minimum pwm at which the fan is driven (pwm can by increased depending on
-   the temp. Notice that for the scy some fans share there minimum speed.
-   Also notice that with the scy the sensor order is different than with the
-   other chips, this order was in the 2.4 driver and kept for consistency. */
+/*
+ * minimum pwm at which the fan is driven (pwm can be increased depending on
+ * the temp. Notice that for the scy some fans share there minimum speed.
+ * Also notice that with the scy the sensor order is different than with the
+ * other chips, this order was in the 2.4 driver and kept for consistency.
+ */
 static const u8 FSCHMD_REG_FAN_MIN[7][7] = {
 	{ 0x55, 0x65 },					/* pos */
 	{ 0x55, 0x65, 0xb5 },				/* her */
@@ -182,11 +172,13 @@ static const u8 FSCHMD_REG_TEMP_STATE[7][11] = {
 	  0xb9, 0xc9, 0xd9, 0xe9, 0xf9 },
 };
 
-/* temperature high limit registers, FSC does not document these. Proven to be
-   there with field testing on the fscher and fschrc, already supported / used
-   in the fscscy 2.4 driver. FSC has confirmed that the fschmd has registers
-   at these addresses, but doesn't want to confirm they are the same as with
-   the fscher?? */
+/*
+ * temperature high limit registers, FSC does not document these. Proven to be
+ * there with field testing on the fscher and fschrc, already supported / used
+ * in the fscscy 2.4 driver. FSC has confirmed that the fschmd has registers
+ * at these addresses, but doesn't want to confirm they are the same as with
+ * the fscher??
+ */
 static const u8 FSCHMD_REG_TEMP_LIMIT[7][11] = {
 	{ 0, 0, 0 },					/* pos */
 	{ 0x76, 0x86, 0x96 },				/* her */
@@ -198,13 +190,15 @@ static const u8 FSCHMD_REG_TEMP_LIMIT[7][11] = {
 	  0xba, 0xca, 0xda, 0xea, 0xfa },
 };
 
-/* These were found through experimenting with an fscher, currently they are
-   not used, but we keep them around for future reference.
-   On the fscsyl AUTOP1 lives at 0x#c (so 0x5c for fan1, 0x6c for fan2, etc),
-   AUTOP2 lives at 0x#e, and 0x#1 is a bitmask defining which temps influence
-   the fan speed.
-static const u8 FSCHER_REG_TEMP_AUTOP1[] =	{ 0x73, 0x83, 0x93 };
-static const u8 FSCHER_REG_TEMP_AUTOP2[] =	{ 0x75, 0x85, 0x95 }; */
+/*
+ * These were found through experimenting with an fscher, currently they are
+ * not used, but we keep them around for future reference.
+ * On the fscsyl AUTOP1 lives at 0x#c (so 0x5c for fan1, 0x6c for fan2, etc),
+ * AUTOP2 lives at 0x#e, and 0x#1 is a bitmask defining which temps influence
+ * the fan speed.
+ * static const u8 FSCHER_REG_TEMP_AUTOP1[] =	{ 0x73, 0x83, 0x93 };
+ * static const u8 FSCHER_REG_TEMP_AUTOP2[] =	{ 0x75, 0x85, 0x95 };
+ */
 
 static const int FSCHMD_NO_TEMP_SENSORS[7] = { 3, 3, 4, 3, 5, 5, 11 };
 
@@ -220,8 +214,7 @@ static const int FSCHMD_NO_TEMP_SENSORS[7] = { 3, 3, 4, 3, 5, 5, 11 };
  * Functions declarations
  */
 
-static int fschmd_probe(struct i2c_client *client,
-			const struct i2c_device_id *id);
+static int fschmd_probe(struct i2c_client *client);
 static int fschmd_detect(struct i2c_client *client,
 			 struct i2c_board_info *info);
 static int fschmd_remove(struct i2c_client *client);
@@ -248,7 +241,7 @@ static struct i2c_driver fschmd_driver = {
 	.driver = {
 		.name	= "fschmd",
 	},
-	.probe		= fschmd_probe,
+	.probe_new	= fschmd_probe,
 	.remove		= fschmd_remove,
 	.id_table	= fschmd_id,
 	.detect		= fschmd_detect,
@@ -290,24 +283,30 @@ struct fschmd_data {
 	u8 fan_ripple[7];	/* divider for rps */
 };
 
-/* Global variables to hold information read from special DMI tables, which are
-   available on FSC machines with an fscher or later chip. There is no need to
-   protect these with a lock as they are only modified from our attach function
-   which always gets called with the i2c-core lock held and never accessed
-   before the attach function is done with them. */
+/*
+ * Global variables to hold information read from special DMI tables, which are
+ * available on FSC machines with an fscher or later chip. There is no need to
+ * protect these with a lock as they are only modified from our attach function
+ * which always gets called with the i2c-core lock held and never accessed
+ * before the attach function is done with them.
+ */
 static int dmi_mult[6] = { 490, 200, 100, 100, 200, 100 };
 static int dmi_offset[6] = { 0, 0, 0, 0, 0, 0 };
 static int dmi_vref = -1;
 
-/* Somewhat ugly :( global data pointer list with all fschmd devices, so that
-   we can find our device data as when using misc_register there is no other
-   method to get to ones device data from the open fop. */
+/*
+ * Somewhat ugly :( global data pointer list with all fschmd devices, so that
+ * we can find our device data as when using misc_register there is no other
+ * method to get to ones device data from the open fop.
+ */
 static LIST_HEAD(watchdog_data_list);
 /* Note this lock not only protect list access, but also data.kref access */
 static DEFINE_MUTEX(watchdog_data_mutex);
 
-/* Release our data struct when we're detached from the i2c client *and* all
-   references to our watchdog device are released */
+/*
+ * Release our data struct when we're detached from the i2c client *and* all
+ * references to our watchdog device are released
+ */
 static void fschmd_release_resources(struct kref *ref)
 {
 	struct fschmd_data *data = container_of(ref, struct fschmd_data, kref);
@@ -318,8 +317,8 @@ static void fschmd_release_resources(struct kref *ref)
  * Sysfs attr show / store functions
  */
 
-static ssize_t show_in_value(struct device *dev,
-	struct device_attribute *devattr, char *buf)
+static ssize_t in_value_show(struct device *dev,
+			     struct device_attribute *devattr, char *buf)
 {
 	const int max_reading[3] = { 14200, 6600, 3300 };
 	int index = to_sensor_dev_attr(devattr)->index;
@@ -336,8 +335,8 @@ static ssize_t show_in_value(struct device *dev,
 
 #define TEMP_FROM_REG(val)	(((val) - 128) * 1000)
 
-static ssize_t show_temp_value(struct device *dev,
-	struct device_attribute *devattr, char *buf)
+static ssize_t temp_value_show(struct device *dev,
+			       struct device_attribute *devattr, char *buf)
 {
 	int index = to_sensor_dev_attr(devattr)->index;
 	struct fschmd_data *data = fschmd_update_device(dev);
@@ -345,8 +344,8 @@ static ssize_t show_temp_value(struct device *dev,
 	return sprintf(buf, "%d\n", TEMP_FROM_REG(data->temp_act[index]));
 }
 
-static ssize_t show_temp_max(struct device *dev,
-	struct device_attribute *devattr, char *buf)
+static ssize_t temp_max_show(struct device *dev,
+			     struct device_attribute *devattr, char *buf)
 {
 	int index = to_sensor_dev_attr(devattr)->index;
 	struct fschmd_data *data = fschmd_update_device(dev);
@@ -354,14 +353,20 @@ static ssize_t show_temp_max(struct device *dev,
 	return sprintf(buf, "%d\n", TEMP_FROM_REG(data->temp_max[index]));
 }
 
-static ssize_t store_temp_max(struct device *dev, struct device_attribute
-	*devattr, const char *buf, size_t count)
+static ssize_t temp_max_store(struct device *dev,
+			      struct device_attribute *devattr,
+			      const char *buf, size_t count)
 {
 	int index = to_sensor_dev_attr(devattr)->index;
 	struct fschmd_data *data = dev_get_drvdata(dev);
-	long v = simple_strtol(buf, NULL, 10) / 1000;
+	long v;
+	int err;
 
-	v = SENSORS_LIMIT(v, -128, 127) + 128;
+	err = kstrtol(buf, 10, &v);
+	if (err)
+		return err;
+
+	v = clamp_val(v / 1000, -128, 127) + 128;
 
 	mutex_lock(&data->update_lock);
 	i2c_smbus_write_byte_data(to_i2c_client(dev),
@@ -372,8 +377,8 @@ static ssize_t store_temp_max(struct device *dev, struct device_attribute
 	return count;
 }
 
-static ssize_t show_temp_fault(struct device *dev,
-	struct device_attribute *devattr, char *buf)
+static ssize_t temp_fault_show(struct device *dev,
+			       struct device_attribute *devattr, char *buf)
 {
 	int index = to_sensor_dev_attr(devattr)->index;
 	struct fschmd_data *data = fschmd_update_device(dev);
@@ -385,8 +390,8 @@ static ssize_t show_temp_fault(struct device *dev,
 		return sprintf(buf, "1\n");
 }
 
-static ssize_t show_temp_alarm(struct device *dev,
-	struct device_attribute *devattr, char *buf)
+static ssize_t temp_alarm_show(struct device *dev,
+			       struct device_attribute *devattr, char *buf)
 {
 	int index = to_sensor_dev_attr(devattr)->index;
 	struct fschmd_data *data = fschmd_update_device(dev);
@@ -401,8 +406,8 @@ static ssize_t show_temp_alarm(struct device *dev,
 
 #define RPM_FROM_REG(val)	((val) * 60)
 
-static ssize_t show_fan_value(struct device *dev,
-	struct device_attribute *devattr, char *buf)
+static ssize_t fan_value_show(struct device *dev,
+			      struct device_attribute *devattr, char *buf)
 {
 	int index = to_sensor_dev_attr(devattr)->index;
 	struct fschmd_data *data = fschmd_update_device(dev);
@@ -410,8 +415,8 @@ static ssize_t show_fan_value(struct device *dev,
 	return sprintf(buf, "%u\n", RPM_FROM_REG(data->fan_act[index]));
 }
 
-static ssize_t show_fan_div(struct device *dev,
-	struct device_attribute *devattr, char *buf)
+static ssize_t fan_div_show(struct device *dev,
+			    struct device_attribute *devattr, char *buf)
 {
 	int index = to_sensor_dev_attr(devattr)->index;
 	struct fschmd_data *data = fschmd_update_device(dev);
@@ -420,22 +425,35 @@ static ssize_t show_fan_div(struct device *dev,
 	return sprintf(buf, "%d\n", 1 << (data->fan_ripple[index] & 3));
 }
 
-static ssize_t store_fan_div(struct device *dev, struct device_attribute
-	*devattr, const char *buf, size_t count)
+static ssize_t fan_div_store(struct device *dev,
+			     struct device_attribute *devattr,
+			     const char *buf, size_t count)
 {
 	u8 reg;
 	int index = to_sensor_dev_attr(devattr)->index;
 	struct fschmd_data *data = dev_get_drvdata(dev);
 	/* supported values: 2, 4, 8 */
-	unsigned long v = simple_strtoul(buf, NULL, 10);
+	unsigned long v;
+	int err;
+
+	err = kstrtoul(buf, 10, &v);
+	if (err)
+		return err;
 
 	switch (v) {
-	case 2: v = 1; break;
-	case 4: v = 2; break;
-	case 8: v = 3; break;
+	case 2:
+		v = 1;
+		break;
+	case 4:
+		v = 2;
+		break;
+	case 8:
+		v = 3;
+		break;
 	default:
-		dev_err(dev, "fan_div value %lu not supported. "
-			"Choose one of 2, 4 or 8!\n", v);
+		dev_err(dev,
+			"fan_div value %lu not supported. Choose one of 2, 4 or 8!\n",
+			v);
 		return -EINVAL;
 	}
 
@@ -458,8 +476,8 @@ static ssize_t store_fan_div(struct device *dev, struct device_attribute
 	return count;
 }
 
-static ssize_t show_fan_alarm(struct device *dev,
-	struct device_attribute *devattr, char *buf)
+static ssize_t fan_alarm_show(struct device *dev,
+			      struct device_attribute *devattr, char *buf)
 {
 	int index = to_sensor_dev_attr(devattr)->index;
 	struct fschmd_data *data = fschmd_update_device(dev);
@@ -470,8 +488,8 @@ static ssize_t show_fan_alarm(struct device *dev,
 		return sprintf(buf, "0\n");
 }
 
-static ssize_t show_fan_fault(struct device *dev,
-	struct device_attribute *devattr, char *buf)
+static ssize_t fan_fault_show(struct device *dev,
+			      struct device_attribute *devattr, char *buf)
 {
 	int index = to_sensor_dev_attr(devattr)->index;
 	struct fschmd_data *data = fschmd_update_device(dev);
@@ -483,8 +501,9 @@ static ssize_t show_fan_fault(struct device *dev,
 }
 
 
-static ssize_t show_pwm_auto_point1_pwm(struct device *dev,
-	struct device_attribute *devattr, char *buf)
+static ssize_t pwm_auto_point1_pwm_show(struct device *dev,
+					struct device_attribute *devattr,
+					char *buf)
 {
 	int index = to_sensor_dev_attr(devattr)->index;
 	struct fschmd_data *data = fschmd_update_device(dev);
@@ -497,16 +516,22 @@ static ssize_t show_pwm_auto_point1_pwm(struct device *dev,
 	return sprintf(buf, "%d\n", val);
 }
 
-static ssize_t store_pwm_auto_point1_pwm(struct device *dev,
-	struct device_attribute *devattr, const char *buf, size_t count)
+static ssize_t pwm_auto_point1_pwm_store(struct device *dev,
+					 struct device_attribute *devattr,
+					 const char *buf, size_t count)
 {
 	int index = to_sensor_dev_attr(devattr)->index;
 	struct fschmd_data *data = dev_get_drvdata(dev);
-	unsigned long v = simple_strtoul(buf, NULL, 10);
+	unsigned long v;
+	int err;
+
+	err = kstrtoul(buf, 10, &v);
+	if (err)
+		return err;
 
 	/* reg: 0 = allow turning off (except on the syl), 1-255 = 50-100% */
 	if (v || data->kind == fscsyl) {
-		v = SENSORS_LIMIT(v, 128, 255);
+		v = clamp_val(v, 128, 255);
 		v = (v - 128) * 2 + 1;
 	}
 
@@ -522,9 +547,11 @@ static ssize_t store_pwm_auto_point1_pwm(struct device *dev,
 }
 
 
-/* The FSC hwmon family has the ability to force an attached alert led to flash
-   from software, we export this as an alert_led sysfs attr */
-static ssize_t show_alert_led(struct device *dev,
+/*
+ * The FSC hwmon family has the ability to force an attached alert led to flash
+ * from software, we export this as an alert_led sysfs attr
+ */
+static ssize_t alert_led_show(struct device *dev,
 	struct device_attribute *devattr, char *buf)
 {
 	struct fschmd_data *data = fschmd_update_device(dev);
@@ -535,12 +562,17 @@ static ssize_t show_alert_led(struct device *dev,
 		return sprintf(buf, "0\n");
 }
 
-static ssize_t store_alert_led(struct device *dev,
+static ssize_t alert_led_store(struct device *dev,
 	struct device_attribute *devattr, const char *buf, size_t count)
 {
 	u8 reg;
 	struct fschmd_data *data = dev_get_drvdata(dev);
-	unsigned long v = simple_strtoul(buf, NULL, 10);
+	unsigned long v;
+	int err;
+
+	err = kstrtoul(buf, 10, &v);
+	if (err)
+		return err;
 
 	mutex_lock(&data->update_lock);
 
@@ -560,107 +592,100 @@ static ssize_t store_alert_led(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(alert_led, 0644, show_alert_led, store_alert_led);
+static DEVICE_ATTR_RW(alert_led);
 
 static struct sensor_device_attribute fschmd_attr[] = {
-	SENSOR_ATTR(in0_input, 0444, show_in_value, NULL, 0),
-	SENSOR_ATTR(in1_input, 0444, show_in_value, NULL, 1),
-	SENSOR_ATTR(in2_input, 0444, show_in_value, NULL, 2),
-	SENSOR_ATTR(in3_input, 0444, show_in_value, NULL, 3),
-	SENSOR_ATTR(in4_input, 0444, show_in_value, NULL, 4),
-	SENSOR_ATTR(in5_input, 0444, show_in_value, NULL, 5),
+	SENSOR_ATTR_RO(in0_input, in_value, 0),
+	SENSOR_ATTR_RO(in1_input, in_value, 1),
+	SENSOR_ATTR_RO(in2_input, in_value, 2),
+	SENSOR_ATTR_RO(in3_input, in_value, 3),
+	SENSOR_ATTR_RO(in4_input, in_value, 4),
+	SENSOR_ATTR_RO(in5_input, in_value, 5),
 };
 
 static struct sensor_device_attribute fschmd_temp_attr[] = {
-	SENSOR_ATTR(temp1_input, 0444, show_temp_value, NULL, 0),
-	SENSOR_ATTR(temp1_max,   0644, show_temp_max, store_temp_max, 0),
-	SENSOR_ATTR(temp1_fault, 0444, show_temp_fault, NULL, 0),
-	SENSOR_ATTR(temp1_alarm, 0444, show_temp_alarm, NULL, 0),
-	SENSOR_ATTR(temp2_input, 0444, show_temp_value, NULL, 1),
-	SENSOR_ATTR(temp2_max,   0644, show_temp_max, store_temp_max, 1),
-	SENSOR_ATTR(temp2_fault, 0444, show_temp_fault, NULL, 1),
-	SENSOR_ATTR(temp2_alarm, 0444, show_temp_alarm, NULL, 1),
-	SENSOR_ATTR(temp3_input, 0444, show_temp_value, NULL, 2),
-	SENSOR_ATTR(temp3_max,   0644, show_temp_max, store_temp_max, 2),
-	SENSOR_ATTR(temp3_fault, 0444, show_temp_fault, NULL, 2),
-	SENSOR_ATTR(temp3_alarm, 0444, show_temp_alarm, NULL, 2),
-	SENSOR_ATTR(temp4_input, 0444, show_temp_value, NULL, 3),
-	SENSOR_ATTR(temp4_max,   0644, show_temp_max, store_temp_max, 3),
-	SENSOR_ATTR(temp4_fault, 0444, show_temp_fault, NULL, 3),
-	SENSOR_ATTR(temp4_alarm, 0444, show_temp_alarm, NULL, 3),
-	SENSOR_ATTR(temp5_input, 0444, show_temp_value, NULL, 4),
-	SENSOR_ATTR(temp5_max,   0644, show_temp_max, store_temp_max, 4),
-	SENSOR_ATTR(temp5_fault, 0444, show_temp_fault, NULL, 4),
-	SENSOR_ATTR(temp5_alarm, 0444, show_temp_alarm, NULL, 4),
-	SENSOR_ATTR(temp6_input, 0444, show_temp_value, NULL, 5),
-	SENSOR_ATTR(temp6_max,   0644, show_temp_max, store_temp_max, 5),
-	SENSOR_ATTR(temp6_fault, 0444, show_temp_fault, NULL, 5),
-	SENSOR_ATTR(temp6_alarm, 0444, show_temp_alarm, NULL, 5),
-	SENSOR_ATTR(temp7_input, 0444, show_temp_value, NULL, 6),
-	SENSOR_ATTR(temp7_max,   0644, show_temp_max, store_temp_max, 6),
-	SENSOR_ATTR(temp7_fault, 0444, show_temp_fault, NULL, 6),
-	SENSOR_ATTR(temp7_alarm, 0444, show_temp_alarm, NULL, 6),
-	SENSOR_ATTR(temp8_input, 0444, show_temp_value, NULL, 7),
-	SENSOR_ATTR(temp8_max,   0644, show_temp_max, store_temp_max, 7),
-	SENSOR_ATTR(temp8_fault, 0444, show_temp_fault, NULL, 7),
-	SENSOR_ATTR(temp8_alarm, 0444, show_temp_alarm, NULL, 7),
-	SENSOR_ATTR(temp9_input, 0444, show_temp_value, NULL, 8),
-	SENSOR_ATTR(temp9_max,   0644, show_temp_max, store_temp_max, 8),
-	SENSOR_ATTR(temp9_fault, 0444, show_temp_fault, NULL, 8),
-	SENSOR_ATTR(temp9_alarm, 0444, show_temp_alarm, NULL, 8),
-	SENSOR_ATTR(temp10_input, 0444, show_temp_value, NULL, 9),
-	SENSOR_ATTR(temp10_max,   0644, show_temp_max, store_temp_max, 9),
-	SENSOR_ATTR(temp10_fault, 0444, show_temp_fault, NULL, 9),
-	SENSOR_ATTR(temp10_alarm, 0444, show_temp_alarm, NULL, 9),
-	SENSOR_ATTR(temp11_input, 0444, show_temp_value, NULL, 10),
-	SENSOR_ATTR(temp11_max,   0644, show_temp_max, store_temp_max, 10),
-	SENSOR_ATTR(temp11_fault, 0444, show_temp_fault, NULL, 10),
-	SENSOR_ATTR(temp11_alarm, 0444, show_temp_alarm, NULL, 10),
+	SENSOR_ATTR_RO(temp1_input, temp_value, 0),
+	SENSOR_ATTR_RW(temp1_max, temp_max, 0),
+	SENSOR_ATTR_RO(temp1_fault, temp_fault, 0),
+	SENSOR_ATTR_RO(temp1_alarm, temp_alarm, 0),
+	SENSOR_ATTR_RO(temp2_input, temp_value, 1),
+	SENSOR_ATTR_RW(temp2_max, temp_max, 1),
+	SENSOR_ATTR_RO(temp2_fault, temp_fault, 1),
+	SENSOR_ATTR_RO(temp2_alarm, temp_alarm, 1),
+	SENSOR_ATTR_RO(temp3_input, temp_value, 2),
+	SENSOR_ATTR_RW(temp3_max, temp_max, 2),
+	SENSOR_ATTR_RO(temp3_fault, temp_fault, 2),
+	SENSOR_ATTR_RO(temp3_alarm, temp_alarm, 2),
+	SENSOR_ATTR_RO(temp4_input, temp_value, 3),
+	SENSOR_ATTR_RW(temp4_max, temp_max, 3),
+	SENSOR_ATTR_RO(temp4_fault, temp_fault, 3),
+	SENSOR_ATTR_RO(temp4_alarm, temp_alarm, 3),
+	SENSOR_ATTR_RO(temp5_input, temp_value, 4),
+	SENSOR_ATTR_RW(temp5_max, temp_max, 4),
+	SENSOR_ATTR_RO(temp5_fault, temp_fault, 4),
+	SENSOR_ATTR_RO(temp5_alarm, temp_alarm, 4),
+	SENSOR_ATTR_RO(temp6_input, temp_value, 5),
+	SENSOR_ATTR_RW(temp6_max, temp_max, 5),
+	SENSOR_ATTR_RO(temp6_fault, temp_fault, 5),
+	SENSOR_ATTR_RO(temp6_alarm, temp_alarm, 5),
+	SENSOR_ATTR_RO(temp7_input, temp_value, 6),
+	SENSOR_ATTR_RW(temp7_max, temp_max, 6),
+	SENSOR_ATTR_RO(temp7_fault, temp_fault, 6),
+	SENSOR_ATTR_RO(temp7_alarm, temp_alarm, 6),
+	SENSOR_ATTR_RO(temp8_input, temp_value, 7),
+	SENSOR_ATTR_RW(temp8_max, temp_max, 7),
+	SENSOR_ATTR_RO(temp8_fault, temp_fault, 7),
+	SENSOR_ATTR_RO(temp8_alarm, temp_alarm, 7),
+	SENSOR_ATTR_RO(temp9_input, temp_value, 8),
+	SENSOR_ATTR_RW(temp9_max, temp_max, 8),
+	SENSOR_ATTR_RO(temp9_fault, temp_fault, 8),
+	SENSOR_ATTR_RO(temp9_alarm, temp_alarm, 8),
+	SENSOR_ATTR_RO(temp10_input, temp_value, 9),
+	SENSOR_ATTR_RW(temp10_max, temp_max, 9),
+	SENSOR_ATTR_RO(temp10_fault, temp_fault, 9),
+	SENSOR_ATTR_RO(temp10_alarm, temp_alarm, 9),
+	SENSOR_ATTR_RO(temp11_input, temp_value, 10),
+	SENSOR_ATTR_RW(temp11_max, temp_max, 10),
+	SENSOR_ATTR_RO(temp11_fault, temp_fault, 10),
+	SENSOR_ATTR_RO(temp11_alarm, temp_alarm, 10),
 };
 
 static struct sensor_device_attribute fschmd_fan_attr[] = {
-	SENSOR_ATTR(fan1_input, 0444, show_fan_value, NULL, 0),
-	SENSOR_ATTR(fan1_div,   0644, show_fan_div, store_fan_div, 0),
-	SENSOR_ATTR(fan1_alarm, 0444, show_fan_alarm, NULL, 0),
-	SENSOR_ATTR(fan1_fault, 0444, show_fan_fault, NULL, 0),
-	SENSOR_ATTR(pwm1_auto_point1_pwm, 0644, show_pwm_auto_point1_pwm,
-		store_pwm_auto_point1_pwm, 0),
-	SENSOR_ATTR(fan2_input, 0444, show_fan_value, NULL, 1),
-	SENSOR_ATTR(fan2_div,   0644, show_fan_div, store_fan_div, 1),
-	SENSOR_ATTR(fan2_alarm, 0444, show_fan_alarm, NULL, 1),
-	SENSOR_ATTR(fan2_fault, 0444, show_fan_fault, NULL, 1),
-	SENSOR_ATTR(pwm2_auto_point1_pwm, 0644, show_pwm_auto_point1_pwm,
-		store_pwm_auto_point1_pwm, 1),
-	SENSOR_ATTR(fan3_input, 0444, show_fan_value, NULL, 2),
-	SENSOR_ATTR(fan3_div,   0644, show_fan_div, store_fan_div, 2),
-	SENSOR_ATTR(fan3_alarm, 0444, show_fan_alarm, NULL, 2),
-	SENSOR_ATTR(fan3_fault, 0444, show_fan_fault, NULL, 2),
-	SENSOR_ATTR(pwm3_auto_point1_pwm, 0644, show_pwm_auto_point1_pwm,
-		store_pwm_auto_point1_pwm, 2),
-	SENSOR_ATTR(fan4_input, 0444, show_fan_value, NULL, 3),
-	SENSOR_ATTR(fan4_div,   0644, show_fan_div, store_fan_div, 3),
-	SENSOR_ATTR(fan4_alarm, 0444, show_fan_alarm, NULL, 3),
-	SENSOR_ATTR(fan4_fault, 0444, show_fan_fault, NULL, 3),
-	SENSOR_ATTR(pwm4_auto_point1_pwm, 0644, show_pwm_auto_point1_pwm,
-		store_pwm_auto_point1_pwm, 3),
-	SENSOR_ATTR(fan5_input, 0444, show_fan_value, NULL, 4),
-	SENSOR_ATTR(fan5_div,   0644, show_fan_div, store_fan_div, 4),
-	SENSOR_ATTR(fan5_alarm, 0444, show_fan_alarm, NULL, 4),
-	SENSOR_ATTR(fan5_fault, 0444, show_fan_fault, NULL, 4),
-	SENSOR_ATTR(pwm5_auto_point1_pwm, 0644, show_pwm_auto_point1_pwm,
-		store_pwm_auto_point1_pwm, 4),
-	SENSOR_ATTR(fan6_input, 0444, show_fan_value, NULL, 5),
-	SENSOR_ATTR(fan6_div,   0644, show_fan_div, store_fan_div, 5),
-	SENSOR_ATTR(fan6_alarm, 0444, show_fan_alarm, NULL, 5),
-	SENSOR_ATTR(fan6_fault, 0444, show_fan_fault, NULL, 5),
-	SENSOR_ATTR(pwm6_auto_point1_pwm, 0644, show_pwm_auto_point1_pwm,
-		store_pwm_auto_point1_pwm, 5),
-	SENSOR_ATTR(fan7_input, 0444, show_fan_value, NULL, 6),
-	SENSOR_ATTR(fan7_div,   0644, show_fan_div, store_fan_div, 6),
-	SENSOR_ATTR(fan7_alarm, 0444, show_fan_alarm, NULL, 6),
-	SENSOR_ATTR(fan7_fault, 0444, show_fan_fault, NULL, 6),
-	SENSOR_ATTR(pwm7_auto_point1_pwm, 0644, show_pwm_auto_point1_pwm,
-		store_pwm_auto_point1_pwm, 6),
+	SENSOR_ATTR_RO(fan1_input, fan_value, 0),
+	SENSOR_ATTR_RW(fan1_div, fan_div, 0),
+	SENSOR_ATTR_RO(fan1_alarm, fan_alarm, 0),
+	SENSOR_ATTR_RO(fan1_fault, fan_fault, 0),
+	SENSOR_ATTR_RW(pwm1_auto_point1_pwm, pwm_auto_point1_pwm, 0),
+	SENSOR_ATTR_RO(fan2_input, fan_value, 1),
+	SENSOR_ATTR_RW(fan2_div, fan_div, 1),
+	SENSOR_ATTR_RO(fan2_alarm, fan_alarm, 1),
+	SENSOR_ATTR_RO(fan2_fault, fan_fault, 1),
+	SENSOR_ATTR_RW(pwm2_auto_point1_pwm, pwm_auto_point1_pwm, 1),
+	SENSOR_ATTR_RO(fan3_input, fan_value, 2),
+	SENSOR_ATTR_RW(fan3_div, fan_div, 2),
+	SENSOR_ATTR_RO(fan3_alarm, fan_alarm, 2),
+	SENSOR_ATTR_RO(fan3_fault, fan_fault, 2),
+	SENSOR_ATTR_RW(pwm3_auto_point1_pwm, pwm_auto_point1_pwm, 2),
+	SENSOR_ATTR_RO(fan4_input, fan_value, 3),
+	SENSOR_ATTR_RW(fan4_div, fan_div, 3),
+	SENSOR_ATTR_RO(fan4_alarm, fan_alarm, 3),
+	SENSOR_ATTR_RO(fan4_fault, fan_fault, 3),
+	SENSOR_ATTR_RW(pwm4_auto_point1_pwm, pwm_auto_point1_pwm, 3),
+	SENSOR_ATTR_RO(fan5_input, fan_value, 4),
+	SENSOR_ATTR_RW(fan5_div, fan_div, 4),
+	SENSOR_ATTR_RO(fan5_alarm, fan_alarm, 4),
+	SENSOR_ATTR_RO(fan5_fault, fan_fault, 4),
+	SENSOR_ATTR_RW(pwm5_auto_point1_pwm, pwm_auto_point1_pwm, 4),
+	SENSOR_ATTR_RO(fan6_input, fan_value, 5),
+	SENSOR_ATTR_RW(fan6_div, fan_div, 5),
+	SENSOR_ATTR_RO(fan6_alarm, fan_alarm, 5),
+	SENSOR_ATTR_RO(fan6_fault, fan_fault, 5),
+	SENSOR_ATTR_RW(pwm6_auto_point1_pwm, pwm_auto_point1_pwm, 5),
+	SENSOR_ATTR_RO(fan7_input, fan_value, 6),
+	SENSOR_ATTR_RW(fan7_div, fan_div, 6),
+	SENSOR_ATTR_RO(fan7_alarm, fan_alarm, 6),
+	SENSOR_ATTR_RO(fan7_fault, fan_fault, 6),
+	SENSOR_ATTR_RW(pwm7_auto_point1_pwm, pwm_auto_point1_pwm, 6),
 };
 
 
@@ -754,8 +779,10 @@ static int watchdog_stop(struct fschmd_data *data)
 	}
 
 	data->watchdog_control &= ~FSCHMD_WDOG_CONTROL_STARTED;
-	/* Don't store the stop flag in our watchdog control register copy, as
-	   its a write only bit (read always returns 0) */
+	/*
+	 * Don't store the stop flag in our watchdog control register copy, as
+	 * its a write only bit (read always returns 0)
+	 */
 	i2c_smbus_write_byte_data(data->client,
 		FSCHMD_REG_WDOG_CONTROL[data->kind],
 		data->watchdog_control | FSCHMD_WDOG_CONTROL_STOP);
@@ -769,10 +796,12 @@ static int watchdog_open(struct inode *inode, struct file *filp)
 	struct fschmd_data *pos, *data = NULL;
 	int watchdog_is_open;
 
-	/* We get called from drivers/char/misc.c with misc_mtx hold, and we
-	   call misc_register() from fschmd_probe() with watchdog_data_mutex
-	   hold, as misc_register() takes the misc_mtx lock, this is a possible
-	   deadlock, so we use mutex_trylock here. */
+	/*
+	 * We get called from drivers/char/misc.c with misc_mtx hold, and we
+	 * call misc_register() from fschmd_probe() with watchdog_data_mutex
+	 * hold, as misc_register() takes the misc_mtx lock, this is a possible
+	 * deadlock, so we use mutex_trylock here.
+	 */
 	if (!mutex_trylock(&watchdog_data_mutex))
 		return -ERESTARTSYS;
 	list_for_each_entry(pos, &watchdog_data_list, list) {
@@ -794,7 +823,7 @@ static int watchdog_open(struct inode *inode, struct file *filp)
 	watchdog_trigger(data);
 	filp->private_data = data;
 
-	return nonseekable_open(inode, filp);
+	return stream_open(inode, filp);
 }
 
 static int watchdog_release(struct inode *inode, struct file *filp)
@@ -847,7 +876,8 @@ static ssize_t watchdog_write(struct file *filp, const char __user *buf,
 	return count;
 }
 
-static long watchdog_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+static long watchdog_ioctl(struct file *filp, unsigned int cmd,
+			   unsigned long arg)
 {
 	struct watchdog_info ident = {
 		.options = WDIOF_KEEPALIVEPING | WDIOF_SETTIMEOUT |
@@ -923,6 +953,7 @@ static const struct file_operations watchdog_fops = {
 	.release = watchdog_release,
 	.write = watchdog_write,
 	.unlocked_ioctl = watchdog_ioctl,
+	.compat_ioctl = compat_ptr_ioctl,
 };
 
 
@@ -930,30 +961,38 @@ static const struct file_operations watchdog_fops = {
  * Detect, register, unregister and update device functions
  */
 
-/* DMI decode routine to read voltage scaling factors from special DMI tables,
-   which are available on FSC machines with an fscher or later chip. */
+/*
+ * DMI decode routine to read voltage scaling factors from special DMI tables,
+ * which are available on FSC machines with an fscher or later chip.
+ */
 static void fschmd_dmi_decode(const struct dmi_header *header, void *dummy)
 {
 	int i, mult[3] = { 0 }, offset[3] = { 0 }, vref = 0, found = 0;
 
-	/* dmi code ugliness, we get passed the address of the contents of
-	   a complete DMI record, but in the form of a dmi_header pointer, in
-	   reality this address holds header->length bytes of which the header
-	   are the first 4 bytes */
+	/*
+	 * dmi code ugliness, we get passed the address of the contents of
+	 * a complete DMI record, but in the form of a dmi_header pointer, in
+	 * reality this address holds header->length bytes of which the header
+	 * are the first 4 bytes
+	 */
 	u8 *dmi_data = (u8 *)header;
 
 	/* We are looking for OEM-specific type 185 */
 	if (header->type != 185)
 		return;
 
-	/* we are looking for what Siemens calls "subtype" 19, the subtype
-	   is stored in byte 5 of the dmi block */
+	/*
+	 * we are looking for what Siemens calls "subtype" 19, the subtype
+	 * is stored in byte 5 of the dmi block
+	 */
 	if (header->length < 5 || dmi_data[4] != 19)
 		return;
 
-	/* After the subtype comes 1 unknown byte and then blocks of 5 bytes,
-	   consisting of what Siemens calls an "Entity" number, followed by
-	   2 16-bit words in LSB first order */
+	/*
+	 * After the subtype comes 1 unknown byte and then blocks of 5 bytes,
+	 * consisting of what Siemens calls an "Entity" number, followed by
+	 * 2 16-bit words in LSB first order
+	 */
 	for (i = 6; (i + 4) < header->length; i += 5) {
 		/* entity 1 - 3: voltage multiplier and offset */
 		if (dmi_data[i] >= 1 && dmi_data[i] <= 3) {
@@ -988,9 +1027,11 @@ static void fschmd_dmi_decode(const struct dmi_header *header, void *dummy)
 			dmi_mult[i] = mult[i] * 10;
 			dmi_offset[i] = offset[i] * 10;
 		}
-		/* According to the docs there should be separate dmi entries
-		   for the mult's and offsets of in3-5 of the syl, but on
-		   my test machine these are not present */
+		/*
+		 * According to the docs there should be separate dmi entries
+		 * for the mult's and offsets of in3-5 of the syl, but on
+		 * my test machine these are not present
+		 */
 		dmi_mult[3] = dmi_mult[2];
 		dmi_mult[4] = dmi_mult[1];
 		dmi_mult[5] = dmi_mult[2];
@@ -1039,15 +1080,14 @@ static int fschmd_detect(struct i2c_client *client,
 	return 0;
 }
 
-static int fschmd_probe(struct i2c_client *client,
-			const struct i2c_device_id *id)
+static int fschmd_probe(struct i2c_client *client)
 {
 	struct fschmd_data *data;
 	const char * const names[7] = { "Poseidon", "Hermes", "Scylla",
 				"Heracles", "Heimdall", "Hades", "Syleus" };
 	const int watchdog_minors[] = { WATCHDOG_MINOR, 212, 213, 214, 215 };
 	int i, err;
-	enum chips kind = id->driver_data;
+	enum chips kind = i2c_match_id(fschmd_id, client)->driver_data;
 
 	data = kzalloc(sizeof(struct fschmd_data), GFP_KERNEL);
 	if (!data)
@@ -1058,15 +1098,19 @@ static int fschmd_probe(struct i2c_client *client,
 	mutex_init(&data->watchdog_lock);
 	INIT_LIST_HEAD(&data->list);
 	kref_init(&data->kref);
-	/* Store client pointer in our data struct for watchdog usage
-	   (where the client is found through a data ptr instead of the
-	   otherway around) */
+	/*
+	 * Store client pointer in our data struct for watchdog usage
+	 * (where the client is found through a data ptr instead of the
+	 * otherway around)
+	 */
 	data->client = client;
 	data->kind = kind;
 
 	if (kind == fscpos) {
-		/* The Poseidon has hardwired temp limits, fill these
-		   in for the alarm resetting code */
+		/*
+		 * The Poseidon has hardwired temp limits, fill these
+		 * in for the alarm resetting code
+		 */
 		data->temp_max[0] = 70 + 128;
 		data->temp_max[1] = 50 + 128;
 		data->temp_max[2] = 50 + 128;
@@ -1108,7 +1152,7 @@ static int fschmd_probe(struct i2c_client *client,
 	for (i = 0; i < (FSCHMD_NO_TEMP_SENSORS[data->kind] * 4); i++) {
 		/* Poseidon doesn't have TEMP_LIMIT registers */
 		if (kind == fscpos && fschmd_temp_attr[i].dev_attr.show ==
-				show_temp_max)
+				temp_max_show)
 			continue;
 
 		if (kind == fscsyl) {
@@ -1157,9 +1201,11 @@ static int fschmd_probe(struct i2c_client *client,
 		goto exit_detach;
 	}
 
-	/* We take the data_mutex lock early so that watchdog_open() cannot
-	   run when misc_register() has completed, but we've not yet added
-	   our data to the watchdog_data_list (and set the default timeout) */
+	/*
+	 * We take the data_mutex lock early so that watchdog_open() cannot
+	 * run when misc_register() has completed, but we've not yet added
+	 * our data to the watchdog_data_list (and set the default timeout)
+	 */
 	mutex_lock(&watchdog_data_mutex);
 	for (i = 0; i < ARRAY_SIZE(watchdog_minors); i++) {
 		/* Register our watchdog part */
@@ -1187,8 +1233,8 @@ static int fschmd_probe(struct i2c_client *client,
 	}
 	if (i == ARRAY_SIZE(watchdog_minors)) {
 		data->watchdog_miscdev.minor = 0;
-		dev_warn(&client->dev, "Couldn't register watchdog chardev "
-			"(due to no free minor)\n");
+		dev_warn(&client->dev,
+			 "Couldn't register watchdog chardev (due to no free minor)\n");
 	}
 	mutex_unlock(&watchdog_data_mutex);
 
@@ -1225,8 +1271,10 @@ static int fschmd_remove(struct i2c_client *client)
 		mutex_unlock(&data->watchdog_lock);
 	}
 
-	/* Check if registered in case we're called from fschmd_detect
-	   to cleanup after an error */
+	/*
+	 * Check if registered in case we're called from fschmd_detect
+	 * to cleanup after an error
+	 */
 	if (data->hwmon_dev)
 		hwmon_device_unregister(data->hwmon_dev);
 
@@ -1269,8 +1317,10 @@ static struct fschmd_data *fschmd_update_device(struct device *dev)
 					client,
 					FSCHMD_REG_TEMP_LIMIT[data->kind][i]);
 
-			/* reset alarm if the alarm condition is gone,
-			   the chip doesn't do this itself */
+			/*
+			 * reset alarm if the alarm condition is gone,
+			 * the chip doesn't do this itself
+			 */
 			if ((data->temp_status[i] & FSCHMD_TEMP_ALARM_MASK) ==
 					FSCHMD_TEMP_ALARM_MASK &&
 					data->temp_act[i] < data->temp_max[i])
@@ -1314,20 +1364,9 @@ static struct fschmd_data *fschmd_update_device(struct device *dev)
 	return data;
 }
 
-static int __init fschmd_init(void)
-{
-	return i2c_add_driver(&fschmd_driver);
-}
-
-static void __exit fschmd_exit(void)
-{
-	i2c_del_driver(&fschmd_driver);
-}
+module_i2c_driver(fschmd_driver);
 
 MODULE_AUTHOR("Hans de Goede <hdegoede@redhat.com>");
 MODULE_DESCRIPTION("FSC Poseidon, Hermes, Scylla, Heracles, Heimdall, Hades "
 			"and Syleus driver");
 MODULE_LICENSE("GPL");
-
-module_init(fschmd_init);
-module_exit(fschmd_exit);

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 1996 David S. Miller
  * Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003 Ralf Baechle
@@ -5,27 +6,12 @@
  * Kevin Kissell, kevink@mips.com and Carsten Langgaard, carstenl@mips.com
  * Copyright (C) 2000 MIPS Technologies, Inc.
  *
- * Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
+ * Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/compat.h>
 #include <linux/types.h>
 #include <linux/sched.h>
-#include <linux/mm.h>
 #include <linux/interrupt.h>
 #include <linux/kbuild.h>
 #include <asm/ptrace.h>
@@ -44,7 +30,8 @@ int main(void)
 
 	COMMENT("Hexagon pt_regs definitions");
 	OFFSET(_PT_SYSCALL_NR, pt_regs, syscall_nr);
-	OFFSET(_PT_UGPGP, pt_regs, ugpgp);
+	OFFSET(_PT_GPUGP, pt_regs, gpugp);
+	OFFSET(_PT_CS1CS0, pt_regs, cs1cs0);
 	OFFSET(_PT_R3130, pt_regs, r3130);
 	OFFSET(_PT_R2928, pt_regs, r2928);
 	OFFSET(_PT_R2726, pt_regs, r2726);

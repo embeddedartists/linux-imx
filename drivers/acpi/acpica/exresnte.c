@@ -1,46 +1,11 @@
-
+// SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0
 /******************************************************************************
  *
  * Module Name: exresnte - AML Interpreter object resolution
  *
+ * Copyright (C) 2000 - 2021, Intel Corp.
+ *
  *****************************************************************************/
-
-/*
- * Copyright (C) 2000 - 2011, Intel Corp.
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions, and the following disclaimer,
- *    without modification.
- * 2. Redistributions in binary form must reproduce at minimum a disclaimer
- *    substantially similar to the "NO WARRANTY" disclaimer below
- *    ("Disclaimer") and any redistribution must be conditioned upon
- *    including a substantially similar Disclaimer requirement for further
- *    binary redistribution.
- * 3. Neither the names of the above-listed copyright holders nor the names
- *    of any contributors may be used to endorse or promote products derived
- *    from this software without specific prior written permission.
- *
- * Alternatively, this software may be distributed under the terms of the
- * GNU General Public License ("GPL") version 2 as published by the Free
- * Software Foundation.
- *
- * NO WARRANTY
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * HOLDERS OR CONTRIBUTORS BE LIABLE FOR SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
- * IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGES.
- */
 
 #include <acpi/acpi.h>
 #include "accommon.h"
@@ -58,8 +23,8 @@ ACPI_MODULE_NAME("exresnte")
  * PARAMETERS:  object_ptr      - Pointer to a location that contains
  *                                a pointer to a NS node, and will receive a
  *                                pointer to the resolved object.
- *              walk_state      - Current state.  Valid only if executing AML
- *                                code.  NULL if simply resolving an object
+ *              walk_state      - Current state. Valid only if executing AML
+ *                                code. NULL if simply resolving an object
  *
  * RETURN:      Status
  *
@@ -67,7 +32,7 @@ ACPI_MODULE_NAME("exresnte")
  *
  * Note: for some of the data types, the pointer attached to the Node
  * can be either a pointer to an actual internal object or a pointer into the
- * AML stream itself.  These types are currently:
+ * AML stream itself. These types are currently:
  *
  *      ACPI_TYPE_INTEGER
  *      ACPI_TYPE_STRING
@@ -89,12 +54,12 @@ acpi_ex_resolve_node_to_value(struct acpi_namespace_node **object_ptr,
 	ACPI_FUNCTION_TRACE(ex_resolve_node_to_value);
 
 	/*
-	 * The stack pointer points to a struct acpi_namespace_node (Node).  Get the
+	 * The stack pointer points to a struct acpi_namespace_node (Node). Get the
 	 * object that is attached to the Node.
 	 */
 	node = *object_ptr;
 	source_desc = acpi_ns_get_attached_object(node);
-	entry_type = acpi_ns_get_type((acpi_handle) node);
+	entry_type = acpi_ns_get_type((acpi_handle)node);
 
 	ACPI_DEBUG_PRINT((ACPI_DB_EXEC, "Entry=%p SourceDesc=%p [%s]\n",
 			  node, source_desc,
@@ -107,13 +72,13 @@ acpi_ex_resolve_node_to_value(struct acpi_namespace_node **object_ptr,
 
 		node = ACPI_CAST_PTR(struct acpi_namespace_node, node->object);
 		source_desc = acpi_ns_get_attached_object(node);
-		entry_type = acpi_ns_get_type((acpi_handle) node);
+		entry_type = acpi_ns_get_type((acpi_handle)node);
 		*object_ptr = node;
 	}
 
 	/*
 	 * Several object types require no further processing:
-	 * 1) Device/Thermal objects don't have a "real" subobject, return the Node
+	 * 1) Device/Thermal objects don't have a "real" subobject, return Node
 	 * 2) Method locals and arguments have a pseudo-Node
 	 * 3) 10/2007: Added method type to assist with Package construction.
 	 */
@@ -125,8 +90,9 @@ acpi_ex_resolve_node_to_value(struct acpi_namespace_node **object_ptr,
 	}
 
 	if (!source_desc) {
-		ACPI_ERROR((AE_INFO, "No object attached to node %p", node));
-		return_ACPI_STATUS(AE_AML_NO_OPERAND);
+		ACPI_ERROR((AE_INFO, "No object attached to node [%4.4s] %p",
+			    node->name.ascii, node));
+		return_ACPI_STATUS(AE_AML_UNINITIALIZED_NODE);
 	}
 
 	/*
@@ -249,6 +215,7 @@ acpi_ex_resolve_node_to_value(struct acpi_namespace_node **object_ptr,
 			break;
 
 		default:
+
 			/* No named references are allowed here */
 
 			ACPI_ERROR((AE_INFO,

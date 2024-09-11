@@ -25,16 +25,6 @@
 #ifndef _ASM_X86_TOPOLOGY_H
 #define _ASM_X86_TOPOLOGY_H
 
-#ifdef CONFIG_X86_32
-# ifdef CONFIG_X86_HT
-#  define ENABLE_TOPO_DEFINES
-# endif
-#else
-# ifdef CONFIG_SMP
-#  define ENABLE_TOPO_DEFINES
-# endif
-#endif
-
 /*
  * to preserve the visibility of NUMA_NO_NODE definition,
  * moved to there from here.  May be used independent of
@@ -46,6 +36,7 @@
 #include <linux/cpumask.h>
 
 #include <asm/mpspec.h>
+#include <asm/percpu.h>
 
 /* Mappings between logical cpu number and node number */
 DECLARE_EARLY_PER_CPU(int, x86_cpu_to_node_map);
@@ -84,51 +75,7 @@ static inline const struct cpumask *cpumask_of_node(int node)
 
 extern void setup_node_to_cpumask_map(void);
 
-/*
- * Returns the number of the node containing Node 'node'. This
- * architecture is flat, so it is a pretty simple function!
- */
-#define parent_node(node) (node)
-
 #define pcibus_to_node(bus) __pcibus_to_node(bus)
-
-#ifdef CONFIG_X86_32
-# define SD_CACHE_NICE_TRIES	1
-# define SD_IDLE_IDX		1
-#else
-# define SD_CACHE_NICE_TRIES	2
-# define SD_IDLE_IDX		2
-#endif
-
-/* sched_domains SD_NODE_INIT for NUMA machines */
-#define SD_NODE_INIT (struct sched_domain) {				\
-	.min_interval		= 8,					\
-	.max_interval		= 32,					\
-	.busy_factor		= 32,					\
-	.imbalance_pct		= 125,					\
-	.cache_nice_tries	= SD_CACHE_NICE_TRIES,			\
-	.busy_idx		= 3,					\
-	.idle_idx		= SD_IDLE_IDX,				\
-	.newidle_idx		= 0,					\
-	.wake_idx		= 0,					\
-	.forkexec_idx		= 0,					\
-									\
-	.flags			= 1*SD_LOAD_BALANCE			\
-				| 1*SD_BALANCE_NEWIDLE			\
-				| 1*SD_BALANCE_EXEC			\
-				| 1*SD_BALANCE_FORK			\
-				| 0*SD_BALANCE_WAKE			\
-				| 1*SD_WAKE_AFFINE			\
-				| 0*SD_PREFER_LOCAL			\
-				| 0*SD_SHARE_CPUPOWER			\
-				| 0*SD_POWERSAVINGS_BALANCE		\
-				| 0*SD_SHARE_PKG_RESOURCES		\
-				| 1*SD_SERIALIZE			\
-				| 0*SD_PREFER_SIBLING			\
-				,					\
-	.last_balance		= jiffies,				\
-	.balance_interval	= 1,					\
-}
 
 extern int __node_distance(int, int);
 #define node_distance(a, b) __node_distance(a, b)
@@ -157,14 +104,53 @@ static inline void setup_node_to_cpumask_map(void) { }
 
 extern const struct cpumask *cpu_coregroup_mask(int cpu);
 
-#ifdef ENABLE_TOPO_DEFINES
+#define topology_logical_package_id(cpu)	(cpu_data(cpu).logical_proc_id)
 #define topology_physical_package_id(cpu)	(cpu_data(cpu).phys_proc_id)
+#define topology_logical_die_id(cpu)		(cpu_data(cpu).logical_die_id)
+#define topology_die_id(cpu)			(cpu_data(cpu).cpu_die_id)
 #define topology_core_id(cpu)			(cpu_data(cpu).cpu_core_id)
-#define topology_core_cpumask(cpu)		(per_cpu(cpu_core_map, cpu))
-#define topology_thread_cpumask(cpu)		(per_cpu(cpu_sibling_map, cpu))
 
-/* indicates that pointers to the topology cpumask_t maps are valid */
-#define arch_provides_topology_pointers		yes
+extern unsigned int __max_die_per_package;
+
+#ifdef CONFIG_SMP
+#define topology_die_cpumask(cpu)		(per_cpu(cpu_die_map, cpu))
+#define topology_core_cpumask(cpu)		(per_cpu(cpu_core_map, cpu))
+#define topology_sibling_cpumask(cpu)		(per_cpu(cpu_sibling_map, cpu))
+
+extern unsigned int __max_logical_packages;
+#define topology_max_packages()			(__max_logical_packages)
+
+static inline int topology_max_die_per_package(void)
+{
+	return __max_die_per_package;
+}
+
+extern int __max_smt_threads;
+
+static inline int topology_max_smt_threads(void)
+{
+	return __max_smt_threads;
+}
+
+int topology_update_package_map(unsigned int apicid, unsigned int cpu);
+int topology_update_die_map(unsigned int dieid, unsigned int cpu);
+int topology_phys_to_logical_pkg(unsigned int pkg);
+int topology_phys_to_logical_die(unsigned int die, unsigned int cpu);
+bool topology_is_primary_thread(unsigned int cpu);
+bool topology_smt_supported(void);
+#else
+#define topology_max_packages()			(1)
+static inline int
+topology_update_package_map(unsigned int apicid, unsigned int cpu) { return 0; }
+static inline int
+topology_update_die_map(unsigned int dieid, unsigned int cpu) { return 0; }
+static inline int topology_phys_to_logical_pkg(unsigned int pkg) { return 0; }
+static inline int topology_phys_to_logical_die(unsigned int die,
+		unsigned int cpu) { return 0; }
+static inline int topology_max_die_per_package(void) { return 1; }
+static inline int topology_max_smt_threads(void) { return 1; }
+static inline bool topology_is_primary_thread(unsigned int cpu) { return true; }
+static inline bool topology_smt_supported(void) { return false; }
 #endif
 
 static inline void arch_fix_phys_package_id(int num, u32 slot)
@@ -172,25 +158,69 @@ static inline void arch_fix_phys_package_id(int num, u32 slot)
 }
 
 struct pci_bus;
+int x86_pci_root_bus_node(int bus);
 void x86_pci_root_bus_resources(int bus, struct list_head *resources);
 
-#ifdef CONFIG_SMP
-#define mc_capable()	((boot_cpu_data.x86_max_cores > 1) && \
-			(cpumask_weight(cpu_core_mask(0)) != nr_cpu_ids))
-#define smt_capable()			(smp_num_siblings > 1)
-#endif
+extern bool x86_topology_update;
 
-#ifdef CONFIG_NUMA
-extern int get_mp_bus_to_node(int busnum);
-extern void set_mp_bus_to_node(int busnum, int node);
-#else
-static inline int get_mp_bus_to_node(int busnum)
+#ifdef CONFIG_SCHED_MC_PRIO
+#include <asm/percpu.h>
+
+DECLARE_PER_CPU_READ_MOSTLY(int, sched_core_priority);
+extern unsigned int __read_mostly sysctl_sched_itmt_enabled;
+
+/* Interface to set priority of a cpu */
+void sched_set_itmt_core_prio(int prio, int core_cpu);
+
+/* Interface to notify scheduler that system supports ITMT */
+int sched_set_itmt_support(void);
+
+/* Interface to notify scheduler that system revokes ITMT support */
+void sched_clear_itmt_support(void);
+
+#else /* CONFIG_SCHED_MC_PRIO */
+
+#define sysctl_sched_itmt_enabled	0
+static inline void sched_set_itmt_core_prio(int prio, int core_cpu)
+{
+}
+static inline int sched_set_itmt_support(void)
 {
 	return 0;
 }
-static inline void set_mp_bus_to_node(int busnum, int node)
+static inline void sched_clear_itmt_support(void)
 {
 }
+#endif /* CONFIG_SCHED_MC_PRIO */
+
+#if defined(CONFIG_SMP) && defined(CONFIG_X86_64)
+#include <asm/cpufeature.h>
+
+DECLARE_STATIC_KEY_FALSE(arch_scale_freq_key);
+
+#define arch_scale_freq_invariant() static_branch_likely(&arch_scale_freq_key)
+
+DECLARE_PER_CPU(unsigned long, arch_freq_scale);
+
+static inline long arch_scale_freq_capacity(int cpu)
+{
+	return per_cpu(arch_freq_scale, cpu);
+}
+#define arch_scale_freq_capacity arch_scale_freq_capacity
+
+extern void arch_scale_freq_tick(void);
+#define arch_scale_freq_tick arch_scale_freq_tick
+
+extern void arch_set_max_freq_ratio(bool turbo_disabled);
+#else
+static inline void arch_set_max_freq_ratio(bool turbo_disabled)
+{
+}
+#endif
+
+#if defined(CONFIG_ACPI_CPPC_LIB) && defined(CONFIG_SMP)
+void init_freq_invariance_cppc(void);
+#define init_freq_invariance_cppc init_freq_invariance_cppc
 #endif
 
 #endif /* _ASM_X86_TOPOLOGY_H */

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __ASM_SPARC64_ELF_H
 #define __ASM_SPARC64_ELF_H
 
@@ -7,8 +8,8 @@
 
 #include <asm/ptrace.h>
 #include <asm/processor.h>
-#include <asm/uaccess.h>
 #include <asm/spitfire.h>
+#include <asm/adi.h>
 
 /*
  * Sparc section types
@@ -86,6 +87,16 @@
 #define AV_SPARC_IMA		0x00400000 /* integer multiply-add */
 #define AV_SPARC_ASI_CACHE_SPARING \
 				0x00800000 /* cache sparing ASIs available */
+#define AV_SPARC_PAUSE		0x01000000 /* PAUSE available */
+#define AV_SPARC_CBCOND		0x02000000 /* CBCOND insns available */
+
+/* Solaris decided to enumerate every single crypto instruction type
+ * in the AT_HWCAP bits.  This is wasteful, since if crypto is present,
+ * you still need to look in the CFR register to see if the opcode is
+ * really available.  So we simply advertise only "crypto" support.
+ */
+#define HWCAP_SPARC_CRYPTO	0x04000000 /* CRYPTO insns available */
+#define HWCAP_SPARC_ADI		0x08000000 /* ADI available */
 
 #define CORE_DUMP_USE_REGSET
 
@@ -200,4 +211,22 @@ do {	if ((ex).e_ident[EI_CLASS] == ELFCLASS32)	\
 			(current->personality & (~PER_MASK)));	\
 } while (0)
 
+extern unsigned int vdso_enabled;
+
+#define	ARCH_DLINFO							\
+do {									\
+	extern struct adi_config adi_state;				\
+	if (vdso_enabled)						\
+		NEW_AUX_ENT(AT_SYSINFO_EHDR,				\
+			    (unsigned long)current->mm->context.vdso);	\
+	NEW_AUX_ENT(AT_ADI_BLKSZ, adi_state.caps.blksz);		\
+	NEW_AUX_ENT(AT_ADI_NBITS, adi_state.caps.nbits);		\
+	NEW_AUX_ENT(AT_ADI_UEONADI, adi_state.caps.ue_on_adi);		\
+} while (0)
+
+struct linux_binprm;
+
+#define ARCH_HAS_SETUP_ADDITIONAL_PAGES	1
+extern int arch_setup_additional_pages(struct linux_binprm *bprm,
+					int uses_interp);
 #endif /* !(__ASM_SPARC64_ELF_H) */

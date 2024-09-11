@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * sni_82596.c -- driver for intel 82596 ethernet controller, as
  *  		  used in older SNI RM machines
@@ -13,7 +14,6 @@
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/skbuff.h>
-#include <linux/init.h>
 #include <linux/types.h>
 #include <linux/bitops.h>
 #include <linux/platform_device.h>
@@ -23,12 +23,6 @@
 #define SNI_82596_DRIVER_VERSION "SNI RM 82596 driver - Revision: 0.01"
 
 static const char sni_82596_string[] = "snirm_82596";
-
-#define DMA_ALLOC                      dma_alloc_coherent
-#define DMA_FREE                       dma_free_coherent
-#define DMA_WBACK(priv, addr, len)     do { } while (0)
-#define DMA_INV(priv, addr, len)       do { } while (0)
-#define DMA_WBACK_INV(priv, addr, len) do { } while (0)
 
 #define SYSBUS      0x00004400
 
@@ -75,7 +69,7 @@ static void mpu_port(struct net_device *dev, int c, dma_addr_t x)
 }
 
 
-static int __devinit sni_82596_probe(struct platform_device *dev)
+static int sni_82596_probe(struct platform_device *dev)
 {
 	struct	net_device *netdevice;
 	struct i596_private *lp;
@@ -91,10 +85,10 @@ static int __devinit sni_82596_probe(struct platform_device *dev)
 	idprom = platform_get_resource(dev, IORESOURCE_MEM, 2);
 	if (!res || !ca || !options || !idprom)
 		return -ENODEV;
-	mpu_addr = ioremap_nocache(res->start, 4);
+	mpu_addr = ioremap(res->start, 4);
 	if (!mpu_addr)
 		return -ENOMEM;
-	ca_addr = ioremap_nocache(ca->start, 4);
+	ca_addr = ioremap(ca->start, 4);
 	if (!ca_addr)
 		goto probe_failed_free_mpu;
 
@@ -110,7 +104,7 @@ static int __devinit sni_82596_probe(struct platform_device *dev)
 	netdevice->base_addr = res->start;
 	netdevice->irq = platform_get_irq(dev, 0);
 
-	eth_addr = ioremap_nocache(idprom->start, 0x10);
+	eth_addr = ioremap(idprom->start, 0x10);
 	if (!eth_addr)
 		goto probe_failed;
 
@@ -123,9 +117,10 @@ static int __devinit sni_82596_probe(struct platform_device *dev)
 	netdevice->dev_addr[5] = readb(eth_addr + 0x06);
 	iounmap(eth_addr);
 
-	if (!netdevice->irq) {
+	if (netdevice->irq < 0) {
 		printk(KERN_ERR "%s: IRQ not found for i82596 at 0x%lx\n",
 			__FILE__, netdevice->base_addr);
+		retval = netdevice->irq;
 		goto probe_failed;
 	}
 
@@ -134,10 +129,19 @@ static int __devinit sni_82596_probe(struct platform_device *dev)
 	lp->ca = ca_addr;
 	lp->mpu_port = mpu_addr;
 
-	retval = i82596_probe(netdevice);
-	if (retval == 0)
-		return 0;
+	lp->dma = dma_alloc_coherent(&dev->dev, sizeof(struct i596_dma),
+				     &lp->dma_addr, GFP_KERNEL);
+	if (!lp->dma)
+		goto probe_failed;
 
+	retval = i82596_probe(netdevice);
+	if (retval)
+		goto probe_failed_free_dma;
+	return 0;
+
+probe_failed_free_dma:
+	dma_free_coherent(&dev->dev, sizeof(struct i596_dma), lp->dma,
+			  lp->dma_addr);
 probe_failed:
 	free_netdev(netdevice);
 probe_failed_free_ca:
@@ -147,14 +151,14 @@ probe_failed_free_mpu:
 	return retval;
 }
 
-static int __devexit sni_82596_driver_remove(struct platform_device *pdev)
+static int sni_82596_driver_remove(struct platform_device *pdev)
 {
 	struct net_device *dev = platform_get_drvdata(pdev);
 	struct i596_private *lp = netdev_priv(dev);
 
 	unregister_netdev(dev);
-	DMA_FREE(dev->dev.parent, sizeof(struct i596_private),
-		 lp->dma, lp->dma_addr);
+	dma_free_coherent(&pdev->dev, sizeof(struct i596_private), lp->dma,
+			  lp->dma_addr);
 	iounmap(lp->ca);
 	iounmap(lp->mpu_port);
 	free_netdev (dev);
@@ -163,14 +167,13 @@ static int __devexit sni_82596_driver_remove(struct platform_device *pdev)
 
 static struct platform_driver sni_82596_driver = {
 	.probe	= sni_82596_probe,
-	.remove	= __devexit_p(sni_82596_driver_remove),
+	.remove	= sni_82596_driver_remove,
 	.driver	= {
 		.name	= sni_82596_string,
-		.owner	= THIS_MODULE,
 	},
 };
 
-static int __devinit sni_82596_init(void)
+static int sni_82596_init(void)
 {
 	printk(KERN_INFO SNI_82596_DRIVER_VERSION "\n");
 	return platform_driver_register(&sni_82596_driver);

@@ -1,23 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /* hfcsusb.c
  * mISDN driver for Colognechip HFC-S USB chip
  *
  * Copyright 2001 by Peter Sprenger (sprenger@moving-bytes.de)
  * Copyright 2008 by Martin Bachem (info@bachem-it.com)
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
- *
  *
  * module params
  *   debug=<n>, default=0, with n=0xHHHHGGGG
@@ -27,6 +13,7 @@
  *   poll=<n>, default 128
  *     n : burst size of PH_DATA_IND at transparent rx data
  *
+ * Revision: 0.3.3 (socket), 2008-11-05
  */
 
 #include <linux/module.h>
@@ -35,8 +22,6 @@
 #include <linux/mISDNhw.h>
 #include <linux/slab.h>
 #include "hfcsusb.h"
-
-static const char *hfcsusb_rev = "Revision: 0.3.3 (socket), 2008-11-05";
 
 static unsigned int debug;
 static int poll = DEFAULT_TRANSP_BURST_SZ;
@@ -61,7 +46,7 @@ static void hfcsusb_start_endpoint(struct hfcsusb *hw, int channel);
 static void hfcsusb_stop_endpoint(struct hfcsusb *hw, int channel);
 static int  hfcsusb_setup_bch(struct bchannel *bch, int protocol);
 static void deactivate_bchannel(struct bchannel *bch);
-static void hfcsusb_ph_info(struct hfcsusb *hw);
+static int  hfcsusb_ph_info(struct hfcsusb *hw);
 
 /* start next background transfer for control channel */
 static void
@@ -76,9 +61,9 @@ ctrl_start_transfer(struct hfcsusb *hw)
 		hw->ctrl_urb->transfer_buffer = NULL;
 		hw->ctrl_urb->transfer_buffer_length = 0;
 		hw->ctrl_write.wIndex =
-		    cpu_to_le16(hw->ctrl_buff[hw->ctrl_out_idx].hfcs_reg);
+			cpu_to_le16(hw->ctrl_buff[hw->ctrl_out_idx].hfcs_reg);
 		hw->ctrl_write.wValue =
-		    cpu_to_le16(hw->ctrl_buff[hw->ctrl_out_idx].reg_val);
+			cpu_to_le16(hw->ctrl_buff[hw->ctrl_out_idx].reg_val);
 
 		usb_submit_urb(hw->ctrl_urb, GFP_ATOMIC);
 	}
@@ -94,7 +79,7 @@ static int write_reg(struct hfcsusb *hw, __u8 reg, __u8 val)
 
 	if (debug & DBG_HFC_CALL_TRACE)
 		printk(KERN_DEBUG "%s: %s reg(0x%02x) val(0x%02x)\n",
-			hw->name, __func__, reg, val);
+		       hw->name, __func__, reg, val);
 
 	spin_lock(&hw->ctrl_lock);
 	if (hw->ctrl_cnt >= HFC_CTRL_BUFSIZE) {
@@ -197,8 +182,8 @@ handle_led(struct hfcsusb *hw, int event)
 	if (hw->led_state != tmpled) {
 		if (debug & DBG_HFC_CALL_TRACE)
 			printk(KERN_DEBUG "%s: %s reg(0x%02x) val(x%02x)\n",
-			    hw->name, __func__,
-			    HFCUSB_P_DATA, hw->led_state);
+			       hw->name, __func__,
+			       HFCUSB_P_DATA, hw->led_state);
 
 		write_reg(hw, HFCUSB_P_DATA, hw->led_state);
 	}
@@ -226,31 +211,24 @@ hfcusb_l2l1B(struct mISDNchannel *ch, struct sk_buff *skb)
 		spin_unlock_irqrestore(&hw->lock, flags);
 		if (debug & DBG_HFC_CALL_TRACE)
 			printk(KERN_DEBUG "%s: %s PH_DATA_REQ ret(%i)\n",
-				hw->name, __func__, ret);
-		if (ret > 0) {
-			/*
-			 * other l1 drivers don't send early confirms on
-			 * transp data, but hfcsusb does because tx_next
-			 * skb is needed in tx_iso_complete()
-			 */
-			queue_ch_frame(ch, PH_DATA_CNF, hh->id, NULL);
+			       hw->name, __func__, ret);
+		if (ret > 0)
 			ret = 0;
-		}
 		return ret;
 	case PH_ACTIVATE_REQ:
 		if (!test_and_set_bit(FLG_ACTIVE, &bch->Flags)) {
-			hfcsusb_start_endpoint(hw, bch->nr);
+			hfcsusb_start_endpoint(hw, bch->nr - 1);
 			ret = hfcsusb_setup_bch(bch, ch->protocol);
 		} else
 			ret = 0;
 		if (!ret)
 			_queue_data(ch, PH_ACTIVATE_IND, MISDN_ID_ANY,
-				0, NULL, GFP_KERNEL);
+				    0, NULL, GFP_KERNEL);
 		break;
 	case PH_DEACTIVATE_REQ:
 		deactivate_bchannel(bch);
 		_queue_data(ch, PH_DEACTIVATE_IND, MISDN_ID_ANY,
-			0, NULL, GFP_KERNEL);
+			    0, NULL, GFP_KERNEL);
 		ret = 0;
 		break;
 	}
@@ -263,15 +241,17 @@ hfcusb_l2l1B(struct mISDNchannel *ch, struct sk_buff *skb)
  * send full D/B channel status information
  * as MPH_INFORMATION_IND
  */
-static void
+static int
 hfcsusb_ph_info(struct hfcsusb *hw)
 {
 	struct ph_info *phi;
 	struct dchannel *dch = &hw->dch;
 	int i;
 
-	phi = kzalloc(sizeof(struct ph_info) +
-		dch->dev.nrbchan * sizeof(struct ph_info_ch), GFP_ATOMIC);
+	phi = kzalloc(struct_size(phi, bch, dch->dev.nrbchan), GFP_ATOMIC);
+	if (!phi)
+		return -ENOMEM;
+
 	phi->dch.ch.protocol = hw->protocol;
 	phi->dch.ch.Flags = dch->Flags;
 	phi->dch.state = dch->state;
@@ -281,9 +261,10 @@ hfcsusb_ph_info(struct hfcsusb *hw)
 		phi->bch[i].Flags = hw->bch[i].Flags;
 	}
 	_queue_data(&dch->dev.D, MPH_INFORMATION_IND, MISDN_ID_ANY,
-		sizeof(struct ph_info_dch) + dch->dev.nrbchan *
-		sizeof(struct ph_info_ch), phi, GFP_ATOMIC);
+		    struct_size(phi, bch, dch->dev.nrbchan), phi, GFP_ATOMIC);
 	kfree(phi);
+
+	return 0;
 }
 
 /*
@@ -303,7 +284,7 @@ hfcusb_l2l1D(struct mISDNchannel *ch, struct sk_buff *skb)
 	case PH_DATA_REQ:
 		if (debug & DBG_HFC_CALL_TRACE)
 			printk(KERN_DEBUG "%s: %s: PH_DATA_REQ\n",
-				hw->name, __func__);
+			       hw->name, __func__);
 
 		spin_lock_irqsave(&hw->lock, flags);
 		ret = dchannel_senddata(dch, skb);
@@ -317,20 +298,20 @@ hfcusb_l2l1D(struct mISDNchannel *ch, struct sk_buff *skb)
 	case PH_ACTIVATE_REQ:
 		if (debug & DBG_HFC_CALL_TRACE)
 			printk(KERN_DEBUG "%s: %s: PH_ACTIVATE_REQ %s\n",
-				hw->name, __func__,
-				(hw->protocol == ISDN_P_NT_S0) ? "NT" : "TE");
+			       hw->name, __func__,
+			       (hw->protocol == ISDN_P_NT_S0) ? "NT" : "TE");
 
 		if (hw->protocol == ISDN_P_NT_S0) {
 			ret = 0;
 			if (test_bit(FLG_ACTIVE, &dch->Flags)) {
 				_queue_data(&dch->dev.D,
-					PH_ACTIVATE_IND, MISDN_ID_ANY, 0,
-					NULL, GFP_ATOMIC);
+					    PH_ACTIVATE_IND, MISDN_ID_ANY, 0,
+					    NULL, GFP_ATOMIC);
 			} else {
 				hfcsusb_ph_command(hw,
-					HFC_L1_ACTIVATE_NT);
+						   HFC_L1_ACTIVATE_NT);
 				test_and_set_bit(FLG_L2_ACTIVATED,
-					&dch->Flags);
+						 &dch->Flags);
 			}
 		} else {
 			hfcsusb_ph_command(hw, HFC_L1_ACTIVATE_TE);
@@ -341,7 +322,7 @@ hfcusb_l2l1D(struct mISDNchannel *ch, struct sk_buff *skb)
 	case PH_DEACTIVATE_REQ:
 		if (debug & DBG_HFC_CALL_TRACE)
 			printk(KERN_DEBUG "%s: %s: PH_DEACTIVATE_REQ\n",
-				hw->name, __func__);
+			       hw->name, __func__);
 		test_and_clear_bit(FLG_L2_ACTIVATED, &dch->Flags);
 
 		if (hw->protocol == ISDN_P_NT_S0) {
@@ -368,8 +349,7 @@ hfcusb_l2l1D(struct mISDNchannel *ch, struct sk_buff *skb)
 			ret = l1_event(dch->l1, hh->prim);
 		break;
 	case MPH_INFORMATION_REQ:
-		hfcsusb_ph_info(hw);
-		ret = 0;
+		ret = hfcsusb_ph_info(hw);
 		break;
 	}
 
@@ -386,7 +366,7 @@ hfc_l1callback(struct dchannel *dch, u_int cmd)
 
 	if (debug & DBG_HFC_CALL_TRACE)
 		printk(KERN_DEBUG "%s: %s cmd 0x%x\n",
-			hw->name, __func__, cmd);
+		       hw->name, __func__, cmd);
 
 	switch (cmd) {
 	case INFO3_P8:
@@ -411,33 +391,32 @@ hfc_l1callback(struct dchannel *dch, u_int cmd)
 	case PH_ACTIVATE_IND:
 		test_and_set_bit(FLG_ACTIVE, &dch->Flags);
 		_queue_data(&dch->dev.D, cmd, MISDN_ID_ANY, 0, NULL,
-			GFP_ATOMIC);
+			    GFP_ATOMIC);
 		break;
 	case PH_DEACTIVATE_IND:
 		test_and_clear_bit(FLG_ACTIVE, &dch->Flags);
 		_queue_data(&dch->dev.D, cmd, MISDN_ID_ANY, 0, NULL,
-			GFP_ATOMIC);
+			    GFP_ATOMIC);
 		break;
 	default:
 		if (dch->debug & DEBUG_HW)
 			printk(KERN_DEBUG "%s: %s: unknown cmd %x\n",
-			hw->name, __func__, cmd);
+			       hw->name, __func__, cmd);
 		return -1;
 	}
-	hfcsusb_ph_info(hw);
-	return 0;
+	return hfcsusb_ph_info(hw);
 }
 
 static int
 open_dchannel(struct hfcsusb *hw, struct mISDNchannel *ch,
-    struct channel_req *rq)
+	      struct channel_req *rq)
 {
 	int err = 0;
 
 	if (debug & DEBUG_HW_OPEN)
 		printk(KERN_DEBUG "%s: %s: dev(%d) open addr(%i) from %p\n",
-		    hw->name, __func__, hw->dch.dev.id, rq->adr.channel,
-		    __builtin_return_address(0));
+		       hw->name, __func__, hw->dch.dev.id, rq->adr.channel,
+		       __builtin_return_address(0));
 	if (rq->protocol == ISDN_P_NONE)
 		return -EINVAL;
 
@@ -451,7 +430,7 @@ open_dchannel(struct hfcsusb *hw, struct mISDNchannel *ch,
 			hfcsusb_start_endpoint(hw, HFC_CHAN_E);
 			set_bit(FLG_ACTIVE, &hw->ech.Flags);
 			_queue_data(&hw->ech.dev.D, PH_ACTIVATE_IND,
-				     MISDN_ID_ANY, 0, NULL, GFP_ATOMIC);
+				    MISDN_ID_ANY, 0, NULL, GFP_ATOMIC);
 		} else
 			return -EINVAL;
 	}
@@ -474,11 +453,11 @@ open_dchannel(struct hfcsusb *hw, struct mISDNchannel *ch,
 	if (((ch->protocol == ISDN_P_NT_S0) && (hw->dch.state == 3)) ||
 	    ((ch->protocol == ISDN_P_TE_S0) && (hw->dch.state == 7)))
 		_queue_data(ch, PH_ACTIVATE_IND, MISDN_ID_ANY,
-		    0, NULL, GFP_KERNEL);
+			    0, NULL, GFP_KERNEL);
 	rq->ch = ch;
 	if (!try_module_get(THIS_MODULE))
 		printk(KERN_WARNING "%s: %s: cannot get module\n",
-		    hw->name, __func__);
+		       hw->name, __func__);
 	return 0;
 }
 
@@ -487,31 +466,24 @@ open_bchannel(struct hfcsusb *hw, struct channel_req *rq)
 {
 	struct bchannel		*bch;
 
-	if (rq->adr.channel > 2)
+	if (rq->adr.channel == 0 || rq->adr.channel > 2)
 		return -EINVAL;
 	if (rq->protocol == ISDN_P_NONE)
 		return -EINVAL;
 
 	if (debug & DBG_HFC_CALL_TRACE)
 		printk(KERN_DEBUG "%s: %s B%i\n",
-			hw->name, __func__, rq->adr.channel);
+		       hw->name, __func__, rq->adr.channel);
 
 	bch = &hw->bch[rq->adr.channel - 1];
 	if (test_and_set_bit(FLG_OPEN, &bch->Flags))
 		return -EBUSY; /* b-channel can be only open once */
-	test_and_clear_bit(FLG_FILLEMPTY, &bch->Flags);
 	bch->ch.protocol = rq->protocol;
 	rq->ch = &bch->ch;
 
-	/* start USB endpoint for bchannel */
-	if (rq->adr.channel  == 1)
-		hfcsusb_start_endpoint(hw, HFC_CHAN_B1);
-	else
-		hfcsusb_start_endpoint(hw, HFC_CHAN_B2);
-
 	if (!try_module_get(THIS_MODULE))
 		printk(KERN_WARNING "%s: %s:cannot get module\n",
-		    hw->name, __func__);
+		       hw->name, __func__);
 	return 0;
 }
 
@@ -522,16 +494,16 @@ channel_ctrl(struct hfcsusb *hw, struct mISDN_ctrl_req *cq)
 
 	if (debug & DBG_HFC_CALL_TRACE)
 		printk(KERN_DEBUG "%s: %s op(0x%x) channel(0x%x)\n",
-		    hw->name, __func__, (cq->op), (cq->channel));
+		       hw->name, __func__, (cq->op), (cq->channel));
 
 	switch (cq->op) {
 	case MISDN_CTRL_GETOP:
 		cq->op = MISDN_CTRL_LOOP | MISDN_CTRL_CONNECT |
-			 MISDN_CTRL_DISCONNECT;
+			MISDN_CTRL_DISCONNECT;
 		break;
 	default:
 		printk(KERN_WARNING "%s: %s: unknown Op %x\n",
-			hw->name, __func__, cq->op);
+		       hw->name, __func__, cq->op);
 		ret = -EINVAL;
 		break;
 	}
@@ -552,7 +524,7 @@ hfc_dctrl(struct mISDNchannel *ch, u_int cmd, void *arg)
 
 	if (dch->debug & DEBUG_HW)
 		printk(KERN_DEBUG "%s: %s: cmd:%x %p\n",
-		    hw->name, __func__, cmd, arg);
+		       hw->name, __func__, cmd, arg);
 	switch (cmd) {
 	case OPEN_CHANNEL:
 		rq = arg;
@@ -568,9 +540,9 @@ hfc_dctrl(struct mISDNchannel *ch, u_int cmd, void *arg)
 		hw->open--;
 		if (debug & DEBUG_HW_OPEN)
 			printk(KERN_DEBUG
-				"%s: %s: dev(%d) close from %p (open %d)\n",
-				hw->name, __func__, hw->dch.dev.id,
-				__builtin_return_address(0), hw->open);
+			       "%s: %s: dev(%d) close from %p (open %d)\n",
+			       hw->name, __func__, hw->dch.dev.id,
+			       __builtin_return_address(0), hw->open);
 		if (!hw->open) {
 			hfcsusb_stop_endpoint(hw, HFC_CHAN_D);
 			if (hw->fifos[HFCUSB_PCM_RX].pipe)
@@ -585,7 +557,7 @@ hfc_dctrl(struct mISDNchannel *ch, u_int cmd, void *arg)
 	default:
 		if (dch->debug & DEBUG_HW)
 			printk(KERN_DEBUG "%s: %s: unknown command %x\n",
-				hw->name, __func__, cmd);
+			       hw->name, __func__, cmd);
 		return -EINVAL;
 	}
 	return err;
@@ -602,10 +574,10 @@ ph_state_te(struct dchannel *dch)
 	if (debug & DEBUG_HW) {
 		if (dch->state <= HFC_MAX_TE_LAYER1_STATE)
 			printk(KERN_DEBUG "%s: %s: %s\n", hw->name, __func__,
-			    HFC_TE_LAYER1_STATES[dch->state]);
+			       HFC_TE_LAYER1_STATES[dch->state]);
 		else
 			printk(KERN_DEBUG "%s: %s: TE F%d\n",
-			    hw->name, __func__, dch->state);
+			       hw->name, __func__, dch->state);
 	}
 
 	switch (dch->state) {
@@ -643,12 +615,12 @@ ph_state_nt(struct dchannel *dch)
 	if (debug & DEBUG_HW) {
 		if (dch->state <= HFC_MAX_NT_LAYER1_STATE)
 			printk(KERN_DEBUG "%s: %s: %s\n",
-			    hw->name, __func__,
-			    HFC_NT_LAYER1_STATES[dch->state]);
+			       hw->name, __func__,
+			       HFC_NT_LAYER1_STATES[dch->state]);
 
 		else
 			printk(KERN_INFO DRIVER_NAME "%s: %s: NT G%d\n",
-			    hw->name, __func__, dch->state);
+			       hw->name, __func__, dch->state);
 	}
 
 	switch (dch->state) {
@@ -677,7 +649,7 @@ ph_state_nt(struct dchannel *dch)
 		hw->timers &= ~NT_ACTIVATION_TIMER;
 		test_and_set_bit(FLG_ACTIVE, &dch->Flags);
 		_queue_data(&dch->dev.D, PH_ACTIVATE_IND,
-			MISDN_ID_ANY, 0, NULL, GFP_ATOMIC);
+			    MISDN_ID_ANY, 0, NULL, GFP_ATOMIC);
 		handle_led(hw, LED_S0_ON);
 		break;
 	case (4):
@@ -712,8 +684,8 @@ hfcsusb_setup_bch(struct bchannel *bch, int protocol)
 
 	if (debug & DEBUG_HW)
 		printk(KERN_DEBUG "%s: %s: protocol %x-->%x B%d\n",
-		    hw->name, __func__, bch->state, protocol,
-		    bch->nr);
+		       hw->name, __func__, bch->state, protocol,
+		       bch->nr);
 
 	/* setup val for CON_HDLC */
 	conhdlc = 0;
@@ -723,7 +695,7 @@ hfcsusb_setup_bch(struct bchannel *bch, int protocol)
 	switch (protocol) {
 	case (-1):	/* used for init */
 		bch->state = -1;
-		/* fall through */
+		fallthrough;
 	case (ISDN_P_NONE):
 		if (bch->state == ISDN_P_NONE)
 			return 0; /* already in idle state */
@@ -743,7 +715,7 @@ hfcsusb_setup_bch(struct bchannel *bch, int protocol)
 	default:
 		if (debug & DEBUG_HW)
 			printk(KERN_DEBUG "%s: %s: prot not known %x\n",
-				hw->name, __func__, protocol);
+			       hw->name, __func__, protocol);
 		return -ENOPROTOOPT;
 	}
 
@@ -772,10 +744,9 @@ hfcsusb_setup_bch(struct bchannel *bch, int protocol)
 			handle_led(hw, (bch->nr == 1) ? LED_B1_ON : LED_B2_ON);
 		else
 			handle_led(hw, (bch->nr == 1) ? LED_B1_OFF :
-				LED_B2_OFF);
+				   LED_B2_OFF);
 	}
-	hfcsusb_ph_info(hw);
-	return 0;
+	return hfcsusb_ph_info(hw);
 }
 
 static void
@@ -783,7 +754,7 @@ hfcsusb_ph_command(struct hfcsusb *hw, u_char command)
 {
 	if (debug & DEBUG_HW)
 		printk(KERN_DEBUG "%s: %s: %x\n",
-		   hw->name, __func__, command);
+		       hw->name, __func__, command);
 
 	switch (command) {
 	case HFC_L1_ACTIVATE_TE:
@@ -801,15 +772,15 @@ hfcsusb_ph_command(struct hfcsusb *hw, u_char command)
 	case HFC_L1_ACTIVATE_NT:
 		if (hw->dch.state == 3)
 			_queue_data(&hw->dch.dev.D, PH_ACTIVATE_IND,
-				MISDN_ID_ANY, 0, NULL, GFP_ATOMIC);
+				    MISDN_ID_ANY, 0, NULL, GFP_ATOMIC);
 		else
 			write_reg(hw, HFCUSB_STATES, HFCUSB_ACTIVATE |
-				HFCUSB_DO_ACTION | HFCUSB_NT_G2_G3);
+				  HFCUSB_DO_ACTION | HFCUSB_NT_G2_G3);
 		break;
 
 	case HFC_L1_DEACTIVATE_NT:
 		write_reg(hw, HFCUSB_STATES,
-			HFCUSB_DO_ACTION);
+			  HFCUSB_DO_ACTION);
 		break;
 	}
 }
@@ -820,30 +791,13 @@ hfcsusb_ph_command(struct hfcsusb *hw, u_char command)
 static int
 channel_bctrl(struct bchannel *bch, struct mISDN_ctrl_req *cq)
 {
-	int	ret = 0;
-
-	switch (cq->op) {
-	case MISDN_CTRL_GETOP:
-		cq->op = MISDN_CTRL_FILL_EMPTY;
-		break;
-	case MISDN_CTRL_FILL_EMPTY: /* fill fifo, if empty */
-		test_and_set_bit(FLG_FILLEMPTY, &bch->Flags);
-		if (debug & DEBUG_HW_OPEN)
-			printk(KERN_DEBUG "%s: FILL_EMPTY request (nr=%d "
-				"off=%d)\n", __func__, bch->nr, !!cq->p1);
-		break;
-	default:
-		printk(KERN_WARNING "%s: unknown Op %x\n", __func__, cq->op);
-		ret = -EINVAL;
-		break;
-	}
-	return ret;
+	return mISDN_ctrl_bchannel(bch, cq);
 }
 
 /* collect data from incoming interrupt or isochron USB data */
 static void
 hfcsusb_rx_frame(struct usb_fifo *fifo, __u8 *data, unsigned int len,
-	int finish)
+		 int finish)
 {
 	struct hfcsusb	*hw = fifo->hw;
 	struct sk_buff	*rx_skb = NULL;
@@ -851,12 +805,13 @@ hfcsusb_rx_frame(struct usb_fifo *fifo, __u8 *data, unsigned int len,
 	int		fifon = fifo->fifonum;
 	int		i;
 	int		hdlc = 0;
+	unsigned long	flags;
 
 	if (debug & DBG_HFC_CALL_TRACE)
 		printk(KERN_DEBUG "%s: %s: fifo(%i) len(%i) "
-		    "dch(%p) bch(%p) ech(%p)\n",
-		    hw->name, __func__, fifon, len,
-		    fifo->dch, fifo->bch, fifo->ech);
+		       "dch(%p) bch(%p) ech(%p)\n",
+		       hw->name, __func__, fifon, len,
+		       fifo->dch, fifo->bch, fifo->ech);
 
 	if (!len)
 		return;
@@ -867,14 +822,28 @@ hfcsusb_rx_frame(struct usb_fifo *fifo, __u8 *data, unsigned int len,
 		return;
 	}
 
-	spin_lock(&hw->lock);
+	spin_lock_irqsave(&hw->lock, flags);
 	if (fifo->dch) {
 		rx_skb = fifo->dch->rx_skb;
 		maxlen = fifo->dch->maxlen;
 		hdlc = 1;
 	}
 	if (fifo->bch) {
+		if (test_bit(FLG_RX_OFF, &fifo->bch->Flags)) {
+			fifo->bch->dropcnt += len;
+			spin_unlock_irqrestore(&hw->lock, flags);
+			return;
+		}
+		maxlen = bchannel_get_rxbuf(fifo->bch, len);
 		rx_skb = fifo->bch->rx_skb;
+		if (maxlen < 0) {
+			if (rx_skb)
+				skb_trim(rx_skb, 0);
+			pr_warn("%s.B%d: No bufferspace for %d bytes\n",
+				hw->name, fifo->bch->nr, len);
+			spin_unlock_irqrestore(&hw->lock, flags);
+			return;
+		}
 		maxlen = fifo->bch->maxlen;
 		hdlc = test_bit(FLG_HDLC, &fifo->bch->Flags);
 	}
@@ -884,62 +853,49 @@ hfcsusb_rx_frame(struct usb_fifo *fifo, __u8 *data, unsigned int len,
 		hdlc = 1;
 	}
 
-	if (!rx_skb) {
-		rx_skb = mI_alloc_skb(maxlen, GFP_ATOMIC);
-		if (rx_skb) {
-			if (fifo->dch)
-				fifo->dch->rx_skb = rx_skb;
-			if (fifo->bch)
-				fifo->bch->rx_skb = rx_skb;
-			if (fifo->ech)
-				fifo->ech->rx_skb = rx_skb;
-			skb_trim(rx_skb, 0);
-		} else {
-			printk(KERN_DEBUG "%s: %s: No mem for rx_skb\n",
-			    hw->name, __func__);
-			spin_unlock(&hw->lock);
-			return;
-		}
-	}
-
 	if (fifo->dch || fifo->ech) {
+		if (!rx_skb) {
+			rx_skb = mI_alloc_skb(maxlen, GFP_ATOMIC);
+			if (rx_skb) {
+				if (fifo->dch)
+					fifo->dch->rx_skb = rx_skb;
+				if (fifo->ech)
+					fifo->ech->rx_skb = rx_skb;
+				skb_trim(rx_skb, 0);
+			} else {
+				printk(KERN_DEBUG "%s: %s: No mem for rx_skb\n",
+				       hw->name, __func__);
+				spin_unlock_irqrestore(&hw->lock, flags);
+				return;
+			}
+		}
 		/* D/E-Channel SKB range check */
 		if ((rx_skb->len + len) >= MAX_DFRAME_LEN_L1) {
 			printk(KERN_DEBUG "%s: %s: sbk mem exceeded "
-			    "for fifo(%d) HFCUSB_D_RX\n",
-			    hw->name, __func__, fifon);
+			       "for fifo(%d) HFCUSB_D_RX\n",
+			       hw->name, __func__, fifon);
 			skb_trim(rx_skb, 0);
-			spin_unlock(&hw->lock);
-			return;
-		}
-	} else if (fifo->bch) {
-		/* B-Channel SKB range check */
-		if ((rx_skb->len + len) >= (MAX_BCH_SIZE + 3)) {
-			printk(KERN_DEBUG "%s: %s: sbk mem exceeded "
-			    "for fifo(%d) HFCUSB_B_RX\n",
-			    hw->name, __func__, fifon);
-			skb_trim(rx_skb, 0);
-			spin_unlock(&hw->lock);
+			spin_unlock_irqrestore(&hw->lock, flags);
 			return;
 		}
 	}
 
-	memcpy(skb_put(rx_skb, len), data, len);
+	skb_put_data(rx_skb, data, len);
 
 	if (hdlc) {
 		/* we have a complete hdlc packet */
 		if (finish) {
 			if ((rx_skb->len > 3) &&
-			   (!(rx_skb->data[rx_skb->len - 1]))) {
+			    (!(rx_skb->data[rx_skb->len - 1]))) {
 				if (debug & DBG_HFC_FIFO_VERBOSE) {
 					printk(KERN_DEBUG "%s: %s: fifon(%i)"
-					    " new RX len(%i): ",
-					    hw->name, __func__, fifon,
-					    rx_skb->len);
+					       " new RX len(%i): ",
+					       hw->name, __func__, fifon,
+					       rx_skb->len);
 					i = 0;
 					while (i < rx_skb->len)
 						printk("%02x ",
-						    rx_skb->data[i++]);
+						       rx_skb->data[i++]);
 					printk("\n");
 				}
 
@@ -949,20 +905,21 @@ hfcsusb_rx_frame(struct usb_fifo *fifo, __u8 *data, unsigned int len,
 				if (fifo->dch)
 					recv_Dchannel(fifo->dch);
 				if (fifo->bch)
-					recv_Bchannel(fifo->bch, MISDN_ID_ANY);
+					recv_Bchannel(fifo->bch, MISDN_ID_ANY,
+						      0);
 				if (fifo->ech)
 					recv_Echannel(fifo->ech,
-						     &hw->dch);
+						      &hw->dch);
 			} else {
 				if (debug & DBG_HFC_FIFO_VERBOSE) {
 					printk(KERN_DEBUG
-					    "%s: CRC or minlen ERROR fifon(%i) "
-					    "RX len(%i): ",
-					    hw->name, fifon, rx_skb->len);
+					       "%s: CRC or minlen ERROR fifon(%i) "
+					       "RX len(%i): ",
+					       hw->name, fifon, rx_skb->len);
 					i = 0;
 					while (i < rx_skb->len)
 						printk("%02x ",
-						    rx_skb->data[i++]);
+						       rx_skb->data[i++]);
 					printk("\n");
 				}
 				skb_trim(rx_skb, 0);
@@ -970,10 +927,9 @@ hfcsusb_rx_frame(struct usb_fifo *fifo, __u8 *data, unsigned int len,
 		}
 	} else {
 		/* deliver transparent data to layer2 */
-		if (rx_skb->len >= poll)
-			recv_Bchannel(fifo->bch, MISDN_ID_ANY);
+		recv_Bchannel(fifo->bch, MISDN_ID_ANY, false);
 	}
-	spin_unlock(&hw->lock);
+	spin_unlock_irqrestore(&hw->lock, flags);
 }
 
 static void
@@ -984,7 +940,7 @@ fill_isoc_urb(struct urb *urb, struct usb_device *dev, unsigned int pipe,
 	int k;
 
 	usb_fill_bulk_urb(urb, dev, pipe, buf, packet_size * num_packets,
-	    complete, context);
+			  complete, context);
 
 	urb->number_of_packets = num_packets;
 	urb->transfer_flags = URB_ISO_ASAP;
@@ -1006,22 +962,23 @@ rx_iso_complete(struct urb *urb)
 	struct usb_fifo *fifo = context_iso_urb->owner_fifo;
 	struct hfcsusb *hw = fifo->hw;
 	int k, len, errcode, offset, num_isoc_packets, fifon, maxlen,
-	    status, iso_status, i;
+		status, iso_status, i;
 	__u8 *buf;
 	static __u8 eof[8];
 	__u8 s0_state;
+	unsigned long flags;
 
 	fifon = fifo->fifonum;
 	status = urb->status;
 
-	spin_lock(&hw->lock);
+	spin_lock_irqsave(&hw->lock, flags);
 	if (fifo->stop_gracefull) {
 		fifo->stop_gracefull = 0;
 		fifo->active = 0;
-		spin_unlock(&hw->lock);
+		spin_unlock_irqrestore(&hw->lock, flags);
 		return;
 	}
-	spin_unlock(&hw->lock);
+	spin_unlock_irqrestore(&hw->lock, flags);
 
 	/*
 	 * ISO transfer only partially completed,
@@ -1030,8 +987,8 @@ rx_iso_complete(struct urb *urb)
 	if (status == -EXDEV) {
 		if (debug & DEBUG_HW)
 			printk(KERN_DEBUG "%s: %s: with -EXDEV "
-			    "urb->status %d, fifonum %d\n",
-			    hw->name, __func__,  status, fifon);
+			       "urb->status %d, fifonum %d\n",
+			       hw->name, __func__,  status, fifon);
 
 		/* clear status, so go on with ISO transfers */
 		status = 0;
@@ -1050,18 +1007,18 @@ rx_iso_complete(struct urb *urb)
 
 			if (iso_status && (debug & DBG_HFC_FIFO_VERBOSE)) {
 				printk(KERN_DEBUG "%s: %s: "
-				    "ISO packet %i, status: %i\n",
-				    hw->name, __func__, k, iso_status);
+				       "ISO packet %i, status: %i\n",
+				       hw->name, __func__, k, iso_status);
 			}
 
 			/* USB data log for every D ISO in */
 			if ((fifon == HFCUSB_D_RX) &&
 			    (debug & DBG_HFC_USB_VERBOSE)) {
 				printk(KERN_DEBUG
-				    "%s: %s: %d (%d/%d) len(%d) ",
-				    hw->name, __func__, urb->start_frame,
-				    k, num_isoc_packets-1,
-				    len);
+				       "%s: %s: %d (%d/%d) len(%d) ",
+				       hw->name, __func__, urb->start_frame,
+				       k, num_isoc_packets - 1,
+				       len);
 				for (i = 0; i < len; i++)
 					printk("%x ", buf[i]);
 				printk("\n");
@@ -1082,12 +1039,12 @@ rx_iso_complete(struct urb *urb)
 					eof[fifon] = buf[0] & 1;
 					if (len > 2)
 						hfcsusb_rx_frame(fifo, buf + 2,
-							len - 2, (len < maxlen)
-							? eof[fifon] : 0);
+								 len - 2, (len < maxlen)
+								 ? eof[fifon] : 0);
 				} else
 					hfcsusb_rx_frame(fifo, buf, len,
-						(len < maxlen) ?
-						eof[fifon] : 0);
+							 (len < maxlen) ?
+							 eof[fifon] : 0);
 				fifo->last_urblen = len;
 			}
 		}
@@ -1107,14 +1064,14 @@ rx_iso_complete(struct urb *urb)
 		if (errcode < 0) {
 			if (debug & DEBUG_HW)
 				printk(KERN_DEBUG "%s: %s: error submitting "
-				    "ISO URB: %d\n",
-				    hw->name, __func__, errcode);
+				       "ISO URB: %d\n",
+				       hw->name, __func__, errcode);
 		}
 	} else {
 		if (status && (debug & DBG_HFC_URB_INFO))
 			printk(KERN_DEBUG "%s: %s: rx_iso_complete : "
-			    "urb->status %d, fifonum %d\n",
-			    hw->name, __func__, status, fifon);
+			       "urb->status %d, fifonum %d\n",
+			       hw->name, __func__, status, fifon);
 	}
 }
 
@@ -1127,22 +1084,23 @@ rx_int_complete(struct urb *urb)
 	struct usb_fifo *fifo = (struct usb_fifo *) urb->context;
 	struct hfcsusb *hw = fifo->hw;
 	static __u8 eof[8];
+	unsigned long flags;
 
-	spin_lock(&hw->lock);
+	spin_lock_irqsave(&hw->lock, flags);
 	if (fifo->stop_gracefull) {
 		fifo->stop_gracefull = 0;
 		fifo->active = 0;
-		spin_unlock(&hw->lock);
+		spin_unlock_irqrestore(&hw->lock, flags);
 		return;
 	}
-	spin_unlock(&hw->lock);
+	spin_unlock_irqrestore(&hw->lock, flags);
 
 	fifon = fifo->fifonum;
 	if ((!fifo->active) || (urb->status)) {
 		if (debug & DBG_HFC_URB_ERROR)
 			printk(KERN_DEBUG
-			    "%s: %s: RX-Fifo %i is going down (%i)\n",
-			    hw->name, __func__, fifon, urb->status);
+			       "%s: %s: RX-Fifo %i is going down (%i)\n",
+			       hw->name, __func__, fifon, urb->status);
 
 		fifo->urb->interval = 0; /* cancel automatic rescheduling */
 		return;
@@ -1154,7 +1112,7 @@ rx_int_complete(struct urb *urb)
 	/* USB data log for every D INT in */
 	if ((fifon == HFCUSB_D_RX) && (debug & DBG_HFC_USB_VERBOSE)) {
 		printk(KERN_DEBUG "%s: %s: D RX INT len(%d) ",
-		    hw->name, __func__, len);
+		       hw->name, __func__, len);
 		for (i = 0; i < len; i++)
 			printk("%02x ", buf[i]);
 		printk("\n");
@@ -1174,8 +1132,8 @@ rx_int_complete(struct urb *urb)
 		/* if we have more than the 2 status bytes -> collect data */
 		if (len > 2)
 			hfcsusb_rx_frame(fifo, buf + 2,
-			   urb->actual_length - 2,
-			   (len < maxlen) ? eof[fifon] : 0);
+					 urb->actual_length - 2,
+					 (len < maxlen) ? eof[fifon] : 0);
 	} else {
 		hfcsusb_rx_frame(fifo, buf, urb->actual_length,
 				 (len < maxlen) ? eof[fifon] : 0);
@@ -1186,7 +1144,7 @@ rx_int_complete(struct urb *urb)
 	if (status) {
 		if (debug & DEBUG_HW)
 			printk(KERN_DEBUG "%s: %s: error resubmitting USB\n",
-			    hw->name, __func__);
+			       hw->name, __func__);
 	}
 }
 
@@ -1199,16 +1157,17 @@ tx_iso_complete(struct urb *urb)
 	struct hfcsusb *hw = fifo->hw;
 	struct sk_buff *tx_skb;
 	int k, tx_offset, num_isoc_packets, sink, remain, current_len,
-	    errcode, hdlc, i;
+		errcode, hdlc, i;
 	int *tx_idx;
-	int frame_complete, fifon, status;
-	__u8 threshbit;
+	int frame_complete, fifon, status, fillempty = 0;
+	__u8 threshbit, *p;
+	unsigned long flags;
 
-	spin_lock(&hw->lock);
+	spin_lock_irqsave(&hw->lock, flags);
 	if (fifo->stop_gracefull) {
 		fifo->stop_gracefull = 0;
 		fifo->active = 0;
-		spin_unlock(&hw->lock);
+		spin_unlock_irqrestore(&hw->lock, flags);
 		return;
 	}
 
@@ -1220,10 +1179,13 @@ tx_iso_complete(struct urb *urb)
 		tx_skb = fifo->bch->tx_skb;
 		tx_idx = &fifo->bch->tx_idx;
 		hdlc = test_bit(FLG_HDLC, &fifo->bch->Flags);
+		if (!tx_skb && !hdlc &&
+		    test_bit(FLG_FILLEMPTY, &fifo->bch->Flags))
+			fillempty = 1;
 	} else {
 		printk(KERN_DEBUG "%s: %s: neither BCH nor DCH\n",
-		    hw->name, __func__);
-		spin_unlock(&hw->lock);
+		       hw->name, __func__);
+		spin_unlock_irqrestore(&hw->lock, flags);
 		return;
 	}
 
@@ -1239,8 +1201,8 @@ tx_iso_complete(struct urb *urb)
 	if (status == -EXDEV) {
 		if (debug & DBG_HFC_URB_ERROR)
 			printk(KERN_DEBUG "%s: %s: "
-			    "-EXDEV (%i) fifon (%d)\n",
-			    hw->name, __func__, status, fifon);
+			       "-EXDEV (%i) fifon (%d)\n",
+			       hw->name, __func__, status, fifon);
 
 		/* clear status, so go on with ISO transfers */
 		status = 0;
@@ -1270,14 +1232,16 @@ tx_iso_complete(struct urb *urb)
 				errcode = urb->iso_frame_desc[k].status;
 				if (errcode) {
 					printk(KERN_DEBUG "%s: %s: "
-					    "ISO packet %i, status: %i\n",
-					     hw->name, __func__, k, errcode);
+					       "ISO packet %i, status: %i\n",
+					       hw->name, __func__, k, errcode);
 				}
 			}
 
 			/* Generate next ISO Packets */
 			if (tx_skb)
 				remain = tx_skb->len - *tx_idx;
+			else if (fillempty)
+				remain = 15; /* > not complete */
 			else
 				remain = 0;
 
@@ -1299,7 +1263,7 @@ tx_iso_complete(struct urb *urb)
 					if (hdlc) {
 						/* signal frame completion */
 						context_iso_urb->
-						    buffer[tx_offset] = 1;
+							buffer[tx_offset] = 1;
 						/* add 2 byte flags and 16bit
 						 * CRC at end of ISDN frame */
 						fifo->bit_line += 32;
@@ -1308,32 +1272,37 @@ tx_iso_complete(struct urb *urb)
 				}
 
 				/* copy tx data to iso-urb buffer */
-				memcpy(context_iso_urb->buffer + tx_offset + 1,
-				       (tx_skb->data + *tx_idx), current_len);
-				*tx_idx += current_len;
-
+				p = context_iso_urb->buffer + tx_offset + 1;
+				if (fillempty) {
+					memset(p, fifo->bch->fill[0],
+					       current_len);
+				} else {
+					memcpy(p, (tx_skb->data + *tx_idx),
+					       current_len);
+					*tx_idx += current_len;
+				}
 				urb->iso_frame_desc[k].offset = tx_offset;
 				urb->iso_frame_desc[k].length = current_len + 1;
 
 				/* USB data log for every D ISO out */
-				if ((fifon == HFCUSB_D_RX) &&
+				if ((fifon == HFCUSB_D_RX) && !fillempty &&
 				    (debug & DBG_HFC_USB_VERBOSE)) {
 					printk(KERN_DEBUG
-					    "%s: %s (%d/%d) offs(%d) len(%d) ",
-					    hw->name, __func__,
-					    k, num_isoc_packets-1,
-					    urb->iso_frame_desc[k].offset,
-					    urb->iso_frame_desc[k].length);
+					       "%s: %s (%d/%d) offs(%d) len(%d) ",
+					       hw->name, __func__,
+					       k, num_isoc_packets - 1,
+					       urb->iso_frame_desc[k].offset,
+					       urb->iso_frame_desc[k].length);
 
 					for (i = urb->iso_frame_desc[k].offset;
 					     i < (urb->iso_frame_desc[k].offset
-					     + urb->iso_frame_desc[k].length);
+						  + urb->iso_frame_desc[k].length);
 					     i++)
 						printk("%x ",
-						    context_iso_urb->buffer[i]);
+						       context_iso_urb->buffer[i]);
 
 					printk(" skb->len(%i) tx-idx(%d)\n",
-					    tx_skb->len, *tx_idx);
+					       tx_skb->len, *tx_idx);
 				}
 
 				tx_offset += (current_len + 1);
@@ -1351,13 +1320,13 @@ tx_iso_complete(struct urb *urb)
 
 				if (debug & DBG_HFC_FIFO_VERBOSE) {
 					printk(KERN_DEBUG  "%s: %s: "
-					    "fifon(%i) new TX len(%i): ",
-					    hw->name, __func__,
-					    fifon, tx_skb->len);
+					       "fifon(%i) new TX len(%i): ",
+					       hw->name, __func__,
+					       fifon, tx_skb->len);
 					i = 0;
 					while (i < tx_skb->len)
 						printk("%02x ",
-						    tx_skb->data[i++]);
+						       tx_skb->data[i++]);
 					printk("\n");
 				}
 
@@ -1366,20 +1335,16 @@ tx_iso_complete(struct urb *urb)
 				if (fifo->dch && get_next_dframe(fifo->dch))
 					tx_skb = fifo->dch->tx_skb;
 				else if (fifo->bch &&
-				    get_next_bframe(fifo->bch)) {
-					if (test_bit(FLG_TRANSPARENT,
-					    &fifo->bch->Flags))
-						confirm_Bsend(fifo->bch);
+					 get_next_bframe(fifo->bch))
 					tx_skb = fifo->bch->tx_skb;
-				}
 			}
 		}
 		errcode = usb_submit_urb(urb, GFP_ATOMIC);
 		if (errcode < 0) {
 			if (debug & DEBUG_HW)
 				printk(KERN_DEBUG
-				    "%s: %s: error submitting ISO URB: %d \n",
-				    hw->name, __func__, errcode);
+				       "%s: %s: error submitting ISO URB: %d \n",
+				       hw->name, __func__, errcode);
 		}
 
 		/*
@@ -1396,11 +1361,11 @@ tx_iso_complete(struct urb *urb)
 	} else {
 		if (status && (debug & DBG_HFC_URB_ERROR))
 			printk(KERN_DEBUG  "%s: %s: urb->status %s (%i)"
-			    "fifonum=%d\n",
-			    hw->name, __func__,
-			    symbolic(urb_errlist, status), status, fifon);
+			       "fifonum=%d\n",
+			       hw->name, __func__,
+			       symbolic(urb_errlist, status), status, fifon);
 	}
-	spin_unlock(&hw->lock);
+	spin_unlock_irqrestore(&hw->lock, flags);
 }
 
 /*
@@ -1416,17 +1381,18 @@ start_isoc_chain(struct usb_fifo *fifo, int num_packets_per_urb,
 
 	if (debug)
 		printk(KERN_DEBUG "%s: %s: fifo %i\n",
-		    hw->name, __func__, fifo->fifonum);
+		       hw->name, __func__, fifo->fifonum);
 
 	/* allocate Memory for Iso out Urbs */
 	for (i = 0; i < 2; i++) {
 		if (!(fifo->iso[i].urb)) {
 			fifo->iso[i].urb =
-			    usb_alloc_urb(num_packets_per_urb, GFP_KERNEL);
+				usb_alloc_urb(num_packets_per_urb, GFP_KERNEL);
 			if (!(fifo->iso[i].urb)) {
 				printk(KERN_DEBUG
-				    "%s: %s: alloc urb for fifo %i failed",
-				    hw->name, __func__, fifo->fifonum);
+				       "%s: %s: alloc urb for fifo %i failed",
+				       hw->name, __func__, fifo->fifonum);
+				continue;
 			}
 			fifo->iso[i].owner_fifo = (struct usb_fifo *) fifo;
 			fifo->iso[i].indx = i;
@@ -1436,27 +1402,27 @@ start_isoc_chain(struct usb_fifo *fifo, int num_packets_per_urb,
 			    (fifo->usb_packet_maxlen *
 			     num_packets_per_urb)) {
 				fill_isoc_urb(fifo->iso[i].urb,
-				    fifo->hw->dev, fifo->pipe,
-				    fifo->iso[i].buffer,
-				    num_packets_per_urb,
-				    fifo->usb_packet_maxlen,
-				    fifo->intervall, complete,
-				    &fifo->iso[i]);
+					      fifo->hw->dev, fifo->pipe,
+					      fifo->iso[i].buffer,
+					      num_packets_per_urb,
+					      fifo->usb_packet_maxlen,
+					      fifo->intervall, complete,
+					      &fifo->iso[i]);
 				memset(fifo->iso[i].buffer, 0,
 				       sizeof(fifo->iso[i].buffer));
 
 				for (k = 0; k < num_packets_per_urb; k++) {
 					fifo->iso[i].urb->
-					    iso_frame_desc[k].offset =
-					    k * packet_size;
+						iso_frame_desc[k].offset =
+						k * packet_size;
 					fifo->iso[i].urb->
-					    iso_frame_desc[k].length =
-					    packet_size;
+						iso_frame_desc[k].length =
+						packet_size;
 				}
 			} else {
 				printk(KERN_DEBUG
-				    "%s: %s: ISO Buffer size to small!\n",
-				    hw->name, __func__);
+				       "%s: %s: ISO Buffer size to small!\n",
+				       hw->name, __func__);
 			}
 		}
 		fifo->bit_line = BITLINE_INF;
@@ -1466,8 +1432,8 @@ start_isoc_chain(struct usb_fifo *fifo, int num_packets_per_urb,
 		fifo->stop_gracefull = 0;
 		if (errcode < 0) {
 			printk(KERN_DEBUG "%s: %s: %s URB nr:%d\n",
-			    hw->name, __func__,
-			    symbolic(urb_errlist, errcode), i);
+			       hw->name, __func__,
+			       symbolic(urb_errlist, errcode), i);
 		}
 	}
 	return fifo->active;
@@ -1492,10 +1458,10 @@ stop_iso_gracefull(struct usb_fifo *fifo)
 	for (i = 0; i < 2; i++) {
 		timeout = 3;
 		while (fifo->stop_gracefull && timeout--)
-			schedule_timeout_interruptible((HZ/1000)*16);
+			schedule_timeout_interruptible((HZ / 1000) * 16);
 		if (debug && fifo->stop_gracefull)
 			printk(KERN_DEBUG "%s: ERROR %s for fifo %i.%i\n",
-				hw->name, __func__, fifo->fifonum, i);
+			       hw->name, __func__, fifo->fifonum, i);
 	}
 }
 
@@ -1515,7 +1481,7 @@ stop_int_gracefull(struct usb_fifo *fifo)
 
 	timeout = 3;
 	while (fifo->stop_gracefull && timeout--)
-		schedule_timeout_interruptible((HZ/1000)*3);
+		schedule_timeout_interruptible((HZ / 1000) * 3);
 	if (debug && fifo->stop_gracefull)
 		printk(KERN_DEBUG "%s: ERROR %s for fifo %i\n",
 		       hw->name, __func__, fifo->fifonum);
@@ -1530,7 +1496,7 @@ start_int_fifo(struct usb_fifo *fifo)
 
 	if (debug)
 		printk(KERN_DEBUG "%s: %s: INT IN fifo:%d\n",
-		    hw->name, __func__, fifo->fifonum);
+		       hw->name, __func__, fifo->fifonum);
 
 	if (!fifo->urb) {
 		fifo->urb = usb_alloc_urb(0, GFP_KERNEL);
@@ -1538,14 +1504,14 @@ start_int_fifo(struct usb_fifo *fifo)
 			return;
 	}
 	usb_fill_int_urb(fifo->urb, fifo->hw->dev, fifo->pipe,
-	    fifo->buffer, fifo->usb_packet_maxlen,
-	    (usb_complete_t)rx_int_complete, fifo, fifo->intervall);
+			 fifo->buffer, fifo->usb_packet_maxlen,
+			 (usb_complete_t)rx_int_complete, fifo, fifo->intervall);
 	fifo->active = 1;
 	fifo->stop_gracefull = 0;
 	errcode = usb_submit_urb(fifo->urb, GFP_KERNEL);
 	if (errcode) {
 		printk(KERN_DEBUG "%s: %s: submit URB: status:%i\n",
-		    hw->name, __func__, errcode);
+		       hw->name, __func__, errcode);
 		fifo->active = 0;
 	}
 }
@@ -1555,7 +1521,7 @@ setPortMode(struct hfcsusb *hw)
 {
 	if (debug & DEBUG_HW)
 		printk(KERN_DEBUG "%s: %s %s\n", hw->name, __func__,
-		   (hw->protocol == ISDN_P_TE_S0) ? "TE" : "NT");
+		       (hw->protocol == ISDN_P_TE_S0) ? "TE" : "NT");
 
 	if (hw->protocol == ISDN_P_TE_S0) {
 		write_reg(hw, HFCUSB_SCTRL, 0x40);
@@ -1589,7 +1555,7 @@ reset_hfcsusb(struct hfcsusb *hw)
 
 	/* set USB_SIZE to match the wMaxPacketSize for INT or BULK transfers */
 	write_reg(hw, HFCUSB_USB_SIZE, (hw->packet_size / 8) |
-	    ((hw->packet_size / 8) << 4));
+		  ((hw->packet_size / 8) << 4));
 
 	/* set USB_SIZE_I to match the the wMaxPacketSize for ISO transfers */
 	write_reg(hw, HFCUSB_USB_SIZE_I, hw->iso_packet_size);
@@ -1600,13 +1566,13 @@ reset_hfcsusb(struct hfcsusb *hw)
 
 	/* init the fifos */
 	write_reg(hw, HFCUSB_F_THRES,
-	    (HFCUSB_TX_THRESHOLD / 8) | ((HFCUSB_RX_THRESHOLD / 8) << 4));
+		  (HFCUSB_TX_THRESHOLD / 8) | ((HFCUSB_RX_THRESHOLD / 8) << 4));
 
 	fifo = hw->fifos;
 	for (i = 0; i < HFCUSB_NUM_FIFOS; i++) {
 		write_reg(hw, HFCUSB_FIFO, i);	/* select the desired fifo */
 		fifo[i].max_size =
-		    (i <= HFCUSB_B2_RX) ? MAX_BCH_SIZE : MAX_DFRAME_LEN;
+			(i <= HFCUSB_B2_RX) ? MAX_BCH_SIZE : MAX_DFRAME_LEN;
 		fifo[i].last_urblen = 0;
 
 		/* set 2 bit for D- & E-channel */
@@ -1615,7 +1581,7 @@ reset_hfcsusb(struct hfcsusb *hw)
 		/* enable all fifos */
 		if (i == HFCUSB_D_TX)
 			write_reg(hw, HFCUSB_CON_HDLC,
-			    (hw->protocol == ISDN_P_NT_S0) ? 0x08 : 0x09);
+				  (hw->protocol == ISDN_P_NT_S0) ? 0x08 : 0x09);
 		else
 			write_reg(hw, HFCUSB_CON_HDLC, 0x08);
 		write_reg(hw, HFCUSB_INC_RES_F, 2); /* reset the fifo */
@@ -1641,34 +1607,34 @@ hfcsusb_start_endpoint(struct hfcsusb *hw, int channel)
 
 	/* start rx endpoints using USB INT IN method */
 	if (hw->cfg_used == CNF_3INT3ISO || hw->cfg_used == CNF_4INT3ISO)
-		start_int_fifo(hw->fifos + channel*2 + 1);
+		start_int_fifo(hw->fifos + channel * 2 + 1);
 
 	/* start rx endpoints using USB ISO IN method */
 	if (hw->cfg_used == CNF_3ISO3ISO || hw->cfg_used == CNF_4ISO3ISO) {
 		switch (channel) {
 		case HFC_CHAN_D:
 			start_isoc_chain(hw->fifos + HFCUSB_D_RX,
-				ISOC_PACKETS_D,
-				(usb_complete_t)rx_iso_complete,
-				16);
+					 ISOC_PACKETS_D,
+					 (usb_complete_t)rx_iso_complete,
+					 16);
 			break;
 		case HFC_CHAN_E:
 			start_isoc_chain(hw->fifos + HFCUSB_PCM_RX,
-				ISOC_PACKETS_D,
-				(usb_complete_t)rx_iso_complete,
-				16);
+					 ISOC_PACKETS_D,
+					 (usb_complete_t)rx_iso_complete,
+					 16);
 			break;
 		case HFC_CHAN_B1:
 			start_isoc_chain(hw->fifos + HFCUSB_B1_RX,
-				ISOC_PACKETS_B,
-				(usb_complete_t)rx_iso_complete,
-				16);
+					 ISOC_PACKETS_B,
+					 (usb_complete_t)rx_iso_complete,
+					 16);
 			break;
 		case HFC_CHAN_B2:
 			start_isoc_chain(hw->fifos + HFCUSB_B2_RX,
-				ISOC_PACKETS_B,
-				(usb_complete_t)rx_iso_complete,
-				16);
+					 ISOC_PACKETS_B,
+					 (usb_complete_t)rx_iso_complete,
+					 16);
 			break;
 		}
 	}
@@ -1677,18 +1643,18 @@ hfcsusb_start_endpoint(struct hfcsusb *hw, int channel)
 	switch (channel) {
 	case HFC_CHAN_D:
 		start_isoc_chain(hw->fifos + HFCUSB_D_TX,
-			ISOC_PACKETS_B,
-			(usb_complete_t)tx_iso_complete, 1);
+				 ISOC_PACKETS_B,
+				 (usb_complete_t)tx_iso_complete, 1);
 		break;
 	case HFC_CHAN_B1:
 		start_isoc_chain(hw->fifos + HFCUSB_B1_TX,
-			ISOC_PACKETS_D,
-			(usb_complete_t)tx_iso_complete, 1);
+				 ISOC_PACKETS_D,
+				 (usb_complete_t)tx_iso_complete, 1);
 		break;
 	case HFC_CHAN_B2:
 		start_isoc_chain(hw->fifos + HFCUSB_B2_TX,
-			ISOC_PACKETS_B,
-			(usb_complete_t)tx_iso_complete, 1);
+				 ISOC_PACKETS_B,
+				 (usb_complete_t)tx_iso_complete, 1);
 		break;
 	}
 }
@@ -1709,15 +1675,15 @@ hfcsusb_stop_endpoint(struct hfcsusb *hw, int channel)
 
 	/* rx endpoints using USB INT IN method */
 	if (hw->cfg_used == CNF_3INT3ISO || hw->cfg_used == CNF_4INT3ISO)
-		stop_int_gracefull(hw->fifos + channel*2 + 1);
+		stop_int_gracefull(hw->fifos + channel * 2 + 1);
 
 	/* rx endpoints using USB ISO IN method */
 	if (hw->cfg_used == CNF_3ISO3ISO || hw->cfg_used == CNF_4ISO3ISO)
-		stop_iso_gracefull(hw->fifos + channel*2 + 1);
+		stop_iso_gracefull(hw->fifos + channel * 2 + 1);
 
 	/* tx endpoints using USB ISO OUT method */
 	if (channel != HFC_CHAN_E)
-		stop_iso_gracefull(hw->fifos + channel*2);
+		stop_iso_gracefull(hw->fifos + channel * 2);
 }
 
 
@@ -1725,20 +1691,30 @@ hfcsusb_stop_endpoint(struct hfcsusb *hw, int channel)
 static int
 setup_hfcsusb(struct hfcsusb *hw)
 {
+	void *dmabuf = kmalloc(sizeof(u_char), GFP_KERNEL);
 	u_char b;
+	int ret;
 
 	if (debug & DBG_HFC_CALL_TRACE)
 		printk(KERN_DEBUG "%s: %s\n", hw->name, __func__);
 
+	if (!dmabuf)
+		return -ENOMEM;
+
+	ret = read_reg_atomic(hw, HFCUSB_CHIP_ID, dmabuf);
+
+	memcpy(&b, dmabuf, sizeof(u_char));
+	kfree(dmabuf);
+
 	/* check the chip id */
-	if (read_reg_atomic(hw, HFCUSB_CHIP_ID, &b) != 1) {
+	if (ret != 1) {
 		printk(KERN_DEBUG "%s: %s: cannot read chip id\n",
-		    hw->name, __func__);
+		       hw->name, __func__);
 		return 1;
 	}
 	if (b != HFCUSB_CHIPID) {
 		printk(KERN_DEBUG "%s: %s: Invalid chip id 0x%02x\n",
-		    hw->name, __func__, b);
+		       hw->name, __func__, b);
 		return 1;
 	}
 
@@ -1755,8 +1731,8 @@ setup_hfcsusb(struct hfcsusb *hw)
 	hw->ctrl_write.bRequest = 0;
 	hw->ctrl_write.wLength = 0;
 	usb_fill_control_urb(hw->ctrl_urb, hw->dev, hw->ctrl_out_pipe,
-	    (u_char *)&hw->ctrl_write, NULL, 0,
-	    (usb_complete_t)ctrl_complete, hw);
+			     (u_char *)&hw->ctrl_write, NULL, 0,
+			     (usb_complete_t)ctrl_complete, hw);
 
 	reset_hfcsusb(hw);
 	return 0;
@@ -1807,13 +1783,13 @@ deactivate_bchannel(struct bchannel *bch)
 
 	if (bch->debug & DEBUG_HW)
 		printk(KERN_DEBUG "%s: %s: bch->nr(%i)\n",
-		    hw->name, __func__, bch->nr);
+		       hw->name, __func__, bch->nr);
 
 	spin_lock_irqsave(&hw->lock, flags);
 	mISDN_clear_bchannel(bch);
 	spin_unlock_irqrestore(&hw->lock, flags);
 	hfcsusb_setup_bch(bch, ISDN_P_NONE);
-	hfcsusb_stop_endpoint(hw, bch->nr);
+	hfcsusb_stop_endpoint(hw, bch->nr - 1);
 }
 
 /*
@@ -1837,8 +1813,7 @@ hfc_bctrl(struct mISDNchannel *ch, u_int cmd, void *arg)
 
 	case CLOSE_CHANNEL:
 		test_and_clear_bit(FLG_OPEN, &bch->Flags);
-		if (test_bit(FLG_ACTIVE, &bch->Flags))
-			deactivate_bchannel(bch);
+		deactivate_bchannel(bch);
 		ch->protocol = ISDN_P_NONE;
 		ch->peer = NULL;
 		module_put(THIS_MODULE);
@@ -1849,7 +1824,7 @@ hfc_bctrl(struct mISDNchannel *ch, u_int cmd, void *arg)
 		break;
 	default:
 		printk(KERN_WARNING "%s: unknown prim(%x)\n",
-			__func__, cmd);
+		       __func__, cmd);
 	}
 	return ret;
 }
@@ -1878,13 +1853,13 @@ setup_instance(struct hfcsusb *hw, struct device *parent)
 		mISDN_initdchannel(&hw->ech, MAX_DFRAME_LEN_L1, NULL);
 
 	hw->dch.dev.Bprotocols = (1 << (ISDN_P_B_RAW & ISDN_P_B_MASK)) |
-	    (1 << (ISDN_P_B_HDLC & ISDN_P_B_MASK));
+		(1 << (ISDN_P_B_HDLC & ISDN_P_B_MASK));
 	hw->dch.dev.nrbchan = 2;
 	for (i = 0; i < 2; i++) {
 		hw->bch[i].nr = i + 1;
 		set_channelmap(i + 1, hw->dch.dev.channelmap);
 		hw->bch[i].debug = debug;
-		mISDN_initbchannel(&hw->bch[i], MAX_DATA_MEM);
+		mISDN_initbchannel(&hw->bch[i], MAX_DATA_MEM, poll >> 1);
 		hw->bch[i].hw = hw;
 		hw->bch[i].ch.send = hfcusb_l2l1B;
 		hw->bch[i].ch.ctrl = hfc_bctrl;
@@ -1906,9 +1881,9 @@ setup_instance(struct hfcsusb *hw, struct device *parent)
 		goto out;
 
 	snprintf(hw->name, MISDN_MAX_IDLEN - 1, "%s.%d", DRIVER_NAME,
-	    hfcsusb_cnt + 1);
+		 hfcsusb_cnt + 1);
 	printk(KERN_INFO "%s: registered as '%s'\n",
-	    DRIVER_NAME, hw->name);
+	       DRIVER_NAME, hw->name);
 
 	err = mISDN_register_device(&hw->dch.dev, parent, hw->name);
 	if (err)
@@ -1938,30 +1913,30 @@ hfcsusb_probe(struct usb_interface *intf, const struct usb_device_id *id)
 	struct usb_host_endpoint	*ep;
 	struct hfcsusb_vdata		*driver_info;
 	int ifnum = iface->desc.bInterfaceNumber, i, idx, alt_idx,
-	    probe_alt_setting, vend_idx, cfg_used, *vcf, attr, cfg_found,
-	    ep_addr, cmptbl[16], small_match, iso_packet_size, packet_size,
-	    alt_used = 0;
+		probe_alt_setting, vend_idx, cfg_used, *vcf, attr, cfg_found,
+		ep_addr, cmptbl[16], small_match, iso_packet_size, packet_size,
+		alt_used = 0;
 
 	vend_idx = 0xffff;
 	for (i = 0; hfcsusb_idtab[i].idVendor; i++) {
 		if ((le16_to_cpu(dev->descriptor.idVendor)
-		       == hfcsusb_idtab[i].idVendor) &&
+		     == hfcsusb_idtab[i].idVendor) &&
 		    (le16_to_cpu(dev->descriptor.idProduct)
-		       == hfcsusb_idtab[i].idProduct)) {
+		     == hfcsusb_idtab[i].idProduct)) {
 			vend_idx = i;
 			continue;
 		}
 	}
 
 	printk(KERN_DEBUG
-	    "%s: interface(%d) actalt(%d) minor(%d) vend_idx(%d)\n",
-	    __func__, ifnum, iface->desc.bAlternateSetting,
-	    intf->minor, vend_idx);
+	       "%s: interface(%d) actalt(%d) minor(%d) vend_idx(%d)\n",
+	       __func__, ifnum, iface->desc.bAlternateSetting,
+	       intf->minor, vend_idx);
 
 	if (vend_idx == 0xffff) {
 		printk(KERN_WARNING
-		    "%s: no valid vendor found in USB descriptor\n",
-		    __func__);
+		       "%s: no valid vendor found in USB descriptor\n",
+		       __func__);
 		return -EIO;
 	}
 	/* if vendor and product ID is OK, start probing alternate settings */
@@ -1989,6 +1964,9 @@ hfcsusb_probe(struct usb_interface *intf, const struct usb_device_id *id)
 
 				/* get endpoint base */
 				idx = ((ep_addr & 0x7f) - 1) * 2;
+				if (idx > 15)
+					return -EIO;
+
 				if (ep_addr & 0x80)
 					idx++;
 				attr = ep->desc.bmAttributes;
@@ -1997,17 +1975,17 @@ hfcsusb_probe(struct usb_interface *intf, const struct usb_device_id *id)
 					if (cmptbl[idx] == EP_NUL)
 						cfg_found = 0;
 					if (attr == USB_ENDPOINT_XFER_INT
-						&& cmptbl[idx] == EP_INT)
+					    && cmptbl[idx] == EP_INT)
 						cmptbl[idx] = EP_NUL;
 					if (attr == USB_ENDPOINT_XFER_BULK
-						&& cmptbl[idx] == EP_BLK)
+					    && cmptbl[idx] == EP_BLK)
 						cmptbl[idx] = EP_NUL;
 					if (attr == USB_ENDPOINT_XFER_ISOC
-						&& cmptbl[idx] == EP_ISO)
+					    && cmptbl[idx] == EP_ISO)
 						cmptbl[idx] = EP_NUL;
 
 					if (attr == USB_ENDPOINT_XFER_INT &&
-						ep->desc.bInterval < vcf[17]) {
+					    ep->desc.bInterval < vcf[17]) {
 						cfg_found = 0;
 					}
 				}
@@ -2061,27 +2039,27 @@ hfcsusb_probe(struct usb_interface *intf, const struct usb_device_id *id)
 		switch (ep->desc.bmAttributes) {
 		case USB_ENDPOINT_XFER_INT:
 			f->pipe = usb_rcvintpipe(dev,
-				ep->desc.bEndpointAddress);
+						 ep->desc.bEndpointAddress);
 			f->usb_transfer_mode = USB_INT;
 			packet_size = le16_to_cpu(ep->desc.wMaxPacketSize);
 			break;
 		case USB_ENDPOINT_XFER_BULK:
 			if (ep_addr & 0x80)
 				f->pipe = usb_rcvbulkpipe(dev,
-					ep->desc.bEndpointAddress);
+							  ep->desc.bEndpointAddress);
 			else
 				f->pipe = usb_sndbulkpipe(dev,
-					ep->desc.bEndpointAddress);
+							  ep->desc.bEndpointAddress);
 			f->usb_transfer_mode = USB_BULK;
 			packet_size = le16_to_cpu(ep->desc.wMaxPacketSize);
 			break;
 		case USB_ENDPOINT_XFER_ISOC:
 			if (ep_addr & 0x80)
 				f->pipe = usb_rcvisocpipe(dev,
-					ep->desc.bEndpointAddress);
+							  ep->desc.bEndpointAddress);
 			else
 				f->pipe = usb_sndisocpipe(dev,
-					ep->desc.bEndpointAddress);
+							  ep->desc.bEndpointAddress);
 			f->usb_transfer_mode = USB_ISOC;
 			iso_packet_size = le16_to_cpu(ep->desc.wMaxPacketSize);
 			break;
@@ -2093,7 +2071,7 @@ hfcsusb_probe(struct usb_interface *intf, const struct usb_device_id *id)
 			f->fifonum = idx & 7;
 			f->hw = hw;
 			f->usb_packet_maxlen =
-			    le16_to_cpu(ep->desc.wMaxPacketSize);
+				le16_to_cpu(ep->desc.wMaxPacketSize);
 			f->intervall = ep->desc.bInterval;
 		}
 		ep++;
@@ -2110,13 +2088,21 @@ hfcsusb_probe(struct usb_interface *intf, const struct usb_device_id *id)
 	/* create the control pipes needed for register access */
 	hw->ctrl_in_pipe = usb_rcvctrlpipe(hw->dev, 0);
 	hw->ctrl_out_pipe = usb_sndctrlpipe(hw->dev, 0);
-	hw->ctrl_urb = usb_alloc_urb(0, GFP_KERNEL);
 
-	driver_info =
-		(struct hfcsusb_vdata *)hfcsusb_idtab[vend_idx].driver_info;
-	printk(KERN_DEBUG "%s: %s: detected \"%s\" (%s, if=%d alt=%d)\n",
-	    hw->name, __func__, driver_info->vend_name,
-	    conf_str[small_match], ifnum, alt_used);
+	driver_info = (struct hfcsusb_vdata *)
+		      hfcsusb_idtab[vend_idx].driver_info;
+
+	hw->ctrl_urb = usb_alloc_urb(0, GFP_KERNEL);
+	if (!hw->ctrl_urb) {
+		pr_warn("%s: No memory for control urb\n",
+			driver_info->vend_name);
+		kfree(hw);
+		return -ENOMEM;
+	}
+
+	pr_info("%s: %s: detected \"%s\" (%s, if=%d alt=%d)\n",
+		hw->name, __func__, driver_info->vend_name,
+		conf_str[small_match], ifnum, alt_used);
 
 	if (setup_instance(hw, dev->dev.parent))
 		return -EIO;
@@ -2152,6 +2138,7 @@ static struct usb_driver hfcsusb_drv = {
 	.id_table = hfcsusb_idtab,
 	.probe = hfcsusb_probe,
 	.disconnect = hfcsusb_disconnect,
+	.disable_hub_initiated_lpm = 1,
 };
 
 module_usb_driver(hfcsusb_drv);

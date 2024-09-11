@@ -1,18 +1,11 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2005-2010 Brocade Communications Systems, Inc.
+ * Copyright (c) 2005-2014 Brocade Communications Systems, Inc.
+ * Copyright (c) 2014- QLogic Corporation.
  * All rights reserved
- * www.brocade.com
+ * www.qlogic.com
  *
- * Linux driver for Brocade Fibre Channel Host Bus Adapter.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License (GPL) Version 2 as
- * published by the Free Software Foundation
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
+ * Linux driver for QLogic BR-series Fibre Channel Host Bus Adapter.
  */
 
 #ifndef __BFA_FCPIM_H__
@@ -42,7 +35,7 @@ void bfa_itn_create(struct bfa_s *bfa, struct bfa_rport_s *rport,
 		void (*isr)(struct bfa_s *bfa, struct bfi_msg_s *m));
 void bfa_itn_isr(struct bfa_s *bfa, struct bfi_msg_s *m);
 void bfa_iotag_attach(struct bfa_fcp_mod_s *fcp);
-void bfa_fcp_res_recfg(struct bfa_s *bfa, u16 num_ioim_fw);
+void bfa_fcp_res_recfg(struct bfa_s *bfa, u16 num_ioim_fw, u16 max_ioim_fw);
 
 #define BFA_FCP_MOD(_hal)	(&(_hal)->modules.fcp_mod)
 #define BFA_MEM_FCP_KVA(__bfa)	(&(BFA_FCP_MOD(__bfa)->kva_seg))
@@ -51,7 +44,9 @@ void bfa_fcp_res_recfg(struct bfa_s *bfa, u16 num_ioim_fw);
 #define BFA_ITN_FROM_TAG(_fcp, _tag)	\
 	((_fcp)->itn_arr + ((_tag) & ((_fcp)->num_itns - 1)))
 #define BFA_SNSINFO_FROM_TAG(_fcp, _tag) \
-	bfa_mem_get_dmabuf_kva(_fcp, _tag, BFI_IOIM_SNSLEN)
+	bfa_mem_get_dmabuf_kva(_fcp, (_tag & BFA_IOIM_IOTAG_MASK),	\
+	BFI_IOIM_SNSLEN)
+
 
 #define BFA_ITNIM_MIN   32
 #define BFA_ITNIM_MAX   1024
@@ -110,7 +105,6 @@ struct bfad_ioim_s;
 struct bfad_tskim_s;
 
 typedef void    (*bfa_fcpim_profile_t) (struct bfa_ioim_s *ioim);
-typedef bfa_boolean_t (*bfa_ioim_lm_proc_rsp_data_t) (struct bfa_ioim_s *ioim);
 
 struct bfa_fcpim_s {
 	struct bfa_s		*bfa;
@@ -124,7 +118,6 @@ struct bfa_fcpim_s {
 	u32			path_tov;
 	u16			q_depth;
 	u8			reqq;		/*  Request queue to be used */
-	u8			lun_masking_pending;
 	struct list_head	itnim_q;	/*  queue of active itnim */
 	struct list_head	ioim_resfree_q; /*  IOs waiting for f/w */
 	struct list_head	ioim_comp_q;	/*  IO global comp Q	*/
@@ -135,7 +128,7 @@ struct bfa_fcpim_s {
 	struct bfa_fcpim_del_itn_stats_s del_itn_stats;
 	bfa_boolean_t		ioredirect;
 	bfa_boolean_t		io_profile;
-	u32			io_profile_start_time;
+	time64_t		io_profile_start_time;
 	bfa_fcpim_profile_t     profile_comp;
 	bfa_fcpim_profile_t     profile_start;
 };
@@ -150,6 +143,7 @@ struct bfa_fcp_mod_s {
 	struct list_head	iotag_unused_q;	/* unused IO resources*/
 	struct bfa_iotag_s	*iotag_arr;
 	struct bfa_itn_s	*itn_arr;
+	int			max_ioim_reqs;
 	int			num_ioim_reqs;
 	int			num_fwtio_reqs;
 	int			num_itns;
@@ -157,6 +151,7 @@ struct bfa_fcp_mod_s {
 	struct bfa_fcpim_s	fcpim;
 	struct bfa_mem_dma_s	dma_seg[BFA_FCP_DMA_SEGS];
 	struct bfa_mem_kva_s	kva_seg;
+	int			throttle_update_required;
 };
 
 /*
@@ -181,7 +176,6 @@ struct bfa_ioim_s {
 	u8			reqq;		/*  Request queue for I/O */
 	u8			mode;		/*  IO is passthrough or not */
 	u64			start_time;	/*  IO's Profile start val */
-	bfa_ioim_lm_proc_rsp_data_t proc_rsp_data; /* RSP data adjust */
 };
 
 struct bfa_ioim_sp_s {
@@ -261,10 +255,6 @@ struct bfa_itnim_s {
 	(__ioim)->iotag |= k << BFA_IOIM_RETRY_TAG_OFFSET;		\
 } while (0)
 
-#define BFA_IOIM_TO_LPS(__ioim)		\
-	BFA_LPS_FROM_TAG(BFA_LPS_MOD(__ioim->bfa),	\
-		__ioim->itnim->rport->rport_info.lp_tag)
-
 static inline bfa_boolean_t
 bfa_ioim_maxretry_reached(struct bfa_ioim_s *ioim)
 {
@@ -312,7 +302,7 @@ bfa_status_t bfa_fcpim_port_iostats(struct bfa_s *bfa,
 			struct bfa_itnim_iostats_s *stats, u8 lp_tag);
 void bfa_fcpim_add_stats(struct bfa_itnim_iostats_s *fcpim_stats,
 			struct bfa_itnim_iostats_s *itnim_stats);
-bfa_status_t bfa_fcpim_profile_on(struct bfa_s *bfa, u32 time);
+bfa_status_t bfa_fcpim_profile_on(struct bfa_s *bfa, time64_t time);
 bfa_status_t bfa_fcpim_profile_off(struct bfa_s *bfa);
 
 #define bfa_fcpim_ioredirect_enabled(__bfa)				\
@@ -423,5 +413,10 @@ bfa_status_t	bfa_fcpim_lunmask_delete(struct bfa_s *bfa, u16 vf_id,
 bfa_status_t	bfa_fcpim_lunmask_add(struct bfa_s *bfa, u16 vf_id,
 				wwn_t *pwwn, wwn_t rpwwn, struct scsi_lun lun);
 bfa_status_t	bfa_fcpim_lunmask_clear(struct bfa_s *bfa);
+u16		bfa_fcpim_read_throttle(struct bfa_s *bfa);
+bfa_status_t	bfa_fcpim_write_throttle(struct bfa_s *bfa, u16 value);
+bfa_status_t	bfa_fcpim_throttle_set(struct bfa_s *bfa, u16 value);
+bfa_status_t	bfa_fcpim_throttle_get(struct bfa_s *bfa, void *buf);
+u16     bfa_fcpim_get_throttle_cfg(struct bfa_s *bfa, u16 drv_cfg_param);
 
 #endif /* __BFA_FCPIM_H__ */

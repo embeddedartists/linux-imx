@@ -1,10 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * hp6x0 Power Management Routines
  *
  * Copyright (c) 2006 Andriy Skulysh <askulsyh@gmail.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License.
  */
 #include <linux/init.h>
 #include <linux/suspend.h>
@@ -14,6 +12,7 @@
 #include <linux/gfp.h>
 #include <asm/io.h>
 #include <asm/hd64461.h>
+#include <asm/bl_bit.h>
 #include <mach/hp6xx.h>
 #include <cpu/dac.h>
 #include <asm/freq.h>

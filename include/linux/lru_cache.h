@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
    lru_cache.c
 
@@ -7,19 +8,6 @@
    Copyright (C) 2003-2008, Philipp Reisner <philipp.reisner@linbit.com>.
    Copyright (C) 2003-2008, Lars Ellenberg <lars.ellenberg@linbit.com>.
 
-   drbd is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 2, or (at your option)
-   any later version.
-
-   drbd is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with drbd; see the file COPYING.  If not, write to
-   the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
 
  */
 
@@ -44,7 +32,7 @@ This header file (and its .c file; kernel-doc of functions see there)
   Because of this later property, it is called "lru_cache".
   As it actually Tracks Objects in an Active SeT, we could also call it
   toast (incidentally that is what may happen to the data on the
-  backend storage uppon next resync, if we don't get it right).
+  backend storage upon next resync, if we don't get it right).
 
 What for?
 
@@ -52,8 +40,8 @@ We replicate IO (more or less synchronously) to local and remote disk.
 
 For crash recovery after replication node failure,
   we need to resync all regions that have been target of in-flight WRITE IO
-  (in use, or "hot", regions), as we don't know wether or not those WRITEs have
-  made it to stable storage.
+  (in use, or "hot", regions), as we don't know whether or not those WRITEs
+  have made it to stable storage.
 
   To avoid a "full resync", we need to persistently track these regions.
 
@@ -164,11 +152,13 @@ struct lc_element {
 	 * for paranoia, and for "lc_element_to_index" */
 	unsigned lc_index;
 	/* if we want to track a larger set of objects,
-	 * it needs to become arch independend u64 */
+	 * it needs to become an architecture independent u64 */
 	unsigned lc_number;
-
 	/* special label when on free list */
 #define LC_FREE (~0U)
+
+	/* for pending changes */
+	unsigned lc_new_number;
 };
 
 struct lru_cache {
@@ -176,6 +166,7 @@ struct lru_cache {
 	struct list_head lru;
 	struct list_head free;
 	struct list_head in_use;
+	struct list_head to_be_changed;
 
 	/* the pre-created kmem cache to allocate the objects from */
 	struct kmem_cache *lc_cache;
@@ -186,7 +177,7 @@ struct lru_cache {
 	size_t element_off;
 
 	/* number of elements (indices) */
-	unsigned int  nr_elements;
+	unsigned int nr_elements;
 	/* Arbitrary limit on maximum tracked objects. Practical limit is much
 	 * lower due to allocation failures, probably. For typical use cases,
 	 * nr_elements should be a few thousand at most.
@@ -194,18 +185,19 @@ struct lru_cache {
 	 * 8 high bits of .lc_index to be overloaded with flags in the future. */
 #define LC_MAX_ACTIVE	(1<<24)
 
+	/* allow to accumulate a few (index:label) changes,
+	 * but no more than max_pending_changes */
+	unsigned int max_pending_changes;
+	/* number of elements currently on to_be_changed list */
+	unsigned int pending_changes;
+
 	/* statistics */
-	unsigned used; /* number of lelements currently on in_use list */
-	unsigned long hits, misses, starving, dirty, changed;
+	unsigned used; /* number of elements currently on in_use list */
+	unsigned long hits, misses, starving, locked, changed;
 
 	/* see below: flag-bits for lru_cache */
 	unsigned long flags;
 
-	/* when changing the label of an index element */
-	unsigned int  new_number;
-
-	/* for paranoia when changing the label of an index element */
-	struct lc_element *changing_element;
 
 	void  *lc_private;
 	const char *name;
@@ -221,10 +213,15 @@ enum {
 	/* debugging aid, to catch concurrent access early.
 	 * user needs to guarantee exclusive access by proper locking! */
 	__LC_PARANOIA,
-	/* if we need to change the set, but currently there is a changing
-	 * transaction pending, we are "dirty", and must deferr further
-	 * changing requests */
+
+	/* annotate that the set is "dirty", possibly accumulating further
+	 * changes, until a transaction is finally triggered */
 	__LC_DIRTY,
+
+	/* Locked, no further changes allowed.
+	 * Also used to serialize changing transactions. */
+	__LC_LOCKED,
+
 	/* if we need to change the set, but currently there is no free nor
 	 * unused element available, we are "starving", and must not give out
 	 * further references, to guarantee that eventually some refcnt will
@@ -236,38 +233,53 @@ enum {
 };
 #define LC_PARANOIA (1<<__LC_PARANOIA)
 #define LC_DIRTY    (1<<__LC_DIRTY)
+#define LC_LOCKED   (1<<__LC_LOCKED)
 #define LC_STARVING (1<<__LC_STARVING)
 
 extern struct lru_cache *lc_create(const char *name, struct kmem_cache *cache,
+		unsigned max_pending_changes,
 		unsigned e_count, size_t e_size, size_t e_off);
 extern void lc_reset(struct lru_cache *lc);
 extern void lc_destroy(struct lru_cache *lc);
 extern void lc_set(struct lru_cache *lc, unsigned int enr, int index);
 extern void lc_del(struct lru_cache *lc, struct lc_element *element);
 
+extern struct lc_element *lc_get_cumulative(struct lru_cache *lc, unsigned int enr);
 extern struct lc_element *lc_try_get(struct lru_cache *lc, unsigned int enr);
 extern struct lc_element *lc_find(struct lru_cache *lc, unsigned int enr);
 extern struct lc_element *lc_get(struct lru_cache *lc, unsigned int enr);
 extern unsigned int lc_put(struct lru_cache *lc, struct lc_element *e);
-extern void lc_changed(struct lru_cache *lc, struct lc_element *e);
+extern void lc_committed(struct lru_cache *lc);
 
 struct seq_file;
-extern size_t lc_seq_printf_stats(struct seq_file *seq, struct lru_cache *lc);
+extern void lc_seq_printf_stats(struct seq_file *seq, struct lru_cache *lc);
 
 extern void lc_seq_dump_details(struct seq_file *seq, struct lru_cache *lc, char *utext,
 				void (*detail) (struct seq_file *, struct lc_element *));
 
 /**
- * lc_try_lock - can be used to stop lc_get() from changing the tracked set
+ * lc_try_lock_for_transaction - can be used to stop lc_get() from changing the tracked set
+ * @lc: the lru cache to operate on
+ *
+ * Allows (expects) the set to be "dirty".  Note that the reference counts and
+ * order on the active and lru lists may still change.  Used to serialize
+ * changing transactions.  Returns true if we acquired the lock.
+ */
+static inline int lc_try_lock_for_transaction(struct lru_cache *lc)
+{
+	return !test_and_set_bit(__LC_LOCKED, &lc->flags);
+}
+
+/**
+ * lc_try_lock - variant to stop lc_get() from changing the tracked set
  * @lc: the lru cache to operate on
  *
  * Note that the reference counts and order on the active and lru lists may
- * still change.  Returns true if we acquired the lock.
+ * still change.  Only works on a "clean" set.  Returns true if we acquired the
+ * lock, which means there are no pending changes, and any further attempt to
+ * change the set will not succeed until the next lc_unlock().
  */
-static inline int lc_try_lock(struct lru_cache *lc)
-{
-	return !test_and_set_bit(__LC_DIRTY, &lc->flags);
-}
+extern int lc_try_lock(struct lru_cache *lc);
 
 /**
  * lc_unlock - unlock @lc, allow lc_get() to change the set again
@@ -276,14 +288,10 @@ static inline int lc_try_lock(struct lru_cache *lc)
 static inline void lc_unlock(struct lru_cache *lc)
 {
 	clear_bit(__LC_DIRTY, &lc->flags);
-	smp_mb__after_clear_bit();
+	clear_bit_unlock(__LC_LOCKED, &lc->flags);
 }
 
-static inline int lc_is_used(struct lru_cache *lc, unsigned int enr)
-{
-	struct lc_element *e = lc_find(lc, enr);
-	return e && e->refcnt;
-}
+extern bool lc_is_used(struct lru_cache *lc, unsigned int enr);
 
 #define lc_entry(ptr, type, member) \
 	container_of(ptr, type, member)

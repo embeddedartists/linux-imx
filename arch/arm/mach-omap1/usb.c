@@ -1,33 +1,25 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * Platform level USB initialization for FS USB OTG controller on omap1 and 24xx
+ * Platform level USB initialization for FS USB OTG controller on omap1
  *
  * Copyright (C) 2004 Texas Instruments, Inc.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
+#include <linux/dma-map-ops.h>
 #include <linux/io.h>
+#include <linux/delay.h>
 
 #include <asm/irq.h>
 
-#include <plat/mux.h>
-#include <plat/usb.h>
+#include <mach/mux.h>
+
+#include <mach/usb.h>
+
+#include "common.h"
 
 /* These routines should handle the standard chip-specific modes
  * for usb0/1/2 ports, covering basic mux and transceiver setup.
@@ -53,7 +45,117 @@
 #define INT_USB_IRQ_HGEN	INT_USB_HHC_1
 #define INT_USB_IRQ_OTG		IH2_BASE + 8
 
-#ifdef	CONFIG_USB_GADGET_OMAP
+#ifdef	CONFIG_ARCH_OMAP_OTG
+
+static void __init
+omap_otg_init(struct omap_usb_config *config)
+{
+	u32		syscon;
+	int		alt_pingroup = 0;
+	u16		w;
+
+	/* NOTE:  no bus or clock setup (yet?) */
+
+	syscon = omap_readl(OTG_SYSCON_1) & 0xffff;
+	if (!(syscon & OTG_RESET_DONE))
+		pr_debug("USB resets not complete?\n");
+
+	//omap_writew(0, OTG_IRQ_EN);
+
+	/* pin muxing and transceiver pinouts */
+	if (config->pins[0] > 2)	/* alt pingroup 2 */
+		alt_pingroup = 1;
+	syscon |= config->usb0_init(config->pins[0], is_usb0_device(config));
+	syscon |= config->usb1_init(config->pins[1]);
+	syscon |= config->usb2_init(config->pins[2], alt_pingroup);
+	pr_debug("OTG_SYSCON_1 = %08x\n", omap_readl(OTG_SYSCON_1));
+	omap_writel(syscon, OTG_SYSCON_1);
+
+	syscon = config->hmc_mode;
+	syscon |= USBX_SYNCHRO | (4 << 16) /* B_ASE0_BRST */;
+#ifdef	CONFIG_USB_OTG
+	if (config->otg)
+		syscon |= OTG_EN;
+#endif
+	pr_debug("USB_TRANSCEIVER_CTRL = %03x\n",
+		 omap_readl(USB_TRANSCEIVER_CTRL));
+	pr_debug("OTG_SYSCON_2 = %08x\n", omap_readl(OTG_SYSCON_2));
+	omap_writel(syscon, OTG_SYSCON_2);
+
+	printk("USB: hmc %d", config->hmc_mode);
+	if (!alt_pingroup)
+		pr_cont(", usb2 alt %d wires", config->pins[2]);
+	else if (config->pins[0])
+		pr_cont(", usb0 %d wires%s", config->pins[0],
+			is_usb0_device(config) ? " (dev)" : "");
+	if (config->pins[1])
+		pr_cont(", usb1 %d wires", config->pins[1]);
+	if (!alt_pingroup && config->pins[2])
+		pr_cont(", usb2 %d wires", config->pins[2]);
+	if (config->otg)
+		pr_cont(", Mini-AB on usb%d", config->otg - 1);
+	pr_cont("\n");
+
+	/* leave USB clocks/controllers off until needed */
+	w = omap_readw(ULPD_SOFT_REQ);
+	w &= ~SOFT_USB_CLK_REQ;
+	omap_writew(w, ULPD_SOFT_REQ);
+
+	w = omap_readw(ULPD_CLOCK_CTRL);
+	w &= ~USB_MCLK_EN;
+	w |= DIS_USB_PVCI_CLK;
+	omap_writew(w, ULPD_CLOCK_CTRL);
+
+	syscon = omap_readl(OTG_SYSCON_1);
+	syscon |= HST_IDLE_EN|DEV_IDLE_EN|OTG_IDLE_EN;
+
+#if IS_ENABLED(CONFIG_USB_OMAP)
+	if (config->otg || config->register_dev) {
+		struct platform_device *udc_device = config->udc_device;
+		int status;
+
+		syscon &= ~DEV_IDLE_EN;
+		udc_device->dev.platform_data = config;
+		status = platform_device_register(udc_device);
+		if (status)
+			pr_debug("can't register UDC device, %d\n", status);
+	}
+#endif
+
+#if	IS_ENABLED(CONFIG_USB_OHCI_HCD)
+	if (config->otg || config->register_host) {
+		struct platform_device *ohci_device = config->ohci_device;
+		int status;
+
+		syscon &= ~HST_IDLE_EN;
+		ohci_device->dev.platform_data = config;
+		status = platform_device_register(ohci_device);
+		if (status)
+			pr_debug("can't register OHCI device, %d\n", status);
+	}
+#endif
+
+#ifdef	CONFIG_USB_OTG
+	if (config->otg) {
+		struct platform_device *otg_device = config->otg_device;
+		int status;
+
+		syscon &= ~OTG_IDLE_EN;
+		otg_device->dev.platform_data = config;
+		status = platform_device_register(otg_device);
+		if (status)
+			pr_debug("can't register OTG device, %d\n", status);
+	}
+#endif
+	pr_debug("OTG_SYSCON_1 = %08x\n", omap_readl(OTG_SYSCON_1));
+	omap_writel(syscon, OTG_SYSCON_1);
+}
+
+#else
+static void omap_otg_init(struct omap_usb_config *config) {}
+#endif
+
+#if IS_ENABLED(CONFIG_USB_OMAP)
 
 static struct resource udc_resources[] = {
 	/* order is significant! */
@@ -105,8 +207,6 @@ static inline void udc_device_init(struct omap_usb_config *pdata)
 
 #endif
 
-#if	defined(CONFIG_USB_OHCI_HCD) || defined(CONFIG_USB_OHCI_HCD_MODULE)
-
 /* The dmamask must be set for OHCI to work */
 static u64 ohci_dmamask = ~(u32)0;
 
@@ -135,18 +235,14 @@ static struct platform_device ohci_device = {
 
 static inline void ohci_device_init(struct omap_usb_config *pdata)
 {
+	if (!IS_ENABLED(CONFIG_USB_OHCI_HCD))
+		return;
+
 	if (cpu_is_omap7xx())
 		ohci_resources[1].start = INT_7XX_USB_HHC_1;
 	pdata->ohci_device = &ohci_device;
+	pdata->ocpi_enable = &ocpi_enable;
 }
-
-#else
-
-static inline void ohci_device_init(struct omap_usb_config *pdata)
-{
-}
-
-#endif
 
 #if	defined(CONFIG_USB_OTG) && defined(CONFIG_ARCH_OMAP_OTG)
 
@@ -184,7 +280,7 @@ static inline void otg_device_init(struct omap_usb_config *pdata)
 
 #endif
 
-u32 __init omap1_usb0_init(unsigned nwires, unsigned is_device)
+static u32 __init omap1_usb0_init(unsigned nwires, unsigned is_device)
 {
 	u32	syscon1 = 0;
 
@@ -292,7 +388,7 @@ u32 __init omap1_usb0_init(unsigned nwires, unsigned is_device)
 	return syscon1 << 16;
 }
 
-u32 __init omap1_usb1_init(unsigned nwires)
+static u32 __init omap1_usb1_init(unsigned nwires)
 {
 	u32	syscon1 = 0;
 
@@ -358,7 +454,7 @@ bad:
 	return syscon1 << 20;
 }
 
-u32 __init omap1_usb2_init(unsigned nwires, unsigned alt_pingroup)
+static u32 __init omap1_usb2_init(unsigned nwires, unsigned alt_pingroup)
 {
 	u32	syscon1 = 0;
 
@@ -432,6 +528,79 @@ bad:
 }
 
 #ifdef	CONFIG_ARCH_OMAP15XX
+/* OMAP-1510 OHCI has its own MMU for DMA */
+#define OMAP1510_LB_MEMSIZE	32	/* Should be same as SDRAM size */
+#define OMAP1510_LB_CLOCK_DIV	0xfffec10c
+#define OMAP1510_LB_MMU_CTL	0xfffec208
+#define OMAP1510_LB_MMU_LCK	0xfffec224
+#define OMAP1510_LB_MMU_LD_TLB	0xfffec228
+#define OMAP1510_LB_MMU_CAM_H	0xfffec22c
+#define OMAP1510_LB_MMU_CAM_L	0xfffec230
+#define OMAP1510_LB_MMU_RAM_H	0xfffec234
+#define OMAP1510_LB_MMU_RAM_L	0xfffec238
+
+/*
+ * Bus address is physical address, except for OMAP-1510 Local Bus.
+ * OMAP-1510 bus address is translated into a Local Bus address if the
+ * OMAP bus type is lbus.
+ */
+#define OMAP1510_LB_OFFSET	   UL(0x30000000)
+
+/*
+ * OMAP-1510 specific Local Bus clock on/off
+ */
+static int omap_1510_local_bus_power(int on)
+{
+	if (on) {
+		omap_writel((1 << 1) | (1 << 0), OMAP1510_LB_MMU_CTL);
+		udelay(200);
+	} else {
+		omap_writel(0, OMAP1510_LB_MMU_CTL);
+	}
+
+	return 0;
+}
+
+/*
+ * OMAP-1510 specific Local Bus initialization
+ * NOTE: This assumes 32MB memory size in OMAP1510LB_MEMSIZE.
+ *       See also arch/mach-omap/memory.h for __virt_to_dma() and
+ *       __dma_to_virt() which need to match with the physical
+ *       Local Bus address below.
+ */
+static int omap_1510_local_bus_init(void)
+{
+	unsigned int tlb;
+	unsigned long lbaddr, physaddr;
+
+	omap_writel((omap_readl(OMAP1510_LB_CLOCK_DIV) & 0xfffffff8) | 0x4,
+	       OMAP1510_LB_CLOCK_DIV);
+
+	/* Configure the Local Bus MMU table */
+	for (tlb = 0; tlb < OMAP1510_LB_MEMSIZE; tlb++) {
+		lbaddr = tlb * 0x00100000 + OMAP1510_LB_OFFSET;
+		physaddr = tlb * 0x00100000 + PHYS_OFFSET;
+		omap_writel((lbaddr & 0x0fffffff) >> 22, OMAP1510_LB_MMU_CAM_H);
+		omap_writel(((lbaddr & 0x003ffc00) >> 6) | 0xc,
+		       OMAP1510_LB_MMU_CAM_L);
+		omap_writel(physaddr >> 16, OMAP1510_LB_MMU_RAM_H);
+		omap_writel((physaddr & 0x0000fc00) | 0x300, OMAP1510_LB_MMU_RAM_L);
+		omap_writel(tlb << 4, OMAP1510_LB_MMU_LCK);
+		omap_writel(0x1, OMAP1510_LB_MMU_LD_TLB);
+	}
+
+	/* Enable the walking table */
+	omap_writel(omap_readl(OMAP1510_LB_MMU_CTL) | (1 << 3), OMAP1510_LB_MMU_CTL);
+	udelay(200);
+
+	return 0;
+}
+
+static void omap_1510_local_bus_reset(void)
+{
+	omap_1510_local_bus_power(1);
+	omap_1510_local_bus_init();
+}
 
 /* ULPD_DPLL_CTRL */
 #define DPLL_IOB		(1 << 13)
@@ -456,13 +625,13 @@ static void __init omap_1510_usb_init(struct omap_usb_config *config)
 
 	printk("USB: hmc %d", config->hmc_mode);
 	if (config->pins[0])
-		printk(", usb0 %d wires%s", config->pins[0],
+		pr_cont(", usb0 %d wires%s", config->pins[0],
 			is_usb0_device(config) ? " (dev)" : "");
 	if (config->pins[1])
-		printk(", usb1 %d wires", config->pins[1]);
+		pr_cont(", usb1 %d wires", config->pins[1]);
 	if (config->pins[2])
-		printk(", usb2 %d wires", config->pins[2]);
-	printk("\n");
+		pr_cont(", usb2 %d wires", config->pins[2]);
+	pr_cont("\n");
 
 	/* use DPLL for 48 MHz function clock */
 	pr_debug("APLL %04x DPLL %04x REQ %04x\n", omap_readw(ULPD_APLL_CTRL),
@@ -483,7 +652,7 @@ static void __init omap_1510_usb_init(struct omap_usb_config *config)
 	while (!(omap_readw(ULPD_DPLL_CTRL) & DPLL_LOCK))
 		cpu_relax();
 
-#ifdef	CONFIG_USB_GADGET_OMAP
+#if IS_ENABLED(CONFIG_USB_OMAP)
 	if (config->register_dev) {
 		int status;
 
@@ -495,25 +664,33 @@ static void __init omap_1510_usb_init(struct omap_usb_config *config)
 	}
 #endif
 
-#if	defined(CONFIG_USB_OHCI_HCD) || defined(CONFIG_USB_OHCI_HCD_MODULE)
-	if (config->register_host) {
+	if (IS_ENABLED(CONFIG_USB_OHCI_HCD) && config->register_host) {
 		int status;
 
 		ohci_device.dev.platform_data = config;
+		dma_direct_set_offset(&ohci_device.dev, PHYS_OFFSET,
+				      OMAP1510_LB_OFFSET, (u64)-1);
 		status = platform_device_register(&ohci_device);
 		if (status)
 			pr_debug("can't register OHCI device, %d\n", status);
 		/* hcd explicitly gates 48MHz */
+
+		config->lb_reset = omap_1510_local_bus_reset;
 	}
-#endif
 }
 
 #else
 static inline void omap_1510_usb_init(struct omap_usb_config *config) {}
 #endif
 
-void __init omap1_usb_init(struct omap_usb_config *pdata)
+void __init omap1_usb_init(struct omap_usb_config *_pdata)
 {
+	struct omap_usb_config *pdata;
+
+	pdata = kmemdup(_pdata, sizeof(*pdata), GFP_KERNEL);
+	if (!pdata)
+		return;
+
 	pdata->usb0_init = omap1_usb0_init;
 	pdata->usb1_init = omap1_usb1_init;
 	pdata->usb2_init = omap1_usb2_init;

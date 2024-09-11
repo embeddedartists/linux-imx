@@ -10,6 +10,7 @@
  * system is licensed under the GPL.
  * See the file COPYING in this distribution for more information.
  ************************************************************************/
+#include <linux/io-64-nonatomic-lo-hi.h>
 #ifndef _S2IO_H
 #define _S2IO_H
 
@@ -970,27 +971,6 @@ struct s2io_nic {
 #define RESET_ERROR 1
 #define CMD_ERROR   2
 
-/*  OS related system calls */
-#ifndef readq
-static inline u64 readq(void __iomem *addr)
-{
-	u64 ret = 0;
-	ret = readl(addr + 4);
-	ret <<= 32;
-	ret |= readl(addr);
-
-	return ret;
-}
-#endif
-
-#ifndef writeq
-static inline void writeq(u64 val, void __iomem *addr)
-{
-	writel((u32) (val), addr);
-	writel((u32) (val >> 32), (addr + 4));
-}
-#endif
-
 /*
  * Some registers have to be written in a particular order to
  * expect correct hardware operation. The macro SPECIAL_REG_WRITE
@@ -1075,9 +1055,8 @@ static inline void SPECIAL_REG_WRITE(u64 val, void __iomem *addr, int order)
 /*
  * Prototype declaration.
  */
-static int __devinit s2io_init_nic(struct pci_dev *pdev,
-				   const struct pci_device_id *pre);
-static void __devexit s2io_rem_nic(struct pci_dev *pdev);
+static int s2io_init_nic(struct pci_dev *pdev, const struct pci_device_id *pre);
+static void s2io_rem_nic(struct pci_dev *pdev);
 static int init_shared_mem(struct s2io_nic *sp);
 static void free_shared_mem(struct s2io_nic *sp);
 static int init_nic(struct s2io_nic *nic);
@@ -1086,10 +1065,8 @@ static void s2io_txpic_intr_handle(struct s2io_nic *sp);
 static void tx_intr_handler(struct fifo_info *fifo_data);
 static void s2io_handle_errors(void * dev_id);
 
-static int s2io_starter(void);
-static void s2io_closer(void);
-static void s2io_tx_watchdog(struct net_device *dev);
-static void s2io_set_multicast(struct net_device *dev);
+static void s2io_tx_watchdog(struct net_device *dev, unsigned int txqueue);
+static void s2io_set_multicast(struct net_device *dev, bool may_sleep);
 static int rx_osm_handler(struct ring_info *ring_data, struct RxD_t * rxdp);
 static void s2io_link(struct s2io_nic * sp, int link);
 static void s2io_reset(struct s2io_nic * sp);
@@ -1097,7 +1074,7 @@ static int s2io_poll_msix(struct napi_struct *napi, int budget);
 static int s2io_poll_inta(struct napi_struct *napi, int budget);
 static void s2io_init_pci(struct s2io_nic * sp);
 static int do_s2io_prog_unicast(struct net_device *dev, u8 *addr);
-static void s2io_alarm_handle(unsigned long data);
+static void s2io_alarm_handle(struct timer_list *t);
 static irqreturn_t
 s2io_msix_ring_handle(int irq, void *dev_id);
 static irqreturn_t
@@ -1110,7 +1087,7 @@ static int s2io_set_swapper(struct s2io_nic * sp);
 static void s2io_card_down(struct s2io_nic *nic);
 static int s2io_card_up(struct s2io_nic *nic);
 static int wait_for_cmd_complete(void __iomem *addr, u64 busy_bit,
-					int bit_state);
+				 int bit_state, bool may_sleep);
 static int s2io_add_isr(struct s2io_nic * sp);
 static void s2io_rem_isr(struct s2io_nic * sp);
 

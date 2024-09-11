@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  Support for the interrupt controllers found on Power Macintosh,
  *  currently Apple's "Grand Central" interrupt controller in all
@@ -7,12 +8,6 @@
  *  Copyright (C) 1997 Paul Mackerras (paulus@samba.org)
  *  Copyright (C) 2005 Benjamin Herrenschmidt (benh@kernel.crashing.org)
  *                     IBM, Corp.
- *
- *  This program is free software; you can redistribute it and/or
- *  modify it under the terms of the GNU General Public License
- *  as published by the Free Software Foundation; either version
- *  2 of the License, or (at your option) any later version.
- *
  */
 
 #include <linux/stddef.h>
@@ -57,11 +52,11 @@ static int max_real_irqs;
 
 static DEFINE_RAW_SPINLOCK(pmac_pic_lock);
 
-#define NR_MASK_WORDS	((NR_IRQS + 31) / 32)
-static unsigned long ppc_lost_interrupts[NR_MASK_WORDS];
-static unsigned long ppc_cached_irq_mask[NR_MASK_WORDS];
+/* The max irq number this driver deals with is 128; see max_irqs */
+static DECLARE_BITMAP(ppc_lost_interrupts, 128);
+static DECLARE_BITMAP(ppc_cached_irq_mask, 128);
 static int pmac_irq_cascade = -1;
-static struct irq_host *pmac_pic_host;
+static struct irq_domain *pmac_pic_host;
 
 static void __pmac_retrigger(unsigned int irq_nr)
 {
@@ -251,30 +246,18 @@ static unsigned int pmac_pic_get_irq(void)
 	}
 	raw_spin_unlock_irqrestore(&pmac_pic_lock, flags);
 	if (unlikely(irq < 0))
-		return NO_IRQ;
+		return 0;
 	return irq_linear_revmap(pmac_pic_host, irq);
 }
 
-#ifdef CONFIG_XMON
-static struct irqaction xmon_action = {
-	.handler	= xmon_irq,
-	.flags		= 0,
-	.name		= "NMI - XMON"
-};
-#endif
-
-static struct irqaction gatwick_cascade_action = {
-	.handler	= gatwick_action,
-	.name		= "cascade",
-};
-
-static int pmac_pic_host_match(struct irq_host *h, struct device_node *node)
+static int pmac_pic_host_match(struct irq_domain *h, struct device_node *node,
+			       enum irq_domain_bus_token bus_token)
 {
 	/* We match all, we don't always have a node anyway */
 	return 1;
 }
 
-static int pmac_pic_host_map(struct irq_host *h, unsigned int virq,
+static int pmac_pic_host_map(struct irq_domain *h, unsigned int virq,
 			     irq_hw_number_t hw)
 {
 	if (hw >= max_irqs)
@@ -288,21 +271,10 @@ static int pmac_pic_host_map(struct irq_host *h, unsigned int virq,
 	return 0;
 }
 
-static int pmac_pic_host_xlate(struct irq_host *h, struct device_node *ct,
-			       const u32 *intspec, unsigned int intsize,
-			       irq_hw_number_t *out_hwirq,
-			       unsigned int *out_flags)
-
-{
-	*out_flags = IRQ_TYPE_NONE;
-	*out_hwirq = *intspec;
-	return 0;
-}
-
-static struct irq_host_ops pmac_pic_host_ops = {
+static const struct irq_domain_ops pmac_pic_host_ops = {
 	.match = pmac_pic_host_match,
 	.map = pmac_pic_host_map,
-	.xlate = pmac_pic_host_xlate,
+	.xlate = irq_domain_xlate_onecell,
 };
 
 static void __init pmac_pic_probe_oldstyle(void)
@@ -332,6 +304,9 @@ static void __init pmac_pic_probe_oldstyle(void)
 		max_irqs = max_real_irqs = 64;
 
 		/* We might have a second cascaded heathrow */
+
+		/* Compensate for of_node_put() in of_find_node_by_name() */
+		of_node_get(master);
 		slave = of_find_node_by_name(master, "mac-io");
 
 		/* Check ordering of master & slave */
@@ -352,9 +327,8 @@ static void __init pmac_pic_probe_oldstyle(void)
 	/*
 	 * Allocate an irq host
 	 */
-	pmac_pic_host = irq_alloc_host(master, IRQ_HOST_MAP_LINEAR, max_irqs,
-				       &pmac_pic_host_ops,
-				       max_irqs);
+	pmac_pic_host = irq_domain_add_linear(master, max_irqs,
+					      &pmac_pic_host_ops, NULL);
 	BUG_ON(pmac_pic_host == NULL);
 	irq_set_default_host(pmac_pic_host);
 
@@ -371,8 +345,8 @@ static void __init pmac_pic_probe_oldstyle(void)
 			(addr + 0x10);
 	of_node_put(master);
 
-	printk(KERN_INFO "irq: Found primary Apple PIC %s for %d irqs\n",
-	       master->full_name, max_real_irqs);
+	printk(KERN_INFO "irq: Found primary Apple PIC %pOF for %d irqs\n",
+	       master, max_real_irqs);
 
 	/* Map interrupts of cascaded controller */
 	if (slave && !of_address_to_resource(slave, 0, &r)) {
@@ -385,8 +359,8 @@ static void __init pmac_pic_probe_oldstyle(void)
 				(addr + 0x10);
 		pmac_irq_cascade = irq_of_parse_and_map(slave, 0);
 
-		printk(KERN_INFO "irq: Found slave Apple PIC %s for %d irqs"
-		       " cascade: %d\n", slave->full_name,
+		printk(KERN_INFO "irq: Found slave Apple PIC %pOF for %d irqs"
+		       " cascade: %d\n", slave,
 		       max_irqs - max_real_irqs, pmac_irq_cascade);
 	}
 	of_node_put(slave);
@@ -396,17 +370,22 @@ static void __init pmac_pic_probe_oldstyle(void)
 		out_le32(&pmac_irq_hw[i]->enable, 0);
 
 	/* Hookup cascade irq */
-	if (slave && pmac_irq_cascade != NO_IRQ)
-		setup_irq(pmac_irq_cascade, &gatwick_cascade_action);
+	if (slave && pmac_irq_cascade) {
+		if (request_irq(pmac_irq_cascade, gatwick_action,
+				IRQF_NO_THREAD, "cascade", NULL))
+			pr_err("Failed to register cascade interrupt\n");
+	}
 
 	printk(KERN_INFO "irq: System has %d possible interrupts\n", max_irqs);
 #ifdef CONFIG_XMON
-	setup_irq(irq_create_mapping(NULL, 20), &xmon_action);
+	i = irq_create_mapping(NULL, 20);
+	if (request_irq(i, xmon_irq, IRQF_NO_THREAD, "NMI - XMON", NULL))
+		pr_err("Failed to register NMI-XMON interrupt\n");
 #endif
 }
 
-int of_irq_map_oldworld(struct device_node *device, int index,
-			struct of_irq *out_irq)
+int of_irq_parse_oldworld(struct device_node *device, int index,
+			struct of_phandle_args *out_irq)
 {
 	const u32 *ints = NULL;
 	int intlen;
@@ -424,7 +403,7 @@ int of_irq_map_oldworld(struct device_node *device, int index,
 		if (ints != NULL)
 			break;
 		device = device->parent;
-		if (device && strcmp(device->type, "pci") != 0)
+		if (!of_node_is_type(device, "pci"))
 			break;
 	}
 	if (ints == NULL)
@@ -434,9 +413,9 @@ int of_irq_map_oldworld(struct device_node *device, int index,
 	if (index >= intlen)
 		return -EINVAL;
 
-	out_irq->controller = NULL;
-	out_irq->specifier[0] = ints[index];
-	out_irq->size = 1;
+	out_irq->np = NULL;
+	out_irq->args[0] = ints[index];
+	out_irq->args_count = 1;
 
 	return 0;
 }
@@ -451,9 +430,11 @@ static void __init pmac_pic_setup_mpic_nmi(struct mpic *mpic)
 	pswitch = of_find_node_by_name(NULL, "programmer-switch");
 	if (pswitch) {
 		nmi_irq = irq_of_parse_and_map(pswitch, 0);
-		if (nmi_irq != NO_IRQ) {
+		if (nmi_irq) {
 			mpic_irq_set_priority(nmi_irq, 9);
-			setup_irq(nmi_irq, &xmon_action);
+			if (request_irq(nmi_irq, xmon_irq, IRQF_NO_THREAD,
+					"NMI - XMON", NULL))
+				pr_err("Failed to register NMI-XMON interrupt\n");
 		}
 		of_node_put(pswitch);
 	}
@@ -469,7 +450,6 @@ static struct mpic * __init pmac_setup_one_mpic(struct device_node *np,
 
 	pmac_call_feature(PMAC_FTR_ENABLE_MPIC, np, 0, 0);
 
-	flags |= MPIC_WANTS_RESET;
 	if (of_get_property(np, "big-endian", NULL))
 		flags |= MPIC_BIG_ENDIAN;
 
@@ -494,15 +474,16 @@ static int __init pmac_pic_probe_mpic(void)
 	struct device_node *np, *master = NULL, *slave = NULL;
 
 	/* We can have up to 2 MPICs cascaded */
-	for (np = NULL; (np = of_find_node_by_type(np, "open-pic"))
-		     != NULL;) {
+	for_each_node_by_type(np, "open-pic") {
 		if (master == NULL &&
 		    of_get_property(np, "interrupts", NULL) == NULL)
 			master = of_node_get(np);
 		else if (slave == NULL)
 			slave = of_node_get(np);
-		if (master && slave)
+		if (master && slave) {
+			of_node_put(np);
 			break;
+		}
 	}
 
 	/* Check for bogus setups */
@@ -542,7 +523,7 @@ static int __init pmac_pic_probe_mpic(void)
 void __init pmac_pic_init(void)
 {
 	/* We configure the OF parsing based on our oldworld vs. newworld
-	 * platform type and wether we were booted by BootX.
+	 * platform type and whether we were booted by BootX.
 	 */
 #ifdef CONFIG_PPC32
 	if (!pmac_newworld)
@@ -560,13 +541,13 @@ void __init pmac_pic_init(void)
 
 		for_each_node_with_property(np, "interrupt-controller") {
 			/* Skip /chosen/interrupt-controller */
-			if (strcmp(np->name, "chosen") == 0)
+			if (of_node_name_eq(np, "chosen"))
 				continue;
 			/* It seems like at least one person wants
 			 * to use BootX on a machine with an AppleKiwi
 			 * controller which happens to pretend to be an
 			 * interrupt controller too. */
-			if (strcmp(np->name, "AppleKiwi") == 0)
+			if (of_node_name_eq(np, "AppleKiwi"))
 				continue;
 			/* I think we found one ! */
 			of_irq_dflt_pic = np;
@@ -612,6 +593,7 @@ static int pmacpic_find_viaint(void)
 	if (np == NULL)
 		goto not_found;
 	viaint = irq_of_parse_and_map(np, 0);
+	of_node_put(np);
 
 not_found:
 #endif /* CONFIG_ADB_PMU */

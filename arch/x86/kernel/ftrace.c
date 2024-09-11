@@ -1,5 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
- * Code for replacing ftrace calls with jumps.
+ * Dynamic function tracing support.
  *
  * Copyright (C) 2007-2008 Steven Rostedt <srostedt@redhat.com>
  *
@@ -17,376 +18,605 @@
 #include <linux/ftrace.h>
 #include <linux/percpu.h>
 #include <linux/sched.h>
+#include <linux/slab.h>
 #include <linux/init.h>
 #include <linux/list.h>
 #include <linux/module.h>
+#include <linux/memory.h>
+#include <linux/vmalloc.h>
 
 #include <trace/syscall.h>
 
-#include <asm/cacheflush.h>
+#include <asm/set_memory.h>
+#include <asm/kprobes.h>
 #include <asm/ftrace.h>
 #include <asm/nops.h>
-#include <asm/nmi.h>
-
+#include <asm/text-patching.h>
 
 #ifdef CONFIG_DYNAMIC_FTRACE
 
-/*
- * modifying_code is set to notify NMIs that they need to use
- * memory barriers when entering or exiting. But we don't want
- * to burden NMIs with unnecessary memory barriers when code
- * modification is not being done (which is most of the time).
- *
- * A mutex is already held when ftrace_arch_code_modify_prepare
- * and post_process are called. No locks need to be taken here.
- *
- * Stop machine will make sure currently running NMIs are done
- * and new NMIs will see the updated variable before we need
- * to worry about NMIs doing memory barriers.
- */
-static int modifying_code __read_mostly;
-static DEFINE_PER_CPU(int, save_modifying_code);
+static int ftrace_poke_late = 0;
 
 int ftrace_arch_code_modify_prepare(void)
+    __acquires(&text_mutex)
 {
-	set_kernel_text_rw();
-	set_all_modules_text_rw();
-	modifying_code = 1;
+	/*
+	 * Need to grab text_mutex to prevent a race from module loading
+	 * and live kernel patching from changing the text permissions while
+	 * ftrace has it set to "read/write".
+	 */
+	mutex_lock(&text_mutex);
+	ftrace_poke_late = 1;
 	return 0;
 }
 
 int ftrace_arch_code_modify_post_process(void)
+    __releases(&text_mutex)
 {
-	modifying_code = 0;
-	set_all_modules_text_ro();
-	set_kernel_text_ro();
+	/*
+	 * ftrace_make_{call,nop}() may be called during
+	 * module load, and we need to finish the text_poke_queue()
+	 * that they do, here.
+	 */
+	text_poke_finish();
+	ftrace_poke_late = 0;
+	mutex_unlock(&text_mutex);
 	return 0;
 }
 
-union ftrace_code_union {
-	char code[MCOUNT_INSN_SIZE];
-	struct {
-		char e8;
-		int offset;
-	} __attribute__((packed));
-};
-
-static int ftrace_calc_offset(long ip, long addr)
+static const char *ftrace_nop_replace(void)
 {
-	return (int)(addr - ip);
+	return x86_nops[5];
 }
 
-static unsigned char *ftrace_call_replace(unsigned long ip, unsigned long addr)
+static const char *ftrace_call_replace(unsigned long ip, unsigned long addr)
 {
-	static union ftrace_code_union calc;
+	return text_gen_insn(CALL_INSN_OPCODE, (void *)ip, (void *)addr);
+}
 
-	calc.e8		= 0xe8;
-	calc.offset	= ftrace_calc_offset(ip + MCOUNT_INSN_SIZE, addr);
+static int ftrace_verify_code(unsigned long ip, const char *old_code)
+{
+	char cur_code[MCOUNT_INSN_SIZE];
 
 	/*
-	 * No locking needed, this must be called via kstop_machine
-	 * which in essence is like running on a uniprocessor machine.
+	 * Note:
+	 * We are paranoid about modifying text, as if a bug was to happen, it
+	 * could cause us to read or write to someplace that could cause harm.
+	 * Carefully read and modify the code with probe_kernel_*(), and make
+	 * sure what we read is what we expected it to be before modifying it.
 	 */
-	return calc.code;
+	/* read the text we want to modify */
+	if (copy_from_kernel_nofault(cur_code, (void *)ip, MCOUNT_INSN_SIZE)) {
+		WARN_ON(1);
+		return -EFAULT;
+	}
+
+	/* Make sure it is what we expect it to be */
+	if (memcmp(cur_code, old_code, MCOUNT_INSN_SIZE) != 0) {
+		WARN_ON(1);
+		return -EINVAL;
+	}
+
+	return 0;
 }
 
 /*
- * Modifying code must take extra care. On an SMP machine, if
- * the code being modified is also being executed on another CPU
- * that CPU will have undefined results and possibly take a GPF.
- * We use kstop_machine to stop other CPUS from exectuing code.
- * But this does not stop NMIs from happening. We still need
- * to protect against that. We separate out the modification of
- * the code to take care of this.
- *
- * Two buffers are added: An IP buffer and a "code" buffer.
- *
- * 1) Put the instruction pointer into the IP buffer
- *    and the new code into the "code" buffer.
- * 2) Wait for any running NMIs to finish and set a flag that says
- *    we are modifying code, it is done in an atomic operation.
- * 3) Write the code
- * 4) clear the flag.
- * 5) Wait for any running NMIs to finish.
- *
- * If an NMI is executed, the first thing it does is to call
- * "ftrace_nmi_enter". This will check if the flag is set to write
- * and if it is, it will write what is in the IP and "code" buffers.
- *
- * The trick is, it does not matter if everyone is writing the same
- * content to the code location. Also, if a CPU is executing code
- * it is OK to write to that code location if the contents being written
- * are the same as what exists.
+ * Marked __ref because it calls text_poke_early() which is .init.text. That is
+ * ok because that call will happen early, during boot, when .init sections are
+ * still present.
  */
-
-#define MOD_CODE_WRITE_FLAG (1 << 31)	/* set when NMI should do the write */
-static atomic_t nmi_running = ATOMIC_INIT(0);
-static int mod_code_status;		/* holds return value of text write */
-static void *mod_code_ip;		/* holds the IP to write to */
-static const void *mod_code_newcode;	/* holds the text to write to the IP */
-
-static unsigned nmi_wait_count;
-static atomic_t nmi_update_count = ATOMIC_INIT(0);
-
-int ftrace_arch_read_dyn_info(char *buf, int size)
+static int __ref
+ftrace_modify_code_direct(unsigned long ip, const char *old_code,
+			  const char *new_code)
 {
-	int r;
-
-	r = snprintf(buf, size, "%u %u",
-		     nmi_wait_count,
-		     atomic_read(&nmi_update_count));
-	return r;
-}
-
-static void clear_mod_flag(void)
-{
-	int old = atomic_read(&nmi_running);
-
-	for (;;) {
-		int new = old & ~MOD_CODE_WRITE_FLAG;
-
-		if (old == new)
-			break;
-
-		old = atomic_cmpxchg(&nmi_running, old, new);
-	}
-}
-
-static void ftrace_mod_code(void)
-{
-	/*
-	 * Yes, more than one CPU process can be writing to mod_code_status.
-	 *    (and the code itself)
-	 * But if one were to fail, then they all should, and if one were
-	 * to succeed, then they all should.
-	 */
-	mod_code_status = probe_kernel_write(mod_code_ip, mod_code_newcode,
-					     MCOUNT_INSN_SIZE);
-
-	/* if we fail, then kill any new writers */
-	if (mod_code_status)
-		clear_mod_flag();
-}
-
-void ftrace_nmi_enter(void)
-{
-	__this_cpu_write(save_modifying_code, modifying_code);
-
-	if (!__this_cpu_read(save_modifying_code))
-		return;
-
-	if (atomic_inc_return(&nmi_running) & MOD_CODE_WRITE_FLAG) {
-		smp_rmb();
-		ftrace_mod_code();
-		atomic_inc(&nmi_update_count);
-	}
-	/* Must have previous changes seen before executions */
-	smp_mb();
-}
-
-void ftrace_nmi_exit(void)
-{
-	if (!__this_cpu_read(save_modifying_code))
-		return;
-
-	/* Finish all executions before clearing nmi_running */
-	smp_mb();
-	atomic_dec(&nmi_running);
-}
-
-static void wait_for_nmi_and_set_mod_flag(void)
-{
-	if (!atomic_cmpxchg(&nmi_running, 0, MOD_CODE_WRITE_FLAG))
-		return;
-
-	do {
-		cpu_relax();
-	} while (atomic_cmpxchg(&nmi_running, 0, MOD_CODE_WRITE_FLAG));
-
-	nmi_wait_count++;
-}
-
-static void wait_for_nmi(void)
-{
-	if (!atomic_read(&nmi_running))
-		return;
-
-	do {
-		cpu_relax();
-	} while (atomic_read(&nmi_running));
-
-	nmi_wait_count++;
-}
-
-static inline int
-within(unsigned long addr, unsigned long start, unsigned long end)
-{
-	return addr >= start && addr < end;
-}
-
-static int
-do_ftrace_mod_code(unsigned long ip, const void *new_code)
-{
-	/*
-	 * On x86_64, kernel text mappings are mapped read-only with
-	 * CONFIG_DEBUG_RODATA. So we use the kernel identity mapping instead
-	 * of the kernel text mapping to modify the kernel text.
-	 *
-	 * For 32bit kernels, these mappings are same and we can use
-	 * kernel identity mapping to modify code.
-	 */
-	if (within(ip, (unsigned long)_text, (unsigned long)_etext))
-		ip = (unsigned long)__va(__pa(ip));
-
-	mod_code_ip = (void *)ip;
-	mod_code_newcode = new_code;
-
-	/* The buffers need to be visible before we let NMIs write them */
-	smp_mb();
-
-	wait_for_nmi_and_set_mod_flag();
-
-	/* Make sure all running NMIs have finished before we write the code */
-	smp_mb();
-
-	ftrace_mod_code();
-
-	/* Make sure the write happens before clearing the bit */
-	smp_mb();
-
-	clear_mod_flag();
-	wait_for_nmi();
-
-	return mod_code_status;
-}
-
-static const unsigned char *ftrace_nop_replace(void)
-{
-	return ideal_nops[NOP_ATOMIC5];
-}
-
-static int
-ftrace_modify_code(unsigned long ip, unsigned const char *old_code,
-		   unsigned const char *new_code)
-{
-	unsigned char replaced[MCOUNT_INSN_SIZE];
-
-	/*
-	 * Note: Due to modules and __init, code can
-	 *  disappear and change, we need to protect against faulting
-	 *  as well as code changing. We do this by using the
-	 *  probe_kernel_* functions.
-	 *
-	 * No real locking needed, this code is run through
-	 * kstop_machine, or before SMP starts.
-	 */
-
-	/* read the text we want to modify */
-	if (probe_kernel_read(replaced, (void *)ip, MCOUNT_INSN_SIZE))
-		return -EFAULT;
-
-	/* Make sure it is what we expect it to be */
-	if (memcmp(replaced, old_code, MCOUNT_INSN_SIZE) != 0)
-		return -EINVAL;
+	int ret = ftrace_verify_code(ip, old_code);
+	if (ret)
+		return ret;
 
 	/* replace the text with the new text */
-	if (do_ftrace_mod_code(ip, new_code))
-		return -EPERM;
-
-	sync_core();
-
+	if (ftrace_poke_late)
+		text_poke_queue((void *)ip, new_code, MCOUNT_INSN_SIZE, NULL);
+	else
+		text_poke_early((void *)ip, new_code, MCOUNT_INSN_SIZE);
 	return 0;
 }
 
-int ftrace_make_nop(struct module *mod,
-		    struct dyn_ftrace *rec, unsigned long addr)
+int ftrace_make_nop(struct module *mod, struct dyn_ftrace *rec, unsigned long addr)
 {
-	unsigned const char *new, *old;
 	unsigned long ip = rec->ip;
+	const char *new, *old;
 
 	old = ftrace_call_replace(ip, addr);
 	new = ftrace_nop_replace();
 
-	return ftrace_modify_code(rec->ip, old, new);
+	/*
+	 * On boot up, and when modules are loaded, the MCOUNT_ADDR
+	 * is converted to a nop, and will never become MCOUNT_ADDR
+	 * again. This code is either running before SMP (on boot up)
+	 * or before the code will ever be executed (module load).
+	 * We do not want to use the breakpoint version in this case,
+	 * just modify the code directly.
+	 */
+	if (addr == MCOUNT_ADDR)
+		return ftrace_modify_code_direct(ip, old, new);
+
+	/*
+	 * x86 overrides ftrace_replace_code -- this function will never be used
+	 * in this case.
+	 */
+	WARN_ONCE(1, "invalid use of ftrace_make_nop");
+	return -EINVAL;
 }
 
 int ftrace_make_call(struct dyn_ftrace *rec, unsigned long addr)
 {
-	unsigned const char *new, *old;
 	unsigned long ip = rec->ip;
+	const char *new, *old;
 
 	old = ftrace_nop_replace();
 	new = ftrace_call_replace(ip, addr);
 
-	return ftrace_modify_code(rec->ip, old, new);
+	/* Should only be called when module is loaded */
+	return ftrace_modify_code_direct(rec->ip, old, new);
+}
+
+/*
+ * Should never be called:
+ *  As it is only called by __ftrace_replace_code() which is called by
+ *  ftrace_replace_code() that x86 overrides, and by ftrace_update_code()
+ *  which is called to turn mcount into nops or nops into function calls
+ *  but not to convert a function from not using regs to one that uses
+ *  regs, which ftrace_modify_call() is for.
+ */
+int ftrace_modify_call(struct dyn_ftrace *rec, unsigned long old_addr,
+				 unsigned long addr)
+{
+	WARN_ON(1);
+	return -EINVAL;
 }
 
 int ftrace_update_ftrace_func(ftrace_func_t func)
 {
-	unsigned long ip = (unsigned long)(&ftrace_call);
-	unsigned char old[MCOUNT_INSN_SIZE], *new;
-	int ret;
+	unsigned long ip;
+	const char *new;
 
-	memcpy(old, &ftrace_call, MCOUNT_INSN_SIZE);
+	ip = (unsigned long)(&ftrace_call);
 	new = ftrace_call_replace(ip, (unsigned long)func);
-	ret = ftrace_modify_code(ip, old, new);
+	text_poke_bp((void *)ip, new, MCOUNT_INSN_SIZE, NULL);
 
-	return ret;
-}
-
-int __init ftrace_dyn_arch_init(void *data)
-{
-	/* The return code is retured via data */
-	*(unsigned long *)data = 0;
+	ip = (unsigned long)(&ftrace_regs_call);
+	new = ftrace_call_replace(ip, (unsigned long)func);
+	text_poke_bp((void *)ip, new, MCOUNT_INSN_SIZE, NULL);
 
 	return 0;
 }
+
+void ftrace_replace_code(int enable)
+{
+	struct ftrace_rec_iter *iter;
+	struct dyn_ftrace *rec;
+	const char *new, *old;
+	int ret;
+
+	for_ftrace_rec_iter(iter) {
+		rec = ftrace_rec_iter_record(iter);
+
+		switch (ftrace_test_record(rec, enable)) {
+		case FTRACE_UPDATE_IGNORE:
+		default:
+			continue;
+
+		case FTRACE_UPDATE_MAKE_CALL:
+			old = ftrace_nop_replace();
+			break;
+
+		case FTRACE_UPDATE_MODIFY_CALL:
+		case FTRACE_UPDATE_MAKE_NOP:
+			old = ftrace_call_replace(rec->ip, ftrace_get_addr_curr(rec));
+			break;
+		}
+
+		ret = ftrace_verify_code(rec->ip, old);
+		if (ret) {
+			ftrace_bug(ret, rec);
+			return;
+		}
+	}
+
+	for_ftrace_rec_iter(iter) {
+		rec = ftrace_rec_iter_record(iter);
+
+		switch (ftrace_test_record(rec, enable)) {
+		case FTRACE_UPDATE_IGNORE:
+		default:
+			continue;
+
+		case FTRACE_UPDATE_MAKE_CALL:
+		case FTRACE_UPDATE_MODIFY_CALL:
+			new = ftrace_call_replace(rec->ip, ftrace_get_addr_new(rec));
+			break;
+
+		case FTRACE_UPDATE_MAKE_NOP:
+			new = ftrace_nop_replace();
+			break;
+		}
+
+		text_poke_queue((void *)rec->ip, new, MCOUNT_INSN_SIZE, NULL);
+		ftrace_update_record(rec, enable);
+	}
+	text_poke_finish();
+}
+
+void arch_ftrace_update_code(int command)
+{
+	ftrace_modify_all_code(command);
+}
+
+int __init ftrace_dyn_arch_init(void)
+{
+	return 0;
+}
+
+/* Currently only x86_64 supports dynamic trampolines */
+#ifdef CONFIG_X86_64
+
+#ifdef CONFIG_MODULES
+#include <linux/moduleloader.h>
+/* Module allocation simplifies allocating memory for code */
+static inline void *alloc_tramp(unsigned long size)
+{
+	return module_alloc(size);
+}
+static inline void tramp_free(void *tramp)
+{
+	module_memfree(tramp);
+}
+#else
+/* Trampolines can only be created if modules are supported */
+static inline void *alloc_tramp(unsigned long size)
+{
+	return NULL;
+}
+static inline void tramp_free(void *tramp) { }
 #endif
+
+/* Defined as markers to the end of the ftrace default trampolines */
+extern void ftrace_regs_caller_end(void);
+extern void ftrace_regs_caller_ret(void);
+extern void ftrace_caller_end(void);
+extern void ftrace_caller_op_ptr(void);
+extern void ftrace_regs_caller_op_ptr(void);
+extern void ftrace_regs_caller_jmp(void);
+
+/* movq function_trace_op(%rip), %rdx */
+/* 0x48 0x8b 0x15 <offset-to-ftrace_trace_op (4 bytes)> */
+#define OP_REF_SIZE	7
+
+/*
+ * The ftrace_ops is passed to the function callback. Since the
+ * trampoline only services a single ftrace_ops, we can pass in
+ * that ops directly.
+ *
+ * The ftrace_op_code_union is used to create a pointer to the
+ * ftrace_ops that will be passed to the callback function.
+ */
+union ftrace_op_code_union {
+	char code[OP_REF_SIZE];
+	struct {
+		char op[3];
+		int offset;
+	} __attribute__((packed));
+};
+
+#define RET_SIZE		1
+
+static unsigned long
+create_trampoline(struct ftrace_ops *ops, unsigned int *tramp_size)
+{
+	unsigned long start_offset;
+	unsigned long end_offset;
+	unsigned long op_offset;
+	unsigned long call_offset;
+	unsigned long jmp_offset;
+	unsigned long offset;
+	unsigned long npages;
+	unsigned long size;
+	unsigned long retq;
+	unsigned long *ptr;
+	void *trampoline;
+	void *ip;
+	/* 48 8b 15 <offset> is movq <offset>(%rip), %rdx */
+	unsigned const char op_ref[] = { 0x48, 0x8b, 0x15 };
+	union ftrace_op_code_union op_ptr;
+	int ret;
+
+	if (ops->flags & FTRACE_OPS_FL_SAVE_REGS) {
+		start_offset = (unsigned long)ftrace_regs_caller;
+		end_offset = (unsigned long)ftrace_regs_caller_end;
+		op_offset = (unsigned long)ftrace_regs_caller_op_ptr;
+		call_offset = (unsigned long)ftrace_regs_call;
+		jmp_offset = (unsigned long)ftrace_regs_caller_jmp;
+	} else {
+		start_offset = (unsigned long)ftrace_caller;
+		end_offset = (unsigned long)ftrace_caller_end;
+		op_offset = (unsigned long)ftrace_caller_op_ptr;
+		call_offset = (unsigned long)ftrace_call;
+		jmp_offset = 0;
+	}
+
+	size = end_offset - start_offset;
+
+	/*
+	 * Allocate enough size to store the ftrace_caller code,
+	 * the iret , as well as the address of the ftrace_ops this
+	 * trampoline is used for.
+	 */
+	trampoline = alloc_tramp(size + RET_SIZE + sizeof(void *));
+	if (!trampoline)
+		return 0;
+
+	*tramp_size = size + RET_SIZE + sizeof(void *);
+	npages = DIV_ROUND_UP(*tramp_size, PAGE_SIZE);
+
+	/* Copy ftrace_caller onto the trampoline memory */
+	ret = copy_from_kernel_nofault(trampoline, (void *)start_offset, size);
+	if (WARN_ON(ret < 0))
+		goto fail;
+
+	ip = trampoline + size;
+
+	/* The trampoline ends with ret(q) */
+	retq = (unsigned long)ftrace_stub;
+	ret = copy_from_kernel_nofault(ip, (void *)retq, RET_SIZE);
+	if (WARN_ON(ret < 0))
+		goto fail;
+
+	/* No need to test direct calls on created trampolines */
+	if (ops->flags & FTRACE_OPS_FL_SAVE_REGS) {
+		/* NOP the jnz 1f; but make sure it's a 2 byte jnz */
+		ip = trampoline + (jmp_offset - start_offset);
+		if (WARN_ON(*(char *)ip != 0x75))
+			goto fail;
+		ret = copy_from_kernel_nofault(ip, x86_nops[2], 2);
+		if (ret < 0)
+			goto fail;
+	}
+
+	/*
+	 * The address of the ftrace_ops that is used for this trampoline
+	 * is stored at the end of the trampoline. This will be used to
+	 * load the third parameter for the callback. Basically, that
+	 * location at the end of the trampoline takes the place of
+	 * the global function_trace_op variable.
+	 */
+
+	ptr = (unsigned long *)(trampoline + size + RET_SIZE);
+	*ptr = (unsigned long)ops;
+
+	op_offset -= start_offset;
+	memcpy(&op_ptr, trampoline + op_offset, OP_REF_SIZE);
+
+	/* Are we pointing to the reference? */
+	if (WARN_ON(memcmp(op_ptr.op, op_ref, 3) != 0))
+		goto fail;
+
+	/* Load the contents of ptr into the callback parameter */
+	offset = (unsigned long)ptr;
+	offset -= (unsigned long)trampoline + op_offset + OP_REF_SIZE;
+
+	op_ptr.offset = offset;
+
+	/* put in the new offset to the ftrace_ops */
+	memcpy(trampoline + op_offset, &op_ptr, OP_REF_SIZE);
+
+	/* put in the call to the function */
+	mutex_lock(&text_mutex);
+	call_offset -= start_offset;
+	memcpy(trampoline + call_offset,
+	       text_gen_insn(CALL_INSN_OPCODE,
+			     trampoline + call_offset,
+			     ftrace_ops_get_func(ops)), CALL_INSN_SIZE);
+	mutex_unlock(&text_mutex);
+
+	/* ALLOC_TRAMP flags lets us know we created it */
+	ops->flags |= FTRACE_OPS_FL_ALLOC_TRAMP;
+
+	set_vm_flush_reset_perms(trampoline);
+
+	if (likely(system_state != SYSTEM_BOOTING))
+		set_memory_ro((unsigned long)trampoline, npages);
+	set_memory_x((unsigned long)trampoline, npages);
+	return (unsigned long)trampoline;
+fail:
+	tramp_free(trampoline);
+	return 0;
+}
+
+void set_ftrace_ops_ro(void)
+{
+	struct ftrace_ops *ops;
+	unsigned long start_offset;
+	unsigned long end_offset;
+	unsigned long npages;
+	unsigned long size;
+
+	do_for_each_ftrace_op(ops, ftrace_ops_list) {
+		if (!(ops->flags & FTRACE_OPS_FL_ALLOC_TRAMP))
+			continue;
+
+		if (ops->flags & FTRACE_OPS_FL_SAVE_REGS) {
+			start_offset = (unsigned long)ftrace_regs_caller;
+			end_offset = (unsigned long)ftrace_regs_caller_end;
+		} else {
+			start_offset = (unsigned long)ftrace_caller;
+			end_offset = (unsigned long)ftrace_caller_end;
+		}
+		size = end_offset - start_offset;
+		size = size + RET_SIZE + sizeof(void *);
+		npages = DIV_ROUND_UP(size, PAGE_SIZE);
+		set_memory_ro((unsigned long)ops->trampoline, npages);
+	} while_for_each_ftrace_op(ops);
+}
+
+static unsigned long calc_trampoline_call_offset(bool save_regs)
+{
+	unsigned long start_offset;
+	unsigned long call_offset;
+
+	if (save_regs) {
+		start_offset = (unsigned long)ftrace_regs_caller;
+		call_offset = (unsigned long)ftrace_regs_call;
+	} else {
+		start_offset = (unsigned long)ftrace_caller;
+		call_offset = (unsigned long)ftrace_call;
+	}
+
+	return call_offset - start_offset;
+}
+
+void arch_ftrace_update_trampoline(struct ftrace_ops *ops)
+{
+	ftrace_func_t func;
+	unsigned long offset;
+	unsigned long ip;
+	unsigned int size;
+	const char *new;
+
+	if (!ops->trampoline) {
+		ops->trampoline = create_trampoline(ops, &size);
+		if (!ops->trampoline)
+			return;
+		ops->trampoline_size = size;
+		return;
+	}
+
+	/*
+	 * The ftrace_ops caller may set up its own trampoline.
+	 * In such a case, this code must not modify it.
+	 */
+	if (!(ops->flags & FTRACE_OPS_FL_ALLOC_TRAMP))
+		return;
+
+	offset = calc_trampoline_call_offset(ops->flags & FTRACE_OPS_FL_SAVE_REGS);
+	ip = ops->trampoline + offset;
+	func = ftrace_ops_get_func(ops);
+
+	mutex_lock(&text_mutex);
+	/* Do a safe modify in case the trampoline is executing */
+	new = ftrace_call_replace(ip, (unsigned long)func);
+	text_poke_bp((void *)ip, new, MCOUNT_INSN_SIZE, NULL);
+	mutex_unlock(&text_mutex);
+}
+
+/* Return the address of the function the trampoline calls */
+static void *addr_from_call(void *ptr)
+{
+	union text_poke_insn call;
+	int ret;
+
+	ret = copy_from_kernel_nofault(&call, ptr, CALL_INSN_SIZE);
+	if (WARN_ON_ONCE(ret < 0))
+		return NULL;
+
+	/* Make sure this is a call */
+	if (WARN_ON_ONCE(call.opcode != CALL_INSN_OPCODE)) {
+		pr_warn("Expected E8, got %x\n", call.opcode);
+		return NULL;
+	}
+
+	return ptr + CALL_INSN_SIZE + call.disp;
+}
+
+void prepare_ftrace_return(unsigned long self_addr, unsigned long *parent,
+			   unsigned long frame_pointer);
+
+/*
+ * If the ops->trampoline was not allocated, then it probably
+ * has a static trampoline func, or is the ftrace caller itself.
+ */
+static void *static_tramp_func(struct ftrace_ops *ops, struct dyn_ftrace *rec)
+{
+	unsigned long offset;
+	bool save_regs = rec->flags & FTRACE_FL_REGS_EN;
+	void *ptr;
+
+	if (ops && ops->trampoline) {
+#ifdef CONFIG_FUNCTION_GRAPH_TRACER
+		/*
+		 * We only know about function graph tracer setting as static
+		 * trampoline.
+		 */
+		if (ops->trampoline == FTRACE_GRAPH_ADDR)
+			return (void *)prepare_ftrace_return;
+#endif
+		return NULL;
+	}
+
+	offset = calc_trampoline_call_offset(save_regs);
+
+	if (save_regs)
+		ptr = (void *)FTRACE_REGS_ADDR + offset;
+	else
+		ptr = (void *)FTRACE_ADDR + offset;
+
+	return addr_from_call(ptr);
+}
+
+void *arch_ftrace_trampoline_func(struct ftrace_ops *ops, struct dyn_ftrace *rec)
+{
+	unsigned long offset;
+
+	/* If we didn't allocate this trampoline, consider it static */
+	if (!ops || !(ops->flags & FTRACE_OPS_FL_ALLOC_TRAMP))
+		return static_tramp_func(ops, rec);
+
+	offset = calc_trampoline_call_offset(ops->flags & FTRACE_OPS_FL_SAVE_REGS);
+	return addr_from_call((void *)ops->trampoline + offset);
+}
+
+void arch_ftrace_trampoline_free(struct ftrace_ops *ops)
+{
+	if (!ops || !(ops->flags & FTRACE_OPS_FL_ALLOC_TRAMP))
+		return;
+
+	tramp_free((void *)ops->trampoline);
+	ops->trampoline = 0;
+}
+
+#endif /* CONFIG_X86_64 */
+#endif /* CONFIG_DYNAMIC_FTRACE */
 
 #ifdef CONFIG_FUNCTION_GRAPH_TRACER
 
 #ifdef CONFIG_DYNAMIC_FTRACE
 extern void ftrace_graph_call(void);
 
-static int ftrace_mod_jmp(unsigned long ip,
-			  int old_offset, int new_offset)
+static const char *ftrace_jmp_replace(unsigned long ip, unsigned long addr)
 {
-	unsigned char code[MCOUNT_INSN_SIZE];
+	return text_gen_insn(JMP32_INSN_OPCODE, (void *)ip, (void *)addr);
+}
 
-	if (probe_kernel_read(code, (void *)ip, MCOUNT_INSN_SIZE))
-		return -EFAULT;
+static int ftrace_mod_jmp(unsigned long ip, void *func)
+{
+	const char *new;
 
-	if (code[0] != 0xe9 || old_offset != *(int *)(&code[1]))
-		return -EINVAL;
-
-	*(int *)(&code[1]) = new_offset;
-
-	if (do_ftrace_mod_code(ip, &code))
-		return -EPERM;
-
+	new = ftrace_jmp_replace(ip, (unsigned long)func);
+	text_poke_bp((void *)ip, new, MCOUNT_INSN_SIZE, NULL);
 	return 0;
 }
 
 int ftrace_enable_ftrace_graph_caller(void)
 {
 	unsigned long ip = (unsigned long)(&ftrace_graph_call);
-	int old_offset, new_offset;
 
-	old_offset = (unsigned long)(&ftrace_stub) - (ip + MCOUNT_INSN_SIZE);
-	new_offset = (unsigned long)(&ftrace_graph_caller) - (ip + MCOUNT_INSN_SIZE);
-
-	return ftrace_mod_jmp(ip, old_offset, new_offset);
+	return ftrace_mod_jmp(ip, &ftrace_graph_caller);
 }
 
 int ftrace_disable_ftrace_graph_caller(void)
 {
 	unsigned long ip = (unsigned long)(&ftrace_graph_call);
-	int old_offset, new_offset;
 
-	old_offset = (unsigned long)(&ftrace_graph_caller) - (ip + MCOUNT_INSN_SIZE);
-	new_offset = (unsigned long)(&ftrace_stub) - (ip + MCOUNT_INSN_SIZE);
-
-	return ftrace_mod_jmp(ip, old_offset, new_offset);
+	return ftrace_mod_jmp(ip, &ftrace_stub);
 }
 
 #endif /* !CONFIG_DYNAMIC_FTRACE */
@@ -395,14 +625,27 @@ int ftrace_disable_ftrace_graph_caller(void)
  * Hook the return address and push it in the stack of return addrs
  * in current thread info.
  */
-void prepare_ftrace_return(unsigned long *parent, unsigned long self_addr,
+void prepare_ftrace_return(unsigned long self_addr, unsigned long *parent,
 			   unsigned long frame_pointer)
 {
+	unsigned long return_hooker = (unsigned long)&return_to_handler;
 	unsigned long old;
 	int faulted;
-	struct ftrace_graph_ent trace;
-	unsigned long return_hooker = (unsigned long)
-				&return_to_handler;
+
+	/*
+	 * When resuming from suspend-to-ram, this function can be indirectly
+	 * called from early CPU startup code while the CPU is in real mode,
+	 * which would fail miserably.  Make sure the stack pointer is a
+	 * virtual address.
+	 *
+	 * This check isn't as accurate as virt_addr_valid(), but it should be
+	 * good enough for this purpose, and it's fast.
+	 */
+	if (unlikely((long)__builtin_frame_address(0) >= 0))
+		return;
+
+	if (unlikely(ftrace_graph_is_dead()))
+		return;
 
 	if (unlikely(atomic_read(&current->tracing_graph_pause)))
 		return;
@@ -437,19 +680,7 @@ void prepare_ftrace_return(unsigned long *parent, unsigned long self_addr,
 		return;
 	}
 
-	trace.func = self_addr;
-	trace.depth = current->curr_ret_stack + 1;
-
-	/* Only trace if the calling function expects to */
-	if (!ftrace_graph_entry(&trace)) {
+	if (function_graph_enter(old, self_addr, frame_pointer, parent))
 		*parent = old;
-		return;
-	}
-
-	if (ftrace_push_return_trace(old, self_addr, &trace.depth,
-		    frame_pointer) == -EBUSY) {
-		*parent = old;
-		return;
-	}
 }
 #endif /* CONFIG_FUNCTION_GRAPH_TRACER */

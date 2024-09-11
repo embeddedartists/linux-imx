@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Driver for the serial port on the 21285 StrongArm-110 core logic chip.
  *
@@ -16,6 +17,7 @@
 
 #include <asm/irq.h>
 #include <asm/mach-types.h>
+#include <asm/system_info.h>
 #include <asm/hardware/dec21285.h>
 #include <mach/hardware.h>
 
@@ -39,8 +41,43 @@
 
 static const char serial21285_name[] = "Footbridge UART";
 
-#define tx_enabled(port)	((port)->unused[0])
-#define rx_enabled(port)	((port)->unused[1])
+/*
+ * We only need 2 bits of data, so instead of creating a whole structure for
+ * this, use bits of the private_data pointer of the uart port structure.
+ */
+#define tx_enabled_bit	0
+#define rx_enabled_bit	1
+
+static bool is_enabled(struct uart_port *port, int bit)
+{
+	unsigned long *private_data = (unsigned long *)&port->private_data;
+
+	if (test_bit(bit, private_data))
+		return true;
+	return false;
+}
+
+static void enable(struct uart_port *port, int bit)
+{
+	unsigned long *private_data = (unsigned long *)&port->private_data;
+
+	set_bit(bit, private_data);
+}
+
+static void disable(struct uart_port *port, int bit)
+{
+	unsigned long *private_data = (unsigned long *)&port->private_data;
+
+	clear_bit(bit, private_data);
+}
+
+#define is_tx_enabled(port)	is_enabled(port, tx_enabled_bit)
+#define tx_enable(port)		enable(port, tx_enabled_bit)
+#define tx_disable(port)	disable(port, tx_enabled_bit)
+
+#define is_rx_enabled(port)	is_enabled(port, rx_enabled_bit)
+#define rx_enable(port)		enable(port, rx_enabled_bit)
+#define rx_disable(port)	disable(port, rx_enabled_bit)
 
 /*
  * The documented expression for selecting the divisor is:
@@ -55,36 +92,31 @@ static const char serial21285_name[] = "Footbridge UART";
 
 static void serial21285_stop_tx(struct uart_port *port)
 {
-	if (tx_enabled(port)) {
+	if (is_tx_enabled(port)) {
 		disable_irq_nosync(IRQ_CONTX);
-		tx_enabled(port) = 0;
+		tx_disable(port);
 	}
 }
 
 static void serial21285_start_tx(struct uart_port *port)
 {
-	if (!tx_enabled(port)) {
+	if (!is_tx_enabled(port)) {
 		enable_irq(IRQ_CONTX);
-		tx_enabled(port) = 1;
+		tx_enable(port);
 	}
 }
 
 static void serial21285_stop_rx(struct uart_port *port)
 {
-	if (rx_enabled(port)) {
+	if (is_rx_enabled(port)) {
 		disable_irq_nosync(IRQ_CONRX);
-		rx_enabled(port) = 0;
+		rx_disable(port);
 	}
-}
-
-static void serial21285_enable_ms(struct uart_port *port)
-{
 }
 
 static irqreturn_t serial21285_rx_chars(int irq, void *dev_id)
 {
 	struct uart_port *port = dev_id;
-	struct tty_struct *tty = port->state->port.tty;
 	unsigned int status, ch, flag, rxs, max_count = 256;
 
 	status = *CSR_UARTFLG;
@@ -114,7 +146,7 @@ static irqreturn_t serial21285_rx_chars(int irq, void *dev_id)
 
 		status = *CSR_UARTFLG;
 	}
-	tty_flip_buffer_push(tty);
+	tty_flip_buffer_push(&port->state->port);
 
 	return IRQ_HANDLED;
 }
@@ -188,8 +220,8 @@ static int serial21285_startup(struct uart_port *port)
 {
 	int ret;
 
-	tx_enabled(port) = 1;
-	rx_enabled(port) = 1;
+	tx_enable(port);
+	rx_enable(port);
 
 	ret = request_irq(IRQ_CONRX, serial21285_rx_chars, 0,
 			  serial21285_name, port);
@@ -331,21 +363,20 @@ static int serial21285_verify_port(struct uart_port *port, struct serial_struct 
 	int ret = 0;
 	if (ser->type != PORT_UNKNOWN && ser->type != PORT_21285)
 		ret = -EINVAL;
-	if (ser->irq != NO_IRQ)
+	if (ser->irq <= 0)
 		ret = -EINVAL;
 	if (ser->baud_base != port->uartclk / 16)
 		ret = -EINVAL;
 	return ret;
 }
 
-static struct uart_ops serial21285_ops = {
+static const struct uart_ops serial21285_ops = {
 	.tx_empty	= serial21285_tx_empty,
 	.get_mctrl	= serial21285_get_mctrl,
 	.set_mctrl	= serial21285_set_mctrl,
 	.stop_tx	= serial21285_stop_tx,
 	.start_tx	= serial21285_start_tx,
 	.stop_rx	= serial21285_stop_rx,
-	.enable_ms	= serial21285_enable_ms,
 	.break_ctl	= serial21285_break_ctl,
 	.startup	= serial21285_startup,
 	.shutdown	= serial21285_shutdown,
@@ -360,7 +391,7 @@ static struct uart_ops serial21285_ops = {
 static struct uart_port serial21285_port = {
 	.mapbase	= 0x42000160,
 	.iotype		= UPIO_MEM,
-	.irq		= NO_IRQ,
+	.irq		= 0,
 	.fifosize	= 16,
 	.ops		= &serial21285_ops,
 	.flags		= UPF_BOOT_AUTOCONF,

@@ -186,8 +186,13 @@ int agp_add_bridge(struct agp_bridge_data *bridge);
 void agp_remove_bridge(struct agp_bridge_data *bridge);
 
 /* Frontend routines. */
+#if IS_ENABLED(CONFIG_DRM_LEGACY)
 int agp_frontend_initialize(void);
 void agp_frontend_cleanup(void);
+#else
+static inline int agp_frontend_initialize(void) { return 0; }
+static inline void agp_frontend_cleanup(void) {}
+#endif
 
 /* Generic routines. */
 void agp_generic_enable(struct agp_bridge_data *bridge, u32 mode);
@@ -219,7 +224,10 @@ struct agp_bridge_data *agp_generic_find_bridge(struct pci_dev *pdev);
 /* generic functions for user-populated AGP memory types */
 struct agp_memory *agp_generic_alloc_user(size_t page_count, int type);
 void agp_alloc_page_array(size_t size, struct agp_memory *mem);
-void agp_free_page_array(struct agp_memory *mem);
+static inline void agp_free_page_array(struct agp_memory *mem)
+{
+	kvfree(mem->pages);
+}
 
 
 /* generic routines for agp>=3 */
@@ -239,6 +247,7 @@ long compat_agp_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
 
 /* Chipset independent registers (from AGP Spec) */
 #define AGP_APBASE	0x10
+#define AGP_APERTURE_BAR	0
 
 #define AGPSTAT		0x4
 #define AGPCMD		0x8

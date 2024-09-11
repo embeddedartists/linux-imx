@@ -1,16 +1,5 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License, version 2, as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  *
  * Copyright SUSE Linux Products GmbH 2010
  *
@@ -20,9 +9,13 @@
 #ifndef __ASM_KVM_BOOK3S_32_H__
 #define __ASM_KVM_BOOK3S_32_H__
 
-static inline struct kvmppc_book3s_shadow_vcpu *to_svcpu(struct kvm_vcpu *vcpu)
+static inline struct kvmppc_book3s_shadow_vcpu *svcpu_get(struct kvm_vcpu *vcpu)
 {
-	return to_book3s(vcpu)->shadow_vcpu;
+	return vcpu->arch.shadow_vcpu;
+}
+
+static inline void svcpu_put(struct kvmppc_book3s_shadow_vcpu *svcpu)
+{
 }
 
 #define PTE_SIZE	12
@@ -38,5 +31,6 @@ static inline struct kvmppc_book3s_shadow_vcpu *to_svcpu(struct kvm_vcpu *vcpu)
 #define SID_SHIFT	28
 #define ESID_MASK	0xf0000000
 #define VSID_MASK	0x00fffffff0000000ULL
+#define VPN_SHIFT	12
 
 #endif /* __ASM_KVM_BOOK3S_32_H__ */

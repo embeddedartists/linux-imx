@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /* prom_common.c: OF device tree support common code.
  *
  * Paul Mackerras	August 1996.
@@ -7,11 +8,6 @@
  *    {engebret|bergner}@us.ibm.com
  *
  *  Adapted for sparc by David S. Miller davem@davemloft.net
- *
- *      This program is free software; you can redistribute it and/or
- *      modify it under the terms of the GNU General Public License
- *      as published by the Free Software Foundation; either version
- *      2 of the License, or (at your option) any later version.
  */
 
 #include <linux/kernel.h>
@@ -23,7 +19,6 @@
 #include <linux/of_pdt.h>
 #include <asm/prom.h>
 #include <asm/oplib.h>
-#include <asm/leon.h>
 
 #include "prom.h"
 
@@ -55,6 +50,7 @@ EXPORT_SYMBOL(of_set_property_mutex);
 int of_set_property(struct device_node *dp, const char *name, void *val, int len)
 {
 	struct property **prevp;
+	unsigned long flags;
 	void *new_val;
 	int err;
 
@@ -65,7 +61,7 @@ int of_set_property(struct device_node *dp, const char *name, void *val, int len
 	err = -ENODEV;
 
 	mutex_lock(&of_set_property_mutex);
-	write_lock(&devtree_lock);
+	raw_spin_lock_irqsave(&devtree_lock, flags);
 	prevp = &dp->properties;
 	while (*prevp) {
 		struct property *prop = *prevp;
@@ -92,7 +88,7 @@ int of_set_property(struct device_node *dp, const char *name, void *val, int len
 		}
 		prevp = &(*prevp)->next;
 	}
-	write_unlock(&devtree_lock);
+	raw_spin_unlock_irqrestore(&devtree_lock, flags);
 	mutex_unlock(&of_set_property_mutex);
 
 	/* XXX Upate procfs if necessary... */

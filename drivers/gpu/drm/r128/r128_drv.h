@@ -29,11 +29,21 @@
  *    Rickard E. (Rik) Faith <faith@valinux.com>
  *    Kevin E. Martin <martin@valinux.com>
  *    Gareth Hughes <gareth@valinux.com>
- *    Michel D�zer <daenzerm@student.ethz.ch>
+ *    Michel Dänzer <daenzerm@student.ethz.ch>
  */
 
 #ifndef __R128_DRV_H__
 #define __R128_DRV_H__
+
+#include <linux/delay.h>
+#include <linux/io.h>
+#include <linux/irqreturn.h>
+
+#include <drm/drm_ioctl.h>
+#include <drm/drm_legacy.h>
+#include <drm/r128_drm.h>
+
+#include "ati_pcigart.h"
 
 /* General customization:
  */
@@ -131,7 +141,7 @@ typedef struct drm_r128_buf_priv {
 	drm_r128_freelist_t *list_entry;
 } drm_r128_buf_priv_t;
 
-extern struct drm_ioctl_desc r128_ioctls[];
+extern const struct drm_ioctl_desc r128_ioctls[];
 extern int r128_max_ioctl;
 
 				/* r128_cce.c */
@@ -144,6 +154,10 @@ extern int r128_engine_reset(struct drm_device *dev, void *data, struct drm_file
 extern int r128_fullscreen(struct drm_device *dev, void *data, struct drm_file *file_priv);
 extern int r128_cce_buffers(struct drm_device *dev, void *data, struct drm_file *file_priv);
 
+extern int r128_cce_stipple(struct drm_device *dev, void *data, struct drm_file *file_priv);
+extern int r128_cce_depth(struct drm_device *dev, void *data, struct drm_file *file_priv);
+extern int r128_getparam(struct drm_device *dev, void *data, struct drm_file *file_priv);
+
 extern void r128_freelist_reset(struct drm_device *dev);
 
 extern int r128_wait_ring(drm_r128_private_t *dev_priv, int n);
@@ -151,10 +165,10 @@ extern int r128_wait_ring(drm_r128_private_t *dev_priv, int n);
 extern int r128_do_cce_idle(drm_r128_private_t *dev_priv);
 extern int r128_do_cleanup_cce(struct drm_device *dev);
 
-extern int r128_enable_vblank(struct drm_device *dev, int crtc);
-extern void r128_disable_vblank(struct drm_device *dev, int crtc);
-extern u32 r128_get_vblank_counter(struct drm_device *dev, int crtc);
-extern irqreturn_t r128_driver_irq_handler(DRM_IRQ_ARGS);
+extern int r128_enable_vblank(struct drm_device *dev, unsigned int pipe);
+extern void r128_disable_vblank(struct drm_device *dev, unsigned int pipe);
+extern u32 r128_get_vblank_counter(struct drm_device *dev, unsigned int pipe);
+extern irqreturn_t r128_driver_irq_handler(int irq, void *arg);
 extern void r128_driver_irq_preinstall(struct drm_device *dev);
 extern int r128_driver_irq_postinstall(struct drm_device *dev);
 extern void r128_driver_irq_uninstall(struct drm_device *dev);
@@ -390,10 +404,10 @@ extern long r128_compat_ioctl(struct file *filp, unsigned int cmd,
 
 #define R128_PCIGART_TABLE_SIZE         32768
 
-#define R128_READ(reg)		DRM_READ32(dev_priv->mmio, (reg))
-#define R128_WRITE(reg, val)	DRM_WRITE32(dev_priv->mmio, (reg), (val))
-#define R128_READ8(reg)		DRM_READ8(dev_priv->mmio, (reg))
-#define R128_WRITE8(reg, val)	DRM_WRITE8(dev_priv->mmio, (reg), (val))
+#define R128_READ(reg)		readl(((void __iomem *)dev_priv->mmio->handle) + (reg))
+#define R128_WRITE(reg, val)	writel(val, ((void __iomem *)dev_priv->mmio->handle) + (reg))
+#define R128_READ8(reg)		readb(((void __iomem *)dev_priv->mmio->handle) + (reg))
+#define R128_WRITE8(reg, val)	writeb(val, ((void __iomem *)dev_priv->mmio->handle) + (reg))
 
 #define R128_WRITE_PLL(addr, val)					\
 do {									\
@@ -438,7 +452,7 @@ do {									\
 			r128_update_ring_snapshot(dev_priv);		\
 			if (ring->space >= ring->high_mark)		\
 				goto __ring_space_done;			\
-			DRM_UDELAY(1);					\
+			udelay(1);					\
 		}							\
 		DRM_ERROR("ring space check failed!\n");		\
 		return -EBUSY;						\
@@ -514,7 +528,7 @@ do {									\
 	if (R128_VERBOSE)						\
 		DRM_INFO("COMMIT_RING() tail=0x%06x\n",			\
 			 dev_priv->ring.tail);				\
-	DRM_MEMORYBARRIER();						\
+	mb();						\
 	R128_WRITE(R128_PM4_BUFFER_DL_WPTR, dev_priv->ring.tail);	\
 	R128_READ(R128_PM4_BUFFER_DL_WPTR);				\
 } while (0)

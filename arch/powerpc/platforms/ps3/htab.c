@@ -1,21 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  PS3 pagetable management routines.
  *
  *  Copyright (C) 2006 Sony Computer Entertainment Inc.
  *  Copyright 2006, 2007 Sony Corporation
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; version 2 of the License.
- *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with this program; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
 #include <linux/kernel.h>
@@ -27,6 +15,7 @@
 #include <asm/lv1call.h>
 #include <asm/ps3fb.h>
 
+#define PS3_VERBOSE_RESULT
 #include "platform.h"
 
 /**
@@ -43,9 +32,9 @@ enum ps3_lpar_vas_id {
 
 static DEFINE_SPINLOCK(ps3_htab_lock);
 
-static long ps3_hpte_insert(unsigned long hpte_group, unsigned long va,
+static long ps3_hpte_insert(unsigned long hpte_group, unsigned long vpn,
 	unsigned long pa, unsigned long rflags, unsigned long vflags,
-	int psize, int ssize)
+	int psize, int apsize, int ssize)
 {
 	int result;
 	u64 hpte_v, hpte_r;
@@ -61,8 +50,8 @@ static long ps3_hpte_insert(unsigned long hpte_group, unsigned long va,
 	 */
 	vflags &= ~HPTE_V_SECONDARY;
 
-	hpte_v = hpte_encode_v(va, psize, ssize) | vflags | HPTE_V_VALID;
-	hpte_r = hpte_encode_r(ps3_mm_phys_to_lpar(pa), psize) | rflags;
+	hpte_v = hpte_encode_v(vpn, psize, apsize, ssize) | vflags | HPTE_V_VALID;
+	hpte_r = hpte_encode_r(ps3_mm_phys_to_lpar(pa), psize, apsize) | rflags;
 
 	spin_lock_irqsave(&ps3_htab_lock, flags);
 
@@ -75,8 +64,9 @@ static long ps3_hpte_insert(unsigned long hpte_group, unsigned long va,
 
 	if (result) {
 		/* all entries bolted !*/
-		pr_info("%s:result=%d va=%lx pa=%lx ix=%lx v=%llx r=%llx\n",
-			__func__, result, va, pa, hpte_group, hpte_v, hpte_r);
+		pr_info("%s:result=%s vpn=%lx pa=%lx ix=%lx v=%llx r=%llx\n",
+			__func__, ps3_result(result), vpn, pa, hpte_group,
+			hpte_v, hpte_r);
 		BUG();
 	}
 
@@ -107,7 +97,8 @@ static long ps3_hpte_remove(unsigned long hpte_group)
 }
 
 static long ps3_hpte_updatepp(unsigned long slot, unsigned long newpp,
-	unsigned long va, int psize, int ssize, int local)
+			      unsigned long vpn, int psize, int apsize,
+			      int ssize, unsigned long inv_flags)
 {
 	int result;
 	u64 hpte_v, want_v, hpte_rs;
@@ -115,7 +106,7 @@ static long ps3_hpte_updatepp(unsigned long slot, unsigned long newpp,
 	unsigned long flags;
 	long ret;
 
-	want_v = hpte_encode_v(va, psize, ssize);
+	want_v = hpte_encode_avpn(vpn, psize, ssize);
 
 	spin_lock_irqsave(&ps3_htab_lock, flags);
 
@@ -125,8 +116,8 @@ static long ps3_hpte_updatepp(unsigned long slot, unsigned long newpp,
 				       &hpte_rs);
 
 	if (result) {
-		pr_info("%s: res=%d read va=%lx slot=%lx psize=%d\n",
-			__func__, result, va, slot, psize);
+		pr_info("%s: result=%s read vpn=%lx slot=%lx psize=%d\n",
+			__func__, ps3_result(result), vpn, slot, psize);
 		BUG();
 	}
 
@@ -159,8 +150,8 @@ static void ps3_hpte_updateboltedpp(unsigned long newpp, unsigned long ea,
 	panic("ps3_hpte_updateboltedpp() not implemented");
 }
 
-static void ps3_hpte_invalidate(unsigned long slot, unsigned long va,
-	int psize, int ssize, int local)
+static void ps3_hpte_invalidate(unsigned long slot, unsigned long vpn,
+				int psize, int apsize, int ssize, int local)
 {
 	unsigned long flags;
 	int result;
@@ -170,15 +161,16 @@ static void ps3_hpte_invalidate(unsigned long slot, unsigned long va,
 	result = lv1_write_htab_entry(PS3_LPAR_VAS_ID_CURRENT, slot, 0, 0);
 
 	if (result) {
-		pr_info("%s: res=%d va=%lx slot=%lx psize=%d\n",
-			__func__, result, va, slot, psize);
+		pr_info("%s: result=%s vpn=%lx slot=%lx psize=%d\n",
+			__func__, ps3_result(result), vpn, slot, psize);
 		BUG();
 	}
 
 	spin_unlock_irqrestore(&ps3_htab_lock, flags);
 }
 
-static void ps3_hpte_clear(void)
+/* Called during kexec sequence with MMU off */
+static notrace void ps3_hpte_clear(void)
 {
 	unsigned long hpte_count = (1UL << ppc64_pft_size) >> 4;
 	u64 i;
@@ -192,12 +184,12 @@ static void ps3_hpte_clear(void)
 
 void __init ps3_hpte_init(unsigned long htab_size)
 {
-	ppc_md.hpte_invalidate = ps3_hpte_invalidate;
-	ppc_md.hpte_updatepp = ps3_hpte_updatepp;
-	ppc_md.hpte_updateboltedpp = ps3_hpte_updateboltedpp;
-	ppc_md.hpte_insert = ps3_hpte_insert;
-	ppc_md.hpte_remove = ps3_hpte_remove;
-	ppc_md.hpte_clear_all = ps3_hpte_clear;
+	mmu_hash_ops.hpte_invalidate = ps3_hpte_invalidate;
+	mmu_hash_ops.hpte_updatepp = ps3_hpte_updatepp;
+	mmu_hash_ops.hpte_updateboltedpp = ps3_hpte_updateboltedpp;
+	mmu_hash_ops.hpte_insert = ps3_hpte_insert;
+	mmu_hash_ops.hpte_remove = ps3_hpte_remove;
+	mmu_hash_ops.hpte_clear_all = ps3_hpte_clear;
 
 	ppc64_pft_size = __ilog2(htab_size);
 }

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 #ifndef _CCID_H
 #define _CCID_H
 /*
@@ -7,10 +8,6 @@
  *  Arnaldo Carvalho de Melo <acme@conectiva.com.br>
  *
  *  CCID infrastructure
- *
- *	This program is free software; you can redistribute it and/or modify it
- *	under the terms of the GNU General Public License version 2 as
- *	published by the Free Software Foundation.
  */
 
 #include <net/sock.h>
@@ -93,12 +90,12 @@ extern struct ccid_operations ccid2_ops;
 extern struct ccid_operations ccid3_ops;
 #endif
 
-extern int  ccid_initialize_builtins(void);
-extern void ccid_cleanup_builtins(void);
+int ccid_initialize_builtins(void);
+void ccid_cleanup_builtins(void);
 
 struct ccid {
 	struct ccid_operations *ccid_ops;
-	char		       ccid_priv[0];
+	char		       ccid_priv[];
 };
 
 static inline void *ccid_priv(const struct ccid *ccid)
@@ -106,12 +103,12 @@ static inline void *ccid_priv(const struct ccid *ccid)
 	return (void *)ccid->ccid_priv;
 }
 
-extern bool ccid_support_check(u8 const *ccid_array, u8 array_len);
-extern int  ccid_get_builtin_ccids(u8 **ccid_array, u8 *array_len);
-extern int  ccid_getsockopt_builtin_ccids(struct sock *sk, int len,
-					  char __user *, int __user *);
+bool ccid_support_check(u8 const *ccid_array, u8 array_len);
+int ccid_get_builtin_ccids(u8 **ccid_array, u8 *array_len);
+int ccid_getsockopt_builtin_ccids(struct sock *sk, int len,
+				  char __user *, int __user *);
 
-extern struct ccid *ccid_new(const u8 id, struct sock *sk, bool rx);
+struct ccid *ccid_new(const u8 id, struct sock *sk, bool rx);
 
 static inline int ccid_get_current_rx_ccid(struct dccp_sock *dp)
 {
@@ -131,8 +128,8 @@ static inline int ccid_get_current_tx_ccid(struct dccp_sock *dp)
 	return ccid->ccid_ops->ccid_id;
 }
 
-extern void ccid_hc_rx_delete(struct ccid *ccid, struct sock *sk);
-extern void ccid_hc_tx_delete(struct ccid *ccid, struct sock *sk);
+void ccid_hc_rx_delete(struct ccid *ccid, struct sock *sk);
+void ccid_hc_tx_delete(struct ccid *ccid, struct sock *sk);
 
 /*
  * Congestion control of queued data packets via CCID decision.
@@ -202,7 +199,7 @@ static inline void ccid_hc_tx_packet_recv(struct ccid *ccid, struct sock *sk,
 static inline int ccid_hc_tx_parse_options(struct ccid *ccid, struct sock *sk,
 					   u8 pkt, u8 opt, u8 *val, u8 len)
 {
-	if (ccid->ccid_ops->ccid_hc_tx_parse_options == NULL)
+	if (!ccid || !ccid->ccid_ops->ccid_hc_tx_parse_options)
 		return 0;
 	return ccid->ccid_ops->ccid_hc_tx_parse_options(sk, pkt, opt, val, len);
 }
@@ -214,7 +211,7 @@ static inline int ccid_hc_tx_parse_options(struct ccid *ccid, struct sock *sk,
 static inline int ccid_hc_rx_parse_options(struct ccid *ccid, struct sock *sk,
 					   u8 pkt, u8 opt, u8 *val, u8 len)
 {
-	if (ccid->ccid_ops->ccid_hc_rx_parse_options == NULL)
+	if (!ccid || !ccid->ccid_ops->ccid_hc_rx_parse_options)
 		return 0;
 	return ccid->ccid_ops->ccid_hc_rx_parse_options(sk, pkt, opt, val, len);
 }
@@ -246,7 +243,7 @@ static inline int ccid_hc_rx_getsockopt(struct ccid *ccid, struct sock *sk,
 					u32 __user *optval, int __user *optlen)
 {
 	int rc = -ENOPROTOOPT;
-	if (ccid->ccid_ops->ccid_hc_rx_getsockopt != NULL)
+	if (ccid != NULL && ccid->ccid_ops->ccid_hc_rx_getsockopt != NULL)
 		rc = ccid->ccid_ops->ccid_hc_rx_getsockopt(sk, optname, len,
 						 optval, optlen);
 	return rc;
@@ -257,7 +254,7 @@ static inline int ccid_hc_tx_getsockopt(struct ccid *ccid, struct sock *sk,
 					u32 __user *optval, int __user *optlen)
 {
 	int rc = -ENOPROTOOPT;
-	if (ccid->ccid_ops->ccid_hc_tx_getsockopt != NULL)
+	if (ccid != NULL && ccid->ccid_ops->ccid_hc_tx_getsockopt != NULL)
 		rc = ccid->ccid_ops->ccid_hc_tx_getsockopt(sk, optname, len,
 						 optval, optlen);
 	return rc;

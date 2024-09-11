@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Core driver for HTC PASIC3 LED/DS1WM chip.
  *
  * Copyright (C) 2006 Philipp Zabel <philipp.zabel@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; version 2 of the License.
  */
 
 #include <linux/init.h>
@@ -114,7 +111,7 @@ static struct resource ds1wm_resources[] __initdata = {
 	},
 };
 
-static struct mfd_cell ds1wm_cell __initdata = {
+static const struct mfd_cell ds1wm_cell __initconst = {
 	.name          = "ds1wm",
 	.enable        = ds1wm_enable,
 	.disable       = ds1wm_disable,
@@ -126,7 +123,7 @@ static struct mfd_cell ds1wm_cell __initdata = {
 
 static int __init pasic3_probe(struct platform_device *pdev)
 {
-	struct pasic3_platform_data *pdata = pdev->dev.platform_data;
+	struct pasic3_platform_data *pdata = dev_get_platdata(&pdev->dev);
 	struct device *dev = &pdev->dev;
 	struct pasic3_data *asic;
 	struct resource *r;
@@ -147,7 +144,7 @@ static int __init pasic3_probe(struct platform_device *pdev)
 	if (!request_mem_region(r->start, resource_size(r), "pasic3"))
 		return -EBUSY;
 
-	asic = kzalloc(sizeof(struct pasic3_data), GFP_KERNEL);
+	asic = devm_kzalloc(dev, sizeof(struct pasic3_data), GFP_KERNEL);
 	if (!asic)
 		return -ENOMEM;
 
@@ -156,7 +153,6 @@ static int __init pasic3_probe(struct platform_device *pdev)
 	asic->mapping = ioremap(r->start, resource_size(r));
 	if (!asic->mapping) {
 		dev_err(dev, "couldn't ioremap PASIC3\n");
-		kfree(asic);
 		return -ENOMEM;
 	}
 
@@ -168,7 +164,7 @@ static int __init pasic3_probe(struct platform_device *pdev)
 		/* the first 5 PASIC3 registers control the DS1WM */
 		ds1wm_resources[0].end = (5 << asic->bus_shift) - 1;
 		ret = mfd_add_devices(&pdev->dev, pdev->id,
-				&ds1wm_cell, 1, r, irq);
+				      &ds1wm_cell, 1, r, irq, NULL);
 		if (ret < 0)
 			dev_warn(dev, "failed to register DS1WM\n");
 	}
@@ -176,7 +172,8 @@ static int __init pasic3_probe(struct platform_device *pdev)
 	if (pdata && pdata->led_pdata) {
 		led_cell.platform_data = pdata->led_pdata;
 		led_cell.pdata_size = sizeof(struct pasic3_leds_machinfo);
-		ret = mfd_add_devices(&pdev->dev, pdev->id, &led_cell, 1, r, 0);
+		ret = mfd_add_devices(&pdev->dev, pdev->id, &led_cell, 1, r,
+				      0, NULL);
 		if (ret < 0)
 			dev_warn(dev, "failed to register LED device\n");
 	}
@@ -194,7 +191,6 @@ static int pasic3_remove(struct platform_device *pdev)
 	iounmap(asic->mapping);
 	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	release_mem_region(r->start, resource_size(r));
-	kfree(asic);
 	return 0;
 }
 
@@ -207,18 +203,7 @@ static struct platform_driver pasic3_driver = {
 	.remove		= pasic3_remove,
 };
 
-static int __init pasic3_base_init(void)
-{
-	return platform_driver_probe(&pasic3_driver, pasic3_probe);
-}
-
-static void __exit pasic3_base_exit(void)
-{
-	platform_driver_unregister(&pasic3_driver);
-}
-
-module_init(pasic3_base_init);
-module_exit(pasic3_base_exit);
+module_platform_driver_probe(pasic3_driver, pasic3_probe);
 
 MODULE_AUTHOR("Philipp Zabel <philipp.zabel@gmail.com>");
 MODULE_DESCRIPTION("Core driver for HTC PASIC3");

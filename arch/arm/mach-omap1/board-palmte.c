@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * linux/arch/arm/mach-omap1/board-palmte.c
  *
@@ -11,10 +12,6 @@
  *                palmtelinux-developpers@lists.sf.net
  *
  * Copyright (c) 2006 Andrzej Zaborowski  <balrog@zabor.org>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 #include <linux/gpio.h>
 #include <linux/kernel.h>
@@ -27,20 +24,23 @@
 #include <linux/spi/spi.h>
 #include <linux/interrupt.h>
 #include <linux/apm-emulation.h>
+#include <linux/omapfb.h>
+#include <linux/platform_data/omap1_bl.h>
 
-#include <mach/hardware.h>
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
 
-#include <plat/flash.h>
-#include <plat/mux.h>
-#include <plat/usb.h>
-#include <plat/tc.h>
-#include <plat/dma.h>
-#include <plat/board.h>
-#include <plat/irda.h>
-#include <plat/keypad.h>
+#include "flash.h"
+#include <mach/mux.h>
+#include <mach/tc.h>
+#include <linux/omap-dma.h>
+#include <linux/platform_data/keypad-omap.h>
+
+#include <mach/hardware.h>
+#include <mach/usb.h>
+
+#include "mmc.h"
 #include "common.h"
 
 #define PALMTE_USBDETECT_GPIO	0
@@ -163,40 +163,11 @@ static struct platform_device palmte_backlight_device = {
 	},
 };
 
-static struct omap_irda_config palmte_irda_config = {
-	.transceiver_cap	= IR_SIRMODE,
-	.rx_channel		= OMAP_DMA_UART3_RX,
-	.tx_channel		= OMAP_DMA_UART3_TX,
-	.dest_start		= UART3_THR,
-	.src_start		= UART3_RHR,
-	.tx_trigger		= 0,
-	.rx_trigger		= 0,
-};
-
-static struct resource palmte_irda_resources[] = {
-	[0]	= {
-		.start	= INT_UART3,
-		.end	= INT_UART3,
-		.flags	= IORESOURCE_IRQ,
-	},
-};
-
-static struct platform_device palmte_irda_device = {
-	.name		= "omapirda",
-	.id		= -1,
-	.dev		= {
-		.platform_data	= &palmte_irda_config,
-	},
-	.num_resources	= ARRAY_SIZE(palmte_irda_resources),
-	.resource	= palmte_irda_resources,
-};
-
 static struct platform_device *palmte_devices[] __initdata = {
 	&palmte_rom_device,
 	&palmte_kp_device,
 	&palmte_lcd_device,
 	&palmte_backlight_device,
-	&palmte_irda_device,
 };
 
 static struct omap_usb_config palmte_usb_config __initdata = {
@@ -205,12 +176,8 @@ static struct omap_usb_config palmte_usb_config __initdata = {
 	.pins[0]	= 2,
 };
 
-static struct omap_lcd_config palmte_lcd_config __initdata = {
+static const struct omap_lcd_config palmte_lcd_config __initconst = {
 	.ctrl_name	= "internal",
-};
-
-static struct omap_board_config_kernel palmte_config[] __initdata = {
-	{ OMAP_TAG_LCD,		&palmte_lcd_config },
 };
 
 static struct spi_board_info palmte_spi_info[] __initdata = {
@@ -218,7 +185,6 @@ static struct spi_board_info palmte_spi_info[] __initdata = {
 		.modalias	= "tsc2102",
 		.bus_num	= 2,	/* uWire (officially) */
 		.chip_select	= 0,	/* As opposed to 3 */
-		.irq		= OMAP_GPIO_IRQ(PALMTE_PINTDAV_GPIO),
 		.max_speed_hz	= 8000000,
 	},
 };
@@ -240,6 +206,33 @@ static void __init palmte_misc_gpio_setup(void)
 	gpio_direction_input(PALMTE_USB_OR_DC_GPIO);
 }
 
+#if IS_ENABLED(CONFIG_MMC_OMAP)
+
+static struct omap_mmc_platform_data _palmte_mmc_config = {
+	.nr_slots			= 1,
+	.slots[0]			= {
+		.ocr_mask		= MMC_VDD_32_33|MMC_VDD_33_34,
+		.name			= "mmcblk",
+	},
+};
+
+static struct omap_mmc_platform_data *palmte_mmc_config[OMAP15XX_NR_MMC] = {
+	[0] = &_palmte_mmc_config,
+};
+
+static void palmte_mmc_init(void)
+{
+	omap1_init_mmc(palmte_mmc_config, OMAP15XX_NR_MMC);
+}
+
+#else /* CONFIG_MMC_OMAP */
+
+static void palmte_mmc_init(void)
+{
+}
+
+#endif /* CONFIG_MMC_OMAP */
+
 static void __init omap_palmte_init(void)
 {
 	/* mux pins for uarts */
@@ -250,25 +243,27 @@ static void __init omap_palmte_init(void)
 	omap_cfg_reg(UART3_TX);
 	omap_cfg_reg(UART3_RX);
 
-	omap_board_config = palmte_config;
-	omap_board_config_size = ARRAY_SIZE(palmte_config);
-
 	platform_add_devices(palmte_devices, ARRAY_SIZE(palmte_devices));
 
+	palmte_spi_info[0].irq = gpio_to_irq(PALMTE_PINTDAV_GPIO);
 	spi_register_board_info(palmte_spi_info, ARRAY_SIZE(palmte_spi_info));
 	palmte_misc_gpio_setup();
 	omap_serial_init();
 	omap1_usb_init(&palmte_usb_config);
 	omap_register_i2c_bus(1, 100, NULL, 0);
+
+	omapfb_set_lcd_config(&palmte_lcd_config);
+	palmte_mmc_init();
 }
 
 MACHINE_START(OMAP_PALMTE, "OMAP310 based Palm Tungsten E")
 	.atag_offset	= 0x100,
 	.map_io		= omap15xx_map_io,
 	.init_early     = omap1_init_early,
-	.reserve	= omap_reserve,
 	.init_irq	= omap1_init_irq,
+	.handle_irq	= omap1_handle_irq,
 	.init_machine	= omap_palmte_init,
-	.timer		= &omap1_timer,
+	.init_late	= omap1_init_late,
+	.init_time	= omap1_timer_init,
 	.restart	= omap1_restart,
 MACHINE_END

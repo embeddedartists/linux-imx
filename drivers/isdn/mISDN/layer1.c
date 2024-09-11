@@ -1,18 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *
  * Author	Karsten Keil <kkeil@novell.com>
  *
  * Copyright 2008  by Karsten Keil <kkeil@novell.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
  */
 
 
@@ -26,15 +17,17 @@
 static u_int *debug;
 
 struct layer1 {
-	u_long			Flags;
-	struct FsmInst		l1m;
-	struct FsmTimer 	timer;
-	int			delay;
-	struct dchannel		*dch;
-	dchannel_l1callback	*dcb;
+	u_long Flags;
+	struct FsmInst l1m;
+	struct FsmTimer timer3;
+	struct FsmTimer timerX;
+	int delay;
+	int t3_value;
+	struct dchannel *dch;
+	dchannel_l1callback *dcb;
 };
 
-#define TIMER3_VALUE 7000
+#define TIMER3_DEFAULT_VALUE	7000
 
 static
 struct Fsm l1fsm_s = {NULL, 0, 0, NULL, NULL};
@@ -49,7 +42,7 @@ enum {
 	ST_L1_F8,
 };
 
-#define L1S_STATE_COUNT (ST_L1_F8+1)
+#define L1S_STATE_COUNT (ST_L1_F8 + 1)
 
 static char *strL1SState[] =
 {
@@ -134,7 +127,7 @@ l1_deact_req_s(struct FsmInst *fi, int event, void *arg)
 	struct layer1 *l1 = fi->userdata;
 
 	mISDN_FsmChangeState(fi, ST_L1_F3);
-	mISDN_FsmRestartTimer(&l1->timer, 550, EV_TIMER_DEACT, NULL, 2);
+	mISDN_FsmRestartTimer(&l1->timerX, 550, EV_TIMER_DEACT, NULL, 2);
 	test_and_set_bit(FLG_L1_DEACTTIMER, &l1->Flags);
 }
 
@@ -179,11 +172,11 @@ l1_info4_ind(struct FsmInst *fi, int event, void *arg)
 	mISDN_FsmChangeState(fi, ST_L1_F7);
 	l1->dcb(l1->dch, INFO3_P8);
 	if (test_and_clear_bit(FLG_L1_DEACTTIMER, &l1->Flags))
-		mISDN_FsmDelTimer(&l1->timer, 4);
+		mISDN_FsmDelTimer(&l1->timerX, 4);
 	if (!test_bit(FLG_L1_ACTIVATED, &l1->Flags)) {
 		if (test_and_clear_bit(FLG_L1_T3RUN, &l1->Flags))
-			mISDN_FsmDelTimer(&l1->timer, 3);
-		mISDN_FsmRestartTimer(&l1->timer, 110, EV_TIMER_ACT, NULL, 2);
+			mISDN_FsmDelTimer(&l1->timer3, 3);
+		mISDN_FsmRestartTimer(&l1->timerX, 110, EV_TIMER_ACT, NULL, 2);
 		test_and_set_bit(FLG_L1_ACTTIMER, &l1->Flags);
 	}
 }
@@ -201,7 +194,7 @@ l1_timer3(struct FsmInst *fi, int event, void *arg)
 	}
 	if (l1->l1m.state != ST_L1_F6) {
 		mISDN_FsmChangeState(fi, ST_L1_F3);
-		l1->dcb(l1->dch, HW_POWERUP_REQ);
+		/* do not force anything here, we need send INFO 0 */
 	}
 }
 
@@ -233,8 +226,9 @@ l1_activate_s(struct FsmInst *fi, int event, void *arg)
 {
 	struct layer1 *l1 = fi->userdata;
 
-	mISDN_FsmRestartTimer(&l1->timer, TIMER3_VALUE, EV_TIMER3, NULL, 2);
+	mISDN_FsmRestartTimer(&l1->timer3, l1->t3_value, EV_TIMER3, NULL, 2);
 	test_and_set_bit(FLG_L1_T3RUN, &l1->Flags);
+	/* Tell HW to send INFO 1 */
 	l1->dcb(l1->dch, HW_RESET_REQ);
 }
 
@@ -302,7 +296,8 @@ static struct FsmNode L1SFnList[] =
 
 static void
 release_l1(struct layer1 *l1) {
-	mISDN_FsmDelTimer(&l1->timer, 0);
+	mISDN_FsmDelTimer(&l1->timerX, 0);
+	mISDN_FsmDelTimer(&l1->timer3, 0);
 	if (l1->dch)
 		l1->dch->l1 = NULL;
 	module_put(THIS_MODULE);
@@ -356,9 +351,19 @@ l1_event(struct layer1 *l1, u_int event)
 		release_l1(l1);
 		break;
 	default:
+		if ((event & ~HW_TIMER3_VMASK) == HW_TIMER3_VALUE) {
+			int val = event & HW_TIMER3_VMASK;
+
+			if (val < 5)
+				val = 5;
+			if (val > 30)
+				val = 30;
+			l1->t3_value = val;
+			break;
+		}
 		if (*debug & DEBUG_L1)
 			printk(KERN_DEBUG "%s %x unhandled\n",
-			    __func__, event);
+			       __func__, event);
 		err = -EINVAL;
 	}
 	return err;
@@ -377,13 +382,15 @@ create_l1(struct dchannel *dch, dchannel_l1callback *dcb) {
 	nl1->l1m.fsm = &l1fsm_s;
 	nl1->l1m.state = ST_L1_F3;
 	nl1->Flags = 0;
+	nl1->t3_value = TIMER3_DEFAULT_VALUE;
 	nl1->l1m.debug = *debug & DEBUG_L1_FSM;
 	nl1->l1m.userdata = nl1;
 	nl1->l1m.userint = 0;
 	nl1->l1m.printdebug = l1m_debug;
 	nl1->dch = dch;
 	nl1->dcb = dcb;
-	mISDN_FsmInitTimer(&nl1->l1m, &nl1->timer);
+	mISDN_FsmInitTimer(&nl1->l1m, &nl1->timer3);
+	mISDN_FsmInitTimer(&nl1->l1m, &nl1->timerX);
 	__module_get(THIS_MODULE);
 	dch->l1 = nl1;
 	return 0;
@@ -391,19 +398,18 @@ create_l1(struct dchannel *dch, dchannel_l1callback *dcb) {
 EXPORT_SYMBOL(create_l1);
 
 int
-l1_init(u_int *deb)
+Isdnl1_Init(u_int *deb)
 {
 	debug = deb;
 	l1fsm_s.state_count = L1S_STATE_COUNT;
 	l1fsm_s.event_count = L1_EVENT_COUNT;
 	l1fsm_s.strEvent = strL1Event;
 	l1fsm_s.strState = strL1SState;
-	mISDN_FsmNew(&l1fsm_s, L1SFnList, ARRAY_SIZE(L1SFnList));
-	return 0;
+	return mISDN_FsmNew(&l1fsm_s, L1SFnList, ARRAY_SIZE(L1SFnList));
 }
 
 void
-l1_cleanup(void)
+Isdnl1_cleanup(void)
 {
 	mISDN_FsmFree(&l1fsm_s);
 }

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * arch/arch/mach-ixp4xx/gateway7001-pci.c
  *
@@ -10,11 +11,6 @@
  *	Copyright (C) 2003 MontaVista Softwrae, Inc.
  *
  * Maintainer: Imre Kaloz <kaloz@openwrt.org>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
  */
 
 #include <linux/kernel.h>
@@ -26,6 +22,8 @@
 #include <mach/hardware.h>
 
 #include <asm/mach/pci.h>
+
+#include "irqs.h"
 
 void __init gateway7001_pci_preinit(void)
 {
@@ -47,10 +45,9 @@ static int __init gateway7001_map_irq(const struct pci_dev *dev, u8 slot,
 
 struct hw_pci gateway7001_pci __initdata = {
 	.nr_controllers = 1,
+	.ops		= &ixp4xx_ops,
 	.preinit =        gateway7001_pci_preinit,
-	.swizzle =        pci_std_swizzle,
 	.setup =          ixp4xx_setup,
-	.scan =           ixp4xx_scan_bus,
 	.map_irq =        gateway7001_map_irq,
 };
 

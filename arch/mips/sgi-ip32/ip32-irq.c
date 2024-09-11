@@ -18,23 +18,23 @@
 #include <linux/mm.h>
 #include <linux/random.h>
 #include <linux/sched.h>
+#include <linux/sched/debug.h>
 
 #include <asm/irq_cpu.h>
 #include <asm/mipsregs.h>
 #include <asm/signal.h>
-#include <asm/system.h>
 #include <asm/time.h>
 #include <asm/ip32/crime.h>
 #include <asm/ip32/mace.h>
 #include <asm/ip32/ip32_ints.h>
 
 /* issue a PIO read to make sure no PIO writes are pending */
-static void inline flush_crime_bus(void)
+static inline void flush_crime_bus(void)
 {
 	crime->control;
 }
 
-static void inline flush_mace_bus(void)
+static inline void flush_mace_bus(void)
 {
 	mace->perif.ctrl.misc;
 }
@@ -111,16 +111,6 @@ static void inline flush_mace_bus(void)
 extern irqreturn_t crime_memerr_intr(int irq, void *dev_id);
 extern irqreturn_t crime_cpuerr_intr(int irq, void *dev_id);
 
-static struct irqaction memerr_irq = {
-	.handler = crime_memerr_intr,
-	.name = "CRIME memory error",
-};
-
-static struct irqaction cpuerr_irq = {
-	.handler = crime_cpuerr_intr,
-	.name = "CRIME CPU error",
-};
-
 /*
  * This is for pure CRIME interrupts - ie not MACE.  The advantage?
  * We get to split the register in half and do faster lookups.
@@ -174,7 +164,7 @@ static struct irq_chip crime_edge_interrupt = {
 
 /*
  * This is for MACE PCI interrupts.  We can decrease bus traffic by masking
- * as close to the source as possible.  This also means we can take the
+ * as close to the source as possible.	This also means we can take the
  * next chunk of the CRIME register in one piece.
  */
 
@@ -272,11 +262,11 @@ static void disable_maceisa_irq(struct irq_data *d)
 	unsigned int crime_int = 0;
 
 	maceisa_mask &= ~(1 << (d->irq - MACEISA_AUDIO_SW_IRQ));
-        if (!(maceisa_mask & MACEISA_AUDIO_INT))
+	if (!(maceisa_mask & MACEISA_AUDIO_INT))
 		crime_int |= MACE_AUDIO_INT;
-        if (!(maceisa_mask & MACEISA_MISC_INT))
+	if (!(maceisa_mask & MACEISA_MISC_INT))
 		crime_int |= MACE_MISC_INT;
-        if (!(maceisa_mask & MACEISA_SUPERIO_INT))
+	if (!(maceisa_mask & MACEISA_SUPERIO_INT))
 		crime_int |= MACE_SUPERIO_INT;
 	crime_mask &= ~crime_int;
 	crime->imask = crime_mask;
@@ -353,7 +343,7 @@ static void ip32_unknown_interrupt(void)
 	printk("Register dump:\n");
 	show_regs(get_irq_regs());
 
-	printk("Please mail this report to linux-mips@linux-mips.org\n");
+	printk("Please mail this report to linux-mips@vger.kernel.org\n");
 	printk("Spinning...");
 	while(1) ;
 }
@@ -497,8 +487,12 @@ void __init arch_init_irq(void)
 			break;
 		}
 	}
-	setup_irq(CRIME_MEMERR_IRQ, &memerr_irq);
-	setup_irq(CRIME_CPUERR_IRQ, &cpuerr_irq);
+	if (request_irq(CRIME_MEMERR_IRQ, crime_memerr_intr, 0,
+			"CRIME memory error", NULL))
+		pr_err("Failed to register CRIME memory error interrupt\n");
+	if (request_irq(CRIME_CPUERR_IRQ, crime_cpuerr_intr, 0,
+			"CRIME CPU error", NULL))
+		pr_err("Failed to register CRIME CPU error interrupt\n");
 
 #define ALLINTS (IE_IRQ0 | IE_IRQ1 | IE_IRQ2 | IE_IRQ3 | IE_IRQ4 | IE_IRQ5)
 	change_c0_status(ST0_IM, ALLINTS);

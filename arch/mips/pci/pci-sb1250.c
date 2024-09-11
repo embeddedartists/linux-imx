@@ -1,20 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (C) 2001,2002,2003 Broadcom Corporation
  * Copyright (C) 2004 by Ralf Baechle (ralf@linux-mips.org)
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
 /*
@@ -55,9 +42,9 @@
 
 static void *cfg_space;
 
-#define PCI_BUS_ENABLED	1
-#define LDT_BUS_ENABLED	2
-#define PCI_DEVICE_MODE	4
+#define PCI_BUS_ENABLED 1
+#define LDT_BUS_ENABLED 2
+#define PCI_DEVICE_MODE 4
 
 static int sb1250_bus_status;
 
@@ -213,7 +200,7 @@ static int __init sb1250_pcibios_init(void)
 	uint64_t reg;
 
 	/* CFE will assign PCI resources */
-	pci_probe_only = 1;
+	pci_set_flags(PCI_PROBE_ONLY);
 
 	/* Avoid ISA compat ranges.  */
 	PCIBIOS_MIN_IO = 0x00008000UL;
@@ -239,7 +226,7 @@ static int __init sb1250_pcibios_init(void)
 			       PCI_COMMAND));
 		if (!(cmdreg & PCI_COMMAND_MASTER)) {
 			printk
-			    ("PCI: Skipping PCI probe.  Bus is not initialized.\n");
+			    ("PCI: Skipping PCI probe.	Bus is not initialized.\n");
 			iounmap(cfg_space);
 			return 0;
 		}
@@ -283,7 +270,9 @@ static int __init sb1250_pcibios_init(void)
 	register_pci_controller(&sb1250_controller);
 
 #ifdef CONFIG_VGA_CONSOLE
-	take_over_console(&vga_con, 0, MAX_NR_CONSOLES - 1, 1);
+	console_lock();
+	do_take_over_console(&vga_con, 0, MAX_NR_CONSOLES - 1, 1);
+	console_unlock();
 #endif
 	return 0;
 }

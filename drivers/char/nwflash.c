@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Flash memory interface rev.5 driver for the Intel
  * Flash chips used on the NetWinder.
@@ -30,10 +31,8 @@
 
 #include <asm/hardware/dec21285.h>
 #include <asm/io.h>
-#include <asm/leds.h>
 #include <asm/mach-types.h>
-#include <asm/system.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 /*****************************************************************************/
 #include <asm/nwflash.h>
@@ -169,7 +168,7 @@ static ssize_t flash_write(struct file *file, const char __user *buf,
 	if (count > gbFlashSize - p)
 		count = gbFlashSize - p;
 			
-	if (!access_ok(VERIFY_READ, buf, count))
+	if (!access_ok(buf, count))
 		return -EFAULT;
 
 	/*
@@ -179,9 +178,6 @@ static ssize_t flash_write(struct file *file, const char __user *buf,
 		return -ERESTARTSYS;
 
 	written = 0;
-
-	leds_event(led_claim);
-	leds_event(led_green_on);
 
 	nBlock = (int) p >> 16;	//block # of 64K bytes
 
@@ -259,11 +255,6 @@ static ssize_t flash_write(struct file *file, const char __user *buf,
 			printk(KERN_DEBUG "flash_write: written 0x%X bytes OK.\n", written);
 	}
 
-	/*
-	 * restore reg on exit
-	 */
-	leds_event(led_release);
-
 	mutex_unlock(&nwflash_mutex);
 
 	return written;
@@ -287,36 +278,7 @@ static loff_t flash_llseek(struct file *file, loff_t offset, int orig)
 		printk(KERN_DEBUG "flash_llseek: offset=0x%X, orig=0x%X.\n",
 		       (unsigned int) offset, orig);
 
-	switch (orig) {
-	case 0:
-		if (offset < 0) {
-			ret = -EINVAL;
-			break;
-		}
-
-		if ((unsigned int) offset > gbFlashSize) {
-			ret = -EINVAL;
-			break;
-		}
-
-		file->f_pos = (unsigned int) offset;
-		ret = file->f_pos;
-		break;
-	case 1:
-		if ((file->f_pos + offset) > gbFlashSize) {
-			ret = -EINVAL;
-			break;
-		}
-		if ((file->f_pos + offset) < 0) {
-			ret = -EINVAL;
-			break;
-		}
-		file->f_pos += offset;
-		ret = file->f_pos;
-		break;
-	default:
-		ret = -EINVAL;
-	}
+	ret = no_seek_end_llseek_size(file, offset, orig, gbFlashSize);
 	mutex_unlock(&flash_mutex);
 	return ret;
 }
@@ -333,11 +295,6 @@ static int erase_block(int nBlock)
 	volatile unsigned char *pWritePtr;
 	unsigned long timeout;
 	int temp, temp1;
-
-	/*
-	 * orange LED == erase
-	 */
-	leds_event(led_amber_on);
 
 	/*
 	 * reset footbridge to the correct offset 0 (...0..3)
@@ -447,12 +404,6 @@ static int write_block(unsigned long p, const char __user *buf, int count)
 	unsigned long timeout;
 	unsigned long timeout1;
 
-	/*
-	 * red LED == write
-	 */
-	leds_event(led_amber_off);
-	leds_event(led_red_on);
-
 	pWritePtr = (unsigned char *) ((unsigned int) (FLASH_BASE + p));
 
 	/*
@@ -559,17 +510,9 @@ static int write_block(unsigned long p, const char __user *buf, int count)
 					       pWritePtr - FLASH_BASE);
 
 				/*
-				 * no LED == waiting
-				 */
-				leds_event(led_amber_off);
-				/*
 				 * wait couple ms
 				 */
 				msleep(10);
-				/*
-				 * red LED == write
-				 */
-				leds_event(led_red_on);
 
 				goto WriteRetry;
 			} else {
@@ -583,12 +526,6 @@ static int write_block(unsigned long p, const char __user *buf, int count)
 			}
 		}
 	}
-
-	/*
-	 * green LED == read/verify
-	 */
-	leds_event(led_amber_off);
-	leds_event(led_green_on);
 
 	msleep(10);
 
@@ -618,9 +555,9 @@ static void kick_open(void)
 	 * we want to write a bit pattern XXX1 to Xilinx to enable
 	 * the write gate, which will be open for about the next 2ms.
 	 */
-	spin_lock_irqsave(&nw_gpio_lock, flags);
+	raw_spin_lock_irqsave(&nw_gpio_lock, flags);
 	nw_cpld_modify(CPLD_FLASH_WR_ENABLE, CPLD_FLASH_WR_ENABLE);
-	spin_unlock_irqrestore(&nw_gpio_lock, flags);
+	raw_spin_unlock_irqrestore(&nw_gpio_lock, flags);
 
 	/*
 	 * let the ISA bus to catch on...
@@ -639,7 +576,7 @@ static const struct file_operations flash_fops =
 
 static struct miscdevice flash_miscdev =
 {
-	FLASH_MINOR,
+	NWFLASH_MINOR,
 	"nwflash",
 	&flash_fops
 };

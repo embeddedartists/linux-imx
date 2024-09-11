@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*  *********************************************************************
     *  SB1250 Board Support Package
     *
@@ -13,27 +14,13 @@
     *  Copyright 2000, 2001, 2002, 2003
     *  Broadcom Corporation. All rights reserved.
     *
-    *  This program is free software; you can redistribute it and/or
-    *  modify it under the terms of the GNU General Public License as
-    *  published by the Free Software Foundation; either version 2 of
-    *  the License, or (at your option) any later version.
-    *
-    *  This program is distributed in the hope that it will be useful,
-    *  but WITHOUT ANY WARRANTY; without even the implied warranty of
-    *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    *  GNU General Public License for more details.
-    *
-    *  You should have received a copy of the GNU General Public License
-    *  along with this program; if not, write to the Free Software
-    *  Foundation, Inc., 59 Temple Place, Suite 330, Boston,
-    *  MA 02111-1307 USA
     ********************************************************************* */
 
 
 #ifndef _SB1250_LDT_H
 #define _SB1250_LDT_H
 
-#include "sb1250_defs.h"
+#include <asm/sibyte/sb1250_defs.h>
 
 #define K_LDT_VENDOR_SIBYTE	0x166D
 #define K_LDT_DEVICE_SB1250	0x0002
@@ -66,7 +53,7 @@
 #define R_LDT_TYPE1_SRICMD	0x0050
 #define R_LDT_TYPE1_SRITXNUM	0x0054
 #define R_LDT_TYPE1_SRIRXNUM	0x0058
-#define R_LDT_TYPE1_ERRSTATUS   0x0068
+#define R_LDT_TYPE1_ERRSTATUS	0x0068
 #define R_LDT_TYPE1_SRICTRL	0x006C
 #if SIBYTE_HDR_FEATURE(1250, PASS2) || SIBYTE_HDR_FEATURE(112x, PASS1)
 #define R_LDT_TYPE1_ADDSTATUS	0x0070
@@ -258,7 +245,7 @@
 #define M_LDT_LINKCTRL_DWFCOUT_EN	_SB_MAKEMASK1_32(31)
 
 /*
- * LDT Link frequency register  (Table 8-20) offset 0x48
+ * LDT Link frequency register	(Table 8-20) offset 0x48
  */
 
 #define S_LDT_LINKFREQ_FREQ		8
@@ -301,8 +288,8 @@
 
 #define S_LDT_SRICMD_TXINITIALOFFSET	28
 #define M_LDT_SRICMD_TXINITIALOFFSET	_SB_MAKEMASK_32(3, S_LDT_SRICMD_TXINITIALOFFSET)
-#define V_LDT_SRICMD_TXINITIALOFFSET(x)	_SB_MAKEVALUE_32(x, S_LDT_SRICMD_TXINITIALOFFSET)
-#define G_LDT_SRICMD_TXINITIALOFFSET(x)	_SB_GETVALUE_32(x, S_LDT_SRICMD_TXINITIALOFFSET, M_LDT_SRICMD_TXINITIALOFFSET)
+#define V_LDT_SRICMD_TXINITIALOFFSET(x) _SB_MAKEVALUE_32(x, S_LDT_SRICMD_TXINITIALOFFSET)
+#define G_LDT_SRICMD_TXINITIALOFFSET(x) _SB_GETVALUE_32(x, S_LDT_SRICMD_TXINITIALOFFSET, M_LDT_SRICMD_TXINITIALOFFSET)
 
 #define M_LDT_SRICMD_LINKFREQDIRECT	_SB_MAKEMASK1_32(31)
 
@@ -318,16 +305,16 @@
 #define M_LDT_ERRCTL_OVFSYNCFLOOD_EN	_SB_MAKEMASK1_32(5)
 #define M_LDT_ERRCTL_EOCNXAFATAL_EN	_SB_MAKEMASK1_32(6)
 #define M_LDT_ERRCTL_EOCNXANONFATAL_EN	_SB_MAKEMASK1_32(7)
-#define M_LDT_ERRCTL_EOCNXASYNCFLOOD_EN	_SB_MAKEMASK1_32(8)
+#define M_LDT_ERRCTL_EOCNXASYNCFLOOD_EN _SB_MAKEMASK1_32(8)
 #define M_LDT_ERRCTL_CRCFATAL_EN	_SB_MAKEMASK1_32(9)
 #define M_LDT_ERRCTL_CRCNONFATAL_EN	_SB_MAKEMASK1_32(10)
 #define M_LDT_ERRCTL_SERRFATAL_EN	_SB_MAKEMASK1_32(11)
 #define M_LDT_ERRCTL_SRCTAGFATAL_EN	_SB_MAKEMASK1_32(12)
 #define M_LDT_ERRCTL_SRCTAGNONFATAL_EN	_SB_MAKEMASK1_32(13)
-#define M_LDT_ERRCTL_SRCTAGSYNCFLOOD_EN	_SB_MAKEMASK1_32(14)
+#define M_LDT_ERRCTL_SRCTAGSYNCFLOOD_EN _SB_MAKEMASK1_32(14)
 #define M_LDT_ERRCTL_MAPNXAFATAL_EN	_SB_MAKEMASK1_32(15)
 #define M_LDT_ERRCTL_MAPNXANONFATAL_EN	_SB_MAKEMASK1_32(16)
-#define M_LDT_ERRCTL_MAPNXASYNCFLOOD_EN	_SB_MAKEMASK1_32(17)
+#define M_LDT_ERRCTL_MAPNXASYNCFLOOD_EN _SB_MAKEMASK1_32(17)
 
 #define M_LDT_ERRCTL_PROTOERR		_SB_MAKEMASK1_32(24)
 #define M_LDT_ERRCTL_OVFERR		_SB_MAKEMASK1_32(25)

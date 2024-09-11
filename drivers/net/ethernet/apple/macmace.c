@@ -1,12 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *	Driver for the Macintosh 68K onboard MACE controller with PSC
  *	driven DMA. The MACE driver code is derived from mace.c. The
  *	Mac68k theory of operation is courtesy of the MacBSD wizards.
- *
- *	This program is free software; you can redistribute it and/or
- *	modify it under the terms of the GNU General Public License
- *	as published by the Free Software Foundation; either version
- *	2 of the License, or (at your option) any later version.
  *
  *	Copyright (C) 1996 Paul Mackerras.
  *	Copyright (C) 1998 Alan Cox <alan@lxorguk.ukuu.org.uk>
@@ -89,13 +85,13 @@ struct mace_frame {
 
 static int mace_open(struct net_device *dev);
 static int mace_close(struct net_device *dev);
-static int mace_xmit_start(struct sk_buff *skb, struct net_device *dev);
+static netdev_tx_t mace_xmit_start(struct sk_buff *skb, struct net_device *dev);
 static void mace_set_multicast(struct net_device *dev);
 static int mace_set_address(struct net_device *dev, void *addr);
 static void mace_reset(struct net_device *dev);
 static irqreturn_t mace_interrupt(int irq, void *dev_id);
 static irqreturn_t mace_dma_intr(int irq, void *dev_id);
-static void mace_tx_timeout(struct net_device *dev);
+static void mace_tx_timeout(struct net_device *dev, unsigned int txqueue);
 static void __mace_set_address(struct net_device *dev, void *addr);
 
 /*
@@ -186,7 +182,6 @@ static const struct net_device_ops mace_netdev_ops = {
 	.ndo_tx_timeout		= mace_tx_timeout,
 	.ndo_set_rx_mode	= mace_set_multicast,
 	.ndo_set_mac_address	= mace_set_address,
-	.ndo_change_mtu		= eth_change_mtu,
 	.ndo_validate_addr	= eth_validate_addr,
 };
 
@@ -195,7 +190,7 @@ static const struct net_device_ops mace_netdev_ops = {
  * model of Macintrash has a MACE (AV macintoshes)
  */
 
-static int __devinit mace_probe(struct platform_device *pdev)
+static int mace_probe(struct platform_device *pdev)
 {
 	int j;
 	struct mace_data *mp;
@@ -211,6 +206,7 @@ static int __devinit mace_probe(struct platform_device *pdev)
 	mp = netdev_priv(dev);
 
 	mp->device = &pdev->dev;
+	platform_set_drvdata(pdev, dev);
 	SET_NETDEV_DEV(dev, &pdev->dev);
 
 	dev->base_addr = (u32)MACE_BASE;
@@ -228,7 +224,7 @@ static int __devinit mace_probe(struct platform_device *pdev)
 	 * bits are reversed.
 	 */
 
-	addr = (void *)MACE_PROM;
+	addr = MACE_PROM;
 
 	for (j = 0; j < 6; ++j) {
 		u8 v = bitrev8(addr[j<<4]);
@@ -247,8 +243,8 @@ static int __devinit mace_probe(struct platform_device *pdev)
 	dev->netdev_ops		= &mace_netdev_ops;
 	dev->watchdog_timeo	= TX_TIMEOUT;
 
-	printk(KERN_INFO "%s: 68K MACE, hardware address %pM\n",
-	       dev->name, dev->dev_addr);
+	pr_info("Onboard MACE, hardware address %pM, chip revision 0x%04X\n",
+		dev->dev_addr, mp->chipid);
 
 	err = register_netdev(dev);
 	if (!err)
@@ -386,20 +382,16 @@ static int mace_open(struct net_device *dev)
 	/* Allocate the DMA ring buffers */
 
 	mp->tx_ring = dma_alloc_coherent(mp->device,
-			N_TX_RING * MACE_BUFF_SIZE,
-			&mp->tx_ring_phys, GFP_KERNEL);
-	if (mp->tx_ring == NULL) {
-		printk(KERN_ERR "%s: unable to allocate DMA tx buffers\n", dev->name);
+					 N_TX_RING * MACE_BUFF_SIZE,
+					 &mp->tx_ring_phys, GFP_KERNEL);
+	if (mp->tx_ring == NULL)
 		goto out1;
-	}
 
 	mp->rx_ring = dma_alloc_coherent(mp->device,
-			N_RX_RING * MACE_BUFF_SIZE,
-			&mp->rx_ring_phys, GFP_KERNEL);
-	if (mp->rx_ring == NULL) {
-		printk(KERN_ERR "%s: unable to allocate DMA rx buffers\n", dev->name);
+					 N_RX_RING * MACE_BUFF_SIZE,
+					 &mp->rx_ring_phys, GFP_KERNEL);
+	if (mp->rx_ring == NULL)
 		goto out2;
-	}
 
 	mace_dma_off(dev);
 
@@ -448,7 +440,7 @@ static int mace_close(struct net_device *dev)
  * Transmit a frame
  */
 
-static int mace_xmit_start(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t mace_xmit_start(struct sk_buff *skb, struct net_device *dev)
 {
 	struct mace_data *mp = netdev_priv(dev);
 	unsigned long flags;
@@ -578,7 +570,7 @@ static irqreturn_t mace_interrupt(int irq, void *dev_id)
 			mace_reset(dev);
 			/*
 			 * XXX mace likes to hang the machine after a xmtfs error.
-			 * This is hard to reproduce, reseting *may* help
+			 * This is hard to reproduce, resetting *may* help
 			 */
 		}
 		/* dma should have finished */
@@ -593,7 +585,6 @@ static irqreturn_t mace_interrupt(int irq, void *dev_id)
 			else if (fs & (UFLO|LCOL|RTRY)) {
 				++dev->stats.tx_aborted_errors;
 				if (mb->xmtfs & UFLO) {
-					printk(KERN_ERR "%s: DMA underrun.\n", dev->name);
 					dev->stats.tx_fifo_errors++;
 					mace_txdma_reset(dev);
 				}
@@ -609,7 +600,7 @@ static irqreturn_t mace_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-static void mace_tx_timeout(struct net_device *dev)
+static void mace_tx_timeout(struct net_device *dev, unsigned int txqueue)
 {
 	struct mace_data *mp = netdev_priv(dev);
 	volatile struct mace *mb = mp->mace;
@@ -648,10 +639,8 @@ static void mace_dma_rx_frame(struct net_device *dev, struct mace_frame *mf)
 
 	if (frame_status & (RS_OFLO | RS_CLSN | RS_FRAMERR | RS_FCSERR)) {
 		dev->stats.rx_errors++;
-		if (frame_status & RS_OFLO) {
-			printk(KERN_DEBUG "%s: fifo overflow.\n", dev->name);
+		if (frame_status & RS_OFLO)
 			dev->stats.rx_fifo_errors++;
-		}
 		if (frame_status & RS_CLSN)
 			dev->stats.collisions++;
 		if (frame_status & RS_FRAMERR)
@@ -661,13 +650,13 @@ static void mace_dma_rx_frame(struct net_device *dev, struct mace_frame *mf)
 	} else {
 		unsigned int frame_length = mf->rcvcnt + ((frame_status & 0x0F) << 8 );
 
-		skb = dev_alloc_skb(frame_length + 2);
+		skb = netdev_alloc_skb(dev, frame_length + 2);
 		if (!skb) {
 			dev->stats.rx_dropped++;
 			return;
 		}
 		skb_reserve(skb, 2);
-		memcpy(skb_put(skb, frame_length), mf->data, frame_length);
+		skb_put_data(skb, mf->data, frame_length);
 
 		skb->protocol = eth_type_trans(skb, dev);
 		netif_rx(skb);
@@ -746,7 +735,7 @@ MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Macintosh MACE ethernet driver");
 MODULE_ALIAS("platform:macmace");
 
-static int __devexit mac_mace_device_remove (struct platform_device *pdev)
+static int mac_mace_device_remove(struct platform_device *pdev)
 {
 	struct net_device *dev = platform_get_drvdata(pdev);
 	struct mace_data *mp = netdev_priv(dev);
@@ -768,25 +757,10 @@ static int __devexit mac_mace_device_remove (struct platform_device *pdev)
 
 static struct platform_driver mac_mace_driver = {
 	.probe  = mace_probe,
-	.remove = __devexit_p(mac_mace_device_remove),
+	.remove = mac_mace_device_remove,
 	.driver	= {
 		.name	= mac_mace_string,
-		.owner	= THIS_MODULE,
 	},
 };
 
-static int __init mac_mace_init_module(void)
-{
-	if (!MACH_IS_MAC)
-		return -ENODEV;
-
-	return platform_driver_register(&mac_mace_driver);
-}
-
-static void __exit mac_mace_cleanup_module(void)
-{
-	platform_driver_unregister(&mac_mace_driver);
-}
-
-module_init(mac_mace_init_module);
-module_exit(mac_mace_cleanup_module);
+module_platform_driver(mac_mace_driver);

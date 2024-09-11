@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * File created by Kanoj Sarcar 06/06/00.
  * Copyright 2000 Silicon Graphics, Inc.
@@ -36,10 +37,10 @@
 
 #define MAPPED_KERN_RO_TO_PHYS(x) \
 				((unsigned long)MAPPED_ADDR_RO_TO_PHYS(x) | \
-				MAPPED_KERN_RO_PHYSBASE(get_compact_nodeid()))
+				MAPPED_KERN_RO_PHYSBASE(get_nasid()))
 #define MAPPED_KERN_RW_TO_PHYS(x) \
 				((unsigned long)MAPPED_ADDR_RW_TO_PHYS(x) | \
-				MAPPED_KERN_RW_PHYSBASE(get_compact_nodeid()))
+				MAPPED_KERN_RW_PHYSBASE(get_nasid()))
 
 #else /* CONFIG_MAPPED_KERNEL */
 
@@ -48,7 +49,7 @@
 
 #endif /* CONFIG_MAPPED_KERNEL */
 
-#define MAPPED_KERN_RO_TO_K0(x)	PHYS_TO_K0(MAPPED_KERN_RO_TO_PHYS(x))
-#define MAPPED_KERN_RW_TO_K0(x)	PHYS_TO_K0(MAPPED_KERN_RW_TO_PHYS(x))
+#define MAPPED_KERN_RO_TO_K0(x) PHYS_TO_K0(MAPPED_KERN_RO_TO_PHYS(x))
+#define MAPPED_KERN_RW_TO_K0(x) PHYS_TO_K0(MAPPED_KERN_RW_TO_PHYS(x))
 
 #endif /* __ASM_SN_MAPPED_KERNEL_H  */

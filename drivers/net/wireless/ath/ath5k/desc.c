@@ -21,6 +21,8 @@
  Hardware Descriptor Functions
 \******************************/
 
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include "ath5k.h"
 #include "reg.h"
 #include "debug.h"
@@ -441,10 +443,8 @@ ath5k_hw_proc_2word_tx_status(struct ath5k_hw *ah,
 				struct ath5k_desc *desc,
 				struct ath5k_tx_status *ts)
 {
-	struct ath5k_hw_2w_tx_ctl *tx_ctl;
 	struct ath5k_hw_tx_status *tx_status;
 
-	tx_ctl = &desc->ud.ds_tx5210.tx_ctl;
 	tx_status = &desc->ud.ds_tx5210.tx_stat;
 
 	/* No frame has been send or error */
@@ -495,20 +495,18 @@ ath5k_hw_proc_4word_tx_status(struct ath5k_hw *ah,
 				struct ath5k_desc *desc,
 				struct ath5k_tx_status *ts)
 {
-	struct ath5k_hw_4w_tx_ctl *tx_ctl;
 	struct ath5k_hw_tx_status *tx_status;
 	u32 txstat0, txstat1;
 
-	tx_ctl = &desc->ud.ds_tx5212.tx_ctl;
 	tx_status = &desc->ud.ds_tx5212.tx_stat;
 
-	txstat1 = ACCESS_ONCE(tx_status->tx_status_1);
+	txstat1 = READ_ONCE(tx_status->tx_status_1);
 
 	/* No frame has been send or error */
 	if (unlikely(!(txstat1 & AR5K_DESC_TX_STATUS1_DONE)))
 		return -EINPROGRESS;
 
-	txstat0 = ACCESS_ONCE(tx_status->tx_status_0);
+	txstat0 = READ_ONCE(tx_status->tx_status_0);
 
 	/*
 	 * Get descriptor status
@@ -702,14 +700,14 @@ ath5k_hw_proc_5212_rx_status(struct ath5k_hw *ah,
 	u32 rxstat0, rxstat1;
 
 	rx_status = &desc->ud.ds_rx.rx_stat;
-	rxstat1 = ACCESS_ONCE(rx_status->rx_status_1);
+	rxstat1 = READ_ONCE(rx_status->rx_status_1);
 
 	/* No frame received / not ready */
 	if (unlikely(!(rxstat1 & AR5K_5212_RX_DESC_STATUS1_DONE)))
 		return -EINPROGRESS;
 
 	memset(rs, 0, sizeof(struct ath5k_rx_status));
-	rxstat0 = ACCESS_ONCE(rx_status->rx_status_0);
+	rxstat0 = READ_ONCE(rx_status->rx_status_0);
 
 	/*
 	 * Frame receive status

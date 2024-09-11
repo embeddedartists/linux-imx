@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Generate definitions needed by assembly language modules.
  * This code generates raw asm output which is post-processed
@@ -6,7 +7,7 @@
 
 #define ASM_OFFSETS_C 1
 
-#include <linux/sched.h>
+#include <linux/sched/signal.h>
 #include <linux/pid.h>
 #include <linux/clocksource.h>
 #include <linux/kbuild.h>
@@ -15,9 +16,6 @@
 #include <asm/siginfo.h>
 #include <asm/sigcontext.h>
 #include <asm/mca.h>
-
-#include <asm/xen/interface.h>
-#include <asm/xen/hypervisor.h>
 
 #include "../kernel/sigframe.h"
 #include "../kernel/fsyscall_gtod_data.h"
@@ -33,15 +31,15 @@ void foo(void)
 	DEFINE(SIGFRAME_SIZE, sizeof (struct sigframe));
 	DEFINE(UNW_FRAME_INFO_SIZE, sizeof (struct unw_frame_info));
 
-	BUILD_BUG_ON(sizeof(struct upid) != 32);
-	DEFINE(IA64_UPID_SHIFT, 5);
+	BUILD_BUG_ON(sizeof(struct upid) != 16);
+	DEFINE(IA64_UPID_SHIFT, 4);
 
 	BLANK();
 
 	DEFINE(TI_FLAGS, offsetof(struct thread_info, flags));
 	DEFINE(TI_CPU, offsetof(struct thread_info, cpu));
 	DEFINE(TI_PRE_COUNT, offsetof(struct thread_info, preempt_count));
-#ifdef CONFIG_VIRT_CPU_ACCOUNTING
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
 	DEFINE(TI_AC_STAMP, offsetof(struct thread_info, ac_stamp));
 	DEFINE(TI_AC_LEAVE, offsetof(struct thread_info, ac_leave));
 	DEFINE(TI_AC_STIME, offsetof(struct thread_info, ac_stime));
@@ -52,14 +50,12 @@ void foo(void)
 
 	DEFINE(IA64_TASK_BLOCKED_OFFSET,offsetof (struct task_struct, blocked));
 	DEFINE(IA64_TASK_CLEAR_CHILD_TID_OFFSET,offsetof (struct task_struct, clear_child_tid));
-	DEFINE(IA64_TASK_GROUP_LEADER_OFFSET, offsetof (struct task_struct, group_leader));
-	DEFINE(IA64_TASK_TGIDLINK_OFFSET, offsetof (struct task_struct, pids[PIDTYPE_PID].pid));
+	DEFINE(IA64_TASK_THREAD_PID_OFFSET,offsetof (struct task_struct, thread_pid));
 	DEFINE(IA64_PID_LEVEL_OFFSET, offsetof (struct pid, level));
 	DEFINE(IA64_PID_UPID_OFFSET, offsetof (struct pid, numbers[0]));
 	DEFINE(IA64_TASK_PENDING_OFFSET,offsetof (struct task_struct, pending));
 	DEFINE(IA64_TASK_PID_OFFSET, offsetof (struct task_struct, pid));
 	DEFINE(IA64_TASK_REAL_PARENT_OFFSET, offsetof (struct task_struct, real_parent));
-	DEFINE(IA64_TASK_SIGHAND_OFFSET,offsetof (struct task_struct, sighand));
 	DEFINE(IA64_TASK_SIGNAL_OFFSET,offsetof (struct task_struct, signal));
 	DEFINE(IA64_TASK_TGID_OFFSET, offsetof (struct task_struct, tgid));
 	DEFINE(IA64_TASK_THREAD_KSP_OFFSET, offsetof (struct task_struct, thread.ksp));
@@ -67,13 +63,11 @@ void foo(void)
 
 	BLANK();
 
-	DEFINE(IA64_SIGHAND_SIGLOCK_OFFSET,offsetof (struct sighand_struct, siglock));
-
-	BLANK();
 
 	DEFINE(IA64_SIGNAL_GROUP_STOP_COUNT_OFFSET,offsetof (struct signal_struct,
 							     group_stop_count));
 	DEFINE(IA64_SIGNAL_SHARED_PENDING_OFFSET,offsetof (struct signal_struct, shared_pending));
+	DEFINE(IA64_SIGNAL_PIDS_TGID_OFFSET, offsetof (struct signal_struct, pids[PIDTYPE_TGID]));
 
 	BLANK();
 
@@ -217,7 +211,9 @@ void foo(void)
 	       offsetof (struct cpuinfo_ia64, ptce_stride));
 	BLANK();
 	DEFINE(IA64_TIMESPEC_TV_NSEC_OFFSET,
-	       offsetof (struct timespec, tv_nsec));
+	       offsetof (struct __kernel_old_timespec, tv_nsec));
+	DEFINE(IA64_TIME_SN_SPEC_SNSEC_OFFSET,
+	       offsetof (struct time_sn_spec, snsec));
 
 	DEFINE(CLONE_SETTLS_BIT, 19);
 #if CLONE_SETTLS != (1<<19)
@@ -249,28 +245,28 @@ void foo(void)
 	BLANK();
 
 	DEFINE(IA64_PMSA_GR_OFFSET,
-	       offsetof (struct pal_min_state_area_s, pmsa_gr));
+	       offsetof(struct pal_min_state_area, pmsa_gr));
 	DEFINE(IA64_PMSA_BANK1_GR_OFFSET,
-	       offsetof (struct pal_min_state_area_s, pmsa_bank1_gr));
+	       offsetof(struct pal_min_state_area, pmsa_bank1_gr));
 	DEFINE(IA64_PMSA_PR_OFFSET,
-	       offsetof (struct pal_min_state_area_s, pmsa_pr));
+	       offsetof(struct pal_min_state_area, pmsa_pr));
 	DEFINE(IA64_PMSA_BR0_OFFSET,
-	       offsetof (struct pal_min_state_area_s, pmsa_br0));
+	       offsetof(struct pal_min_state_area, pmsa_br0));
 	DEFINE(IA64_PMSA_RSC_OFFSET,
-	       offsetof (struct pal_min_state_area_s, pmsa_rsc));
+	       offsetof(struct pal_min_state_area, pmsa_rsc));
 	DEFINE(IA64_PMSA_IIP_OFFSET,
-	       offsetof (struct pal_min_state_area_s, pmsa_iip));
+	       offsetof(struct pal_min_state_area, pmsa_iip));
 	DEFINE(IA64_PMSA_IPSR_OFFSET,
-	       offsetof (struct pal_min_state_area_s, pmsa_ipsr));
+	       offsetof(struct pal_min_state_area, pmsa_ipsr));
 	DEFINE(IA64_PMSA_IFS_OFFSET,
-	       offsetof (struct pal_min_state_area_s, pmsa_ifs));
+	       offsetof(struct pal_min_state_area, pmsa_ifs));
 	DEFINE(IA64_PMSA_XIP_OFFSET,
-	       offsetof (struct pal_min_state_area_s, pmsa_xip));
+	       offsetof(struct pal_min_state_area, pmsa_xip));
 	BLANK();
 
 	/* used by fsys_gettimeofday in arch/ia64/kernel/fsys.S */
-	DEFINE(IA64_GTOD_LOCK_OFFSET,
-		offsetof (struct fsyscall_gtod_data_t, lock));
+	DEFINE(IA64_GTOD_SEQ_OFFSET,
+	       offsetof (struct fsyscall_gtod_data_t, seq));
 	DEFINE(IA64_GTOD_WALL_TIME_OFFSET,
 		offsetof (struct fsyscall_gtod_data_t, wall_time));
 	DEFINE(IA64_GTOD_MONO_TIME_OFFSET,
@@ -290,33 +286,4 @@ void foo(void)
 	DEFINE(IA64_ITC_LASTCYCLE_OFFSET,
 		offsetof (struct itc_jitter_data_t, itc_lastcycle));
 
-#ifdef CONFIG_XEN
-	BLANK();
-
-	DEFINE(XEN_NATIVE_ASM, XEN_NATIVE);
-	DEFINE(XEN_PV_DOMAIN_ASM, XEN_PV_DOMAIN);
-
-#define DEFINE_MAPPED_REG_OFS(sym, field) \
-	DEFINE(sym, (XMAPPEDREGS_OFS + offsetof(struct mapped_regs, field)))
-
-	DEFINE_MAPPED_REG_OFS(XSI_PSR_I_ADDR_OFS, interrupt_mask_addr);
-	DEFINE_MAPPED_REG_OFS(XSI_IPSR_OFS, ipsr);
-	DEFINE_MAPPED_REG_OFS(XSI_IIP_OFS, iip);
-	DEFINE_MAPPED_REG_OFS(XSI_IFS_OFS, ifs);
-	DEFINE_MAPPED_REG_OFS(XSI_PRECOVER_IFS_OFS, precover_ifs);
-	DEFINE_MAPPED_REG_OFS(XSI_ISR_OFS, isr);
-	DEFINE_MAPPED_REG_OFS(XSI_IFA_OFS, ifa);
-	DEFINE_MAPPED_REG_OFS(XSI_IIPA_OFS, iipa);
-	DEFINE_MAPPED_REG_OFS(XSI_IIM_OFS, iim);
-	DEFINE_MAPPED_REG_OFS(XSI_IHA_OFS, iha);
-	DEFINE_MAPPED_REG_OFS(XSI_ITIR_OFS, itir);
-	DEFINE_MAPPED_REG_OFS(XSI_PSR_IC_OFS, interrupt_collection_enabled);
-	DEFINE_MAPPED_REG_OFS(XSI_BANKNUM_OFS, banknum);
-	DEFINE_MAPPED_REG_OFS(XSI_BANK0_R16_OFS, bank0_regs[0]);
-	DEFINE_MAPPED_REG_OFS(XSI_BANK1_R16_OFS, bank1_regs[0]);
-	DEFINE_MAPPED_REG_OFS(XSI_B0NATS_OFS, vbnat);
-	DEFINE_MAPPED_REG_OFS(XSI_B1NATS_OFS, vnat);
-	DEFINE_MAPPED_REG_OFS(XSI_ITC_OFFSET_OFS, itc_offset);
-	DEFINE_MAPPED_REG_OFS(XSI_ITC_LAST_OFS, itc_last);
-#endif /* CONFIG_XEN */
 }

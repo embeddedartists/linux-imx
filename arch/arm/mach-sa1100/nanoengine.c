@@ -1,18 +1,16 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * linux/arch/arm/mach-sa1100/nanoengine.c
  *
  * Bright Star Engineering's nanoEngine board init code.
  *
  * Copyright (C) 2010 Marcelo Roberto Jimenez <mroberto@cpti.cetuc.puc-rio.br>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
  */
 
 #include <linux/init.h>
+#include <linux/gpio/machine.h>
 #include <linux/kernel.h>
+#include <linux/platform_data/sa11x0-serial.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/partitions.h>
 #include <linux/root_dev.h>
@@ -24,10 +22,10 @@
 #include <asm/mach/arch.h>
 #include <asm/mach/flash.h>
 #include <asm/mach/map.h>
-#include <asm/mach/serial_sa1100.h>
 
 #include <mach/hardware.h>
 #include <mach/nanoengine.h>
+#include <mach/irqs.h>
 
 #include "generic.h"
 
@@ -58,15 +56,8 @@ static struct flash_platform_data nanoengine_flash_data = {
 };
 
 static struct resource nanoengine_flash_resources[] = {
-	{
-		.start	= SA1100_CS0_PHYS,
-		.end	= SA1100_CS0_PHYS + SZ_32M - 1,
-		.flags	= IORESOURCE_MEM,
-	}, {
-		.start	= SA1100_CS1_PHYS,
-		.end	= SA1100_CS1_PHYS + SZ_32M - 1,
-		.flags	= IORESOURCE_MEM,
-	}
+	DEFINE_RES_MEM(SA1100_CS0_PHYS, SZ_32M),
+	DEFINE_RES_MEM(SA1100_CS1_PHYS, SZ_32M),
 };
 
 static struct map_desc nanoengine_io_desc[] __initdata = {
@@ -105,8 +96,30 @@ static void __init nanoengine_map_io(void)
 	Ser2HSCR0 = 0;
 }
 
+static struct gpiod_lookup_table nanoengine_pcmcia0_gpio_table = {
+	.dev_id = "sa11x0-pcmcia.0",
+	.table = {
+		GPIO_LOOKUP("gpio", 11, "ready", GPIO_ACTIVE_HIGH),
+		GPIO_LOOKUP("gpio", 13, "detect", GPIO_ACTIVE_LOW),
+		GPIO_LOOKUP("gpio", 15, "reset", GPIO_ACTIVE_HIGH),
+		{ },
+	},
+};
+
+static struct gpiod_lookup_table nanoengine_pcmcia1_gpio_table = {
+	.dev_id = "sa11x0-pcmcia.1",
+	.table = {
+		GPIO_LOOKUP("gpio", 12, "ready", GPIO_ACTIVE_HIGH),
+		GPIO_LOOKUP("gpio", 14, "detect", GPIO_ACTIVE_LOW),
+		GPIO_LOOKUP("gpio", 16, "reset", GPIO_ACTIVE_HIGH),
+		{ },
+	},
+};
+
 static void __init nanoengine_init(void)
 {
+	sa11x0_register_pcmcia(0, &nanoengine_pcmcia0_gpio_table);
+	sa11x0_register_pcmcia(1, &nanoengine_pcmcia1_gpio_table);
 	sa11x0_register_mtd(&nanoengine_flash_data, nanoengine_flash_resources,
 		ARRAY_SIZE(nanoengine_flash_resources));
 }
@@ -114,8 +127,10 @@ static void __init nanoengine_init(void)
 MACHINE_START(NANOENGINE, "BSE nanoEngine")
 	.atag_offset	= 0x100,
 	.map_io		= nanoengine_map_io,
+	.nr_irqs	= SA1100_NR_IRQS,
 	.init_irq	= sa1100_init_irq,
-	.timer		= &sa1100_timer,
+	.init_time	= sa1100_timer_init,
 	.init_machine	= nanoengine_init,
+	.init_late	= sa11x0_init_late,
 	.restart	= sa11x0_restart,
 MACHINE_END

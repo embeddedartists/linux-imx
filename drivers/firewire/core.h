@@ -1,6 +1,10 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _FIREWIRE_CORE_H
 #define _FIREWIRE_CORE_H
 
+#include <linux/compiler.h>
+#include <linux/device.h>
+#include <linux/dma-mapping.h>
 #include <linux/fs.h>
 #include <linux/list.h>
 #include <linux/idr.h>
@@ -9,7 +13,7 @@
 #include <linux/slab.h>
 #include <linux/types.h>
 
-#include <linux/atomic.h>
+#include <linux/refcount.h>
 
 struct device;
 struct fw_card;
@@ -22,6 +26,11 @@ struct fw_packet;
 
 
 /* -card */
+
+extern __printf(2, 3)
+void fw_err(const struct fw_card *card, const char *fmt, ...);
+extern __printf(2, 3)
+void fw_notice(const struct fw_card *card, const char *fmt, ...);
 
 /* bitfields within the PHY registers */
 #define PHY_LINK_ACTIVE		0x80
@@ -99,6 +108,8 @@ struct fw_card_driver {
 
 	void (*flush_queue_iso)(struct fw_iso_context *ctx);
 
+	int (*flush_iso_completions)(struct fw_iso_context *ctx);
+
 	int (*stop_iso)(struct fw_iso_context *ctx);
 };
 
@@ -108,23 +119,7 @@ int fw_card_add(struct fw_card *card,
 		u32 max_receive, u32 link_speed, u64 guid);
 void fw_core_remove_card(struct fw_card *card);
 int fw_compute_block_crc(__be32 *block);
-void fw_schedule_bus_reset(struct fw_card *card, bool delayed, bool short_reset);
 void fw_schedule_bm_work(struct fw_card *card, unsigned long delay);
-
-static inline struct fw_card *fw_card_get(struct fw_card *card)
-{
-	kref_get(&card->kref);
-
-	return card;
-}
-
-void fw_card_release(struct kref *kref);
-
-static inline void fw_card_put(struct fw_card *card)
-{
-	kref_put(&card->kref, fw_card_release);
-}
-
 
 /* -cdev */
 
@@ -141,6 +136,18 @@ extern struct rw_semaphore fw_device_rwsem;
 extern struct idr fw_device_idr;
 extern int fw_cdev_major;
 
+static inline struct fw_device *fw_device_get(struct fw_device *device)
+{
+	get_device(&device->device);
+
+	return device;
+}
+
+static inline void fw_device_put(struct fw_device *device)
+{
+	put_device(&device->device);
+}
+
 struct fw_device *fw_device_get_by_devt(dev_t devt);
 int fw_device_set_broadcast_channel(struct device *dev, void *gen);
 void fw_node_event(struct fw_card *card, struct fw_node *node, int event);
@@ -148,7 +155,9 @@ void fw_node_event(struct fw_card *card, struct fw_node *node, int event);
 
 /* -iso */
 
-int fw_iso_buffer_map(struct fw_iso_buffer *buffer, struct vm_area_struct *vma);
+int fw_iso_buffer_alloc(struct fw_iso_buffer *buffer, int page_count);
+int fw_iso_buffer_map_dma(struct fw_iso_buffer *buffer, struct fw_card *card,
+			  enum dma_data_direction direction);
 
 
 /* -topology */
@@ -174,7 +183,7 @@ struct fw_node {
 			 * local node to this node. */
 	u8 max_depth:4;	/* Maximum depth to any leaf node */
 	u8 max_hops:4;	/* Max hops in this sub tree */
-	atomic_t ref_count;
+	refcount_t ref_count;
 
 	/* For serializing node topology into a list. */
 	struct list_head link;
@@ -182,19 +191,19 @@ struct fw_node {
 	/* Upper layer specific data. */
 	void *data;
 
-	struct fw_node *ports[0];
+	struct fw_node *ports[];
 };
 
 static inline struct fw_node *fw_node_get(struct fw_node *node)
 {
-	atomic_inc(&node->ref_count);
+	refcount_inc(&node->ref_count);
 
 	return node;
 }
 
 static inline void fw_node_put(struct fw_node *node)
 {
-	if (atomic_dec_and_test(&node->ref_count))
+	if (refcount_dec_and_test(&node->ref_count))
 		kfree(node);
 }
 
@@ -225,6 +234,9 @@ static inline bool is_next_generation(int new_generation, int old_generation)
 #define TCODE_HAS_RESPONSE_DATA(tcode)	(((tcode) & 12) != 0)
 
 #define LOCAL_BUS 0xffc0
+
+/* OHCI-1394's default upper bound for physical DMA: 4 GB */
+#define FW_MAX_PHYSICAL_RANGE		(1ULL << 32)
 
 void fw_core_handle_request(struct fw_card *card, struct fw_packet *request);
 void fw_core_handle_response(struct fw_card *card, struct fw_packet *packet);

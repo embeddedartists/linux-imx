@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * USB Empeg empeg-car player driver
  *
@@ -7,17 +8,12 @@
  *	Copyright (C) 1999 - 2001
  *	    Greg Kroah-Hartman (greg@kroah.com)
  *
- *	This program is free software; you can redistribute it and/or modify
- *	it under the terms of the GNU General Public License, as published by
- *	the Free Software Foundation, version 2.
- *
- * See Documentation/usb/usb-serial.txt for more information on using this
+ * See Documentation/usb/usb-serial.rst for more information on using this
  * driver
  */
 
 #include <linux/kernel.h>
 #include <linux/errno.h>
-#include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/tty.h>
 #include <linux/tty_driver.h>
@@ -28,12 +24,6 @@
 #include <linux/usb.h>
 #include <linux/usb/serial.h>
 
-static bool debug;
-
-/*
- * Version Information
- */
-#define DRIVER_VERSION "v1.3"
 #define DRIVER_AUTHOR "Greg Kroah-Hartman <greg@kroah.com>, Gary Brubaker <xavyer@ix.netcom.com>"
 #define DRIVER_DESC "USB Empeg Mark I/II Driver"
 
@@ -51,21 +41,12 @@ static const struct usb_device_id id_table[] = {
 
 MODULE_DEVICE_TABLE(usb, id_table);
 
-static struct usb_driver empeg_driver = {
-	.name =		"empeg",
-	.probe =	usb_serial_probe,
-	.disconnect =	usb_serial_disconnect,
-	.id_table =	id_table,
-	.no_dynamic_id =	1,
-};
-
 static struct usb_serial_driver empeg_device = {
 	.driver = {
 		.owner =	THIS_MODULE,
 		.name =		"empeg",
 	},
 	.id_table =		id_table,
-	.usb_driver =		&empeg_driver,
 	.num_ports =		1,
 	.bulk_out_size =	256,
 	.throttle =		usb_serial_generic_throttle,
@@ -74,18 +55,20 @@ static struct usb_serial_driver empeg_device = {
 	.init_termios =		empeg_init_termios,
 };
 
+static struct usb_serial_driver * const serial_drivers[] = {
+	&empeg_device, NULL
+};
+
 static int empeg_startup(struct usb_serial *serial)
 {
 	int r;
-
-	dbg("%s", __func__);
 
 	if (serial->dev->actconfig->desc.bConfigurationValue != 1) {
 		dev_err(&serial->dev->dev, "active config #%d != 1 ??\n",
 			serial->dev->actconfig->desc.bConfigurationValue);
 		return -ENODEV;
 	}
-	dbg("%s - reset config", __func__);
+
 	r = usb_reset_configuration(serial->dev);
 
 	/* continue on with initialization */
@@ -94,7 +77,7 @@ static int empeg_startup(struct usb_serial *serial)
 
 static void empeg_init_termios(struct tty_struct *tty)
 {
-	struct ktermios *termios = tty->termios;
+	struct ktermios *termios = &tty->termios;
 
 	/*
 	 * The empeg-car player wants these particular tty settings.
@@ -136,37 +119,8 @@ static void empeg_init_termios(struct tty_struct *tty)
 	tty_encode_baud_rate(tty, 115200, 115200);
 }
 
-static int __init empeg_init(void)
-{
-	int retval;
-
-	retval = usb_serial_register(&empeg_device);
-	if (retval)
-		return retval;
-	retval = usb_register(&empeg_driver);
-	if (retval) {
-		usb_serial_deregister(&empeg_device);
-		return retval;
-	}
-	printk(KERN_INFO KBUILD_MODNAME ": " DRIVER_VERSION ":"
-	       DRIVER_DESC "\n");
-
-	return 0;
-}
-
-static void __exit empeg_exit(void)
-{
-	usb_deregister(&empeg_driver);
-	usb_serial_deregister(&empeg_device);
-}
-
-
-module_init(empeg_init);
-module_exit(empeg_exit);
+module_usb_serial_driver(serial_drivers, id_table);
 
 MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_DESCRIPTION(DRIVER_DESC);
-MODULE_LICENSE("GPL");
-
-module_param(debug, bool, S_IRUGO | S_IWUSR);
-MODULE_PARM_DESC(debug, "Debug enabled or not");
+MODULE_LICENSE("GPL v2");

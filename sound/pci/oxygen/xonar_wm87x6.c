@@ -1,19 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * card driver for models with WM8776/WM8766 DACs (Xonar DS/HDAV1.3 Slim)
  *
  * Copyright (c) Clemens Ladisch <clemens@ladisch.de>
- *
- *
- *  This driver is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License, version 2.
- *
- *  This driver is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with this driver; if not, see <http://www.gnu.org/licenses/>.
  */
 
 /*
@@ -127,7 +116,8 @@ static void wm8776_write(struct oxygen *chip,
 	else
 		wm8776_write_i2c(chip, reg, value);
 	if (reg < ARRAY_SIZE(data->wm8776_regs)) {
-		if (reg >= WM8776_HPLVOL && reg <= WM8776_DACMASTER)
+		/* reg >= WM8776_HPLVOL is always true */
+		if (reg <= WM8776_DACMASTER)
 			value &= ~WM8776_UPDATE;
 		data->wm8776_regs[reg] = value;
 	}
@@ -155,7 +145,8 @@ static void wm8766_write(struct oxygen *chip,
 			 OXYGEN_SPI_CEN_LATCH_CLOCK_LO,
 			 (reg << 9) | value);
 	if (reg < ARRAY_SIZE(data->wm8766_regs)) {
-		if ((reg >= WM8766_LDA1 && reg <= WM8766_RDA1) ||
+		/* reg >= WM8766_LDA1 is always true */
+		if (reg <= WM8766_RDA1 ||
 		    (reg >= WM8766_LDA2 && reg <= WM8766_MASTDA))
 			value &= ~WM8766_UPDATE;
 		data->wm8766_regs[reg] = value;
@@ -177,6 +168,7 @@ static void wm8776_registers_init(struct oxygen *chip)
 	struct xonar_wm87x6 *data = chip->model_data;
 
 	wm8776_write(chip, WM8776_RESET, 0);
+	wm8776_write(chip, WM8776_PHASESWAP, WM8776_PH_MASK);
 	wm8776_write(chip, WM8776_DACCTRL1, WM8776_DZCEN |
 		     WM8776_PL_LEFT_LEFT | WM8776_PL_RIGHT_RIGHT);
 	wm8776_write(chip, WM8776_DACMUTE, chip->dac_mute ? WM8776_DMUTE : 0);
@@ -285,7 +277,7 @@ static void xonar_ds_init(struct oxygen *chip)
 	xonar_enable_output(chip);
 
 	snd_jack_new(chip->card, "Headphone",
-		     SND_JACK_HEADPHONE, &data->hp_jack);
+		     SND_JACK_HEADPHONE, &data->hp_jack, false, false);
 	xonar_ds_handle_hp_jack(chip);
 
 	snd_component_add(chip->card, "WM8776");
@@ -1254,7 +1246,6 @@ static void dump_wm87x6_registers(struct oxygen *chip,
 }
 
 static const struct oxygen_model model_xonar_ds = {
-	.shortname = "Xonar DS",
 	.longname = "Asus Virtuoso 66",
 	.chip = "AV200",
 	.init = xonar_ds_init,
@@ -1320,12 +1311,17 @@ static const struct oxygen_model model_xonar_hdav_slim = {
 	.adc_i2s_format = OXYGEN_I2S_FORMAT_LJUST,
 };
 
-int __devinit get_xonar_wm87x6_model(struct oxygen *chip,
-				     const struct pci_device_id *id)
+int get_xonar_wm87x6_model(struct oxygen *chip,
+			   const struct pci_device_id *id)
 {
 	switch (id->subdevice) {
 	case 0x838e:
 		chip->model = model_xonar_ds;
+		chip->model.shortname = "Xonar DS";
+		break;
+	case 0x8522:
+		chip->model = model_xonar_ds;
+		chip->model.shortname = "Xonar DSX";
 		break;
 	case 0x835e:
 		chip->model = model_xonar_hdav_slim;

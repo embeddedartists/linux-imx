@@ -1,7 +1,7 @@
 /*
  * OMAP SoC specific OPP Data helpers
  *
- * Copyright (C) 2009-2010 Texas Instruments Incorporated - http://www.ti.com/
+ * Copyright (C) 2009-2010 Texas Instruments Incorporated - https://www.ti.com/
  *	Nishanth Menon
  *	Kevin Hilman
  * Copyright (C) 2010 Nokia Corporation.
@@ -19,7 +19,7 @@
 #ifndef __ARCH_ARM_MACH_OMAP2_OMAP_OPP_DATA_H
 #define __ARCH_ARM_MACH_OMAP2_OMAP_OPP_DATA_H
 
-#include <plat/omap_hwmod.h>
+#include "omap_hwmod.h"
 
 #include "voltage.h"
 
@@ -89,8 +89,11 @@ extern struct omap_volt_data omap34xx_vddcore_volt_data[];
 extern struct omap_volt_data omap36xx_vddmpu_volt_data[];
 extern struct omap_volt_data omap36xx_vddcore_volt_data[];
 
-extern struct omap_volt_data omap44xx_vdd_mpu_volt_data[];
-extern struct omap_volt_data omap44xx_vdd_iva_volt_data[];
-extern struct omap_volt_data omap44xx_vdd_core_volt_data[];
+extern struct omap_volt_data omap443x_vdd_mpu_volt_data[];
+extern struct omap_volt_data omap443x_vdd_iva_volt_data[];
+extern struct omap_volt_data omap443x_vdd_core_volt_data[];
+extern struct omap_volt_data omap446x_vdd_mpu_volt_data[];
+extern struct omap_volt_data omap446x_vdd_iva_volt_data[];
+extern struct omap_volt_data omap446x_vdd_core_volt_data[];
 
 #endif		/* __ARCH_ARM_MACH_OMAP2_OMAP_OPP_DATA_H */

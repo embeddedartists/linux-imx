@@ -1,12 +1,12 @@
-/**
+/*
  * OMAP1 Dual-Mode Timers - platform device registration
  *
  * Contains first level initialization routines which internally
  * generates timer device information and registers with linux
- * device model. It also has low level function to chnage the timer
+ * device model. It also has a low level function to change the timer
  * input clock source.
  *
- * Copyright (C) 2011 Texas Instruments Incorporated - http://www.ti.com/
+ * Copyright (C) 2011 Texas Instruments Incorporated - https://www.ti.com/
  * Tarun Kanti DebBarma <tarun.kanti@ti.com>
  * Thara Gopinath <thara@ti.com>
  *
@@ -25,10 +25,11 @@
 #include <linux/err.h>
 #include <linux/slab.h>
 #include <linux/platform_device.h>
+#include <linux/platform_data/dmtimer-omap.h>
 
-#include <mach/irqs.h>
+#include <clocksource/timer-ti-dm.h>
 
-#include <plat/dmtimer.h>
+#include "soc.h"
 
 #define OMAP1610_GPTIMER1_BASE		0xfffb1400
 #define OMAP1610_GPTIMER2_BASE		0xfffb1c00
@@ -47,15 +48,14 @@ static int omap1_dm_timer_set_src(struct platform_device *pdev,
 	int n = (pdev->id - 1) << 1;
 	u32 l;
 
-	l = __raw_readl(MOD_CONF_CTRL_1) & ~(0x03 << n);
+	l = omap_readl(MOD_CONF_CTRL_1) & ~(0x03 << n);
 	l |= source << n;
-	__raw_writel(l, MOD_CONF_CTRL_1);
+	omap_writel(l, MOD_CONF_CTRL_1);
 
 	return 0;
 }
 
-
-int __init omap1_dm_timer_init(void)
+static int __init omap1_dm_timer_init(void)
 {
 	int i;
 	int ret;
@@ -134,14 +134,13 @@ int __init omap1_dm_timer_init(void)
 
 		pdata = kzalloc(sizeof(*pdata), GFP_KERNEL);
 		if (!pdata) {
-			dev_err(&pdev->dev, "%s: Failed to allocate pdata.\n",
-				__func__);
 			ret = -ENOMEM;
 			goto err_free_pdata;
 		}
 
 		pdata->set_timer_src = omap1_dm_timer_set_src;
-		pdata->needs_manual_reset = 1;
+		pdata->timer_capability = OMAP_TIMER_ALWON |
+				OMAP_TIMER_NEEDS_RESET | OMAP_TIMER_HAS_DSP_IRQ;
 
 		ret = platform_device_add_data(pdev, pdata, sizeof(*pdata));
 		if (ret) {

@@ -1,14 +1,10 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * include/linux/mmc/sh_mmcif.h
  *
  * platform data for eMMC driver
  *
  * Copyright (C) 2010 Renesas Solutions Corp.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License.
- *
  */
 
 #ifndef LINUX_MMC_SH_MMCIF_H
@@ -16,7 +12,6 @@
 
 #include <linux/io.h>
 #include <linux/platform_device.h>
-#include <linux/sh_dma.h>
 
 /*
  * MMCIF : CE_CLK_CTRL [19:16]
@@ -32,17 +27,8 @@
  * 1111 : Peripheral clock (sup_pclk set '1')
  */
 
-struct sh_mmcif_dma {
-	struct sh_dmae_slave chan_priv_tx;
-	struct sh_dmae_slave chan_priv_rx;
-};
-
 struct sh_mmcif_plat_data {
-	void (*set_pwr)(struct platform_device *pdev, int state);
-	void (*down_pwr)(struct platform_device *pdev);
-	int (*get_cd)(struct platform_device *pdef);
-	struct sh_mmcif_dma	*dma;		/* Deprecated. Instead */
-	unsigned int		slave_id_tx;	/* use embedded slave_id_[tr]x */
+	unsigned int		slave_id_tx;	/* embedded slave_id_[tr]x */
 	unsigned int		slave_id_rx;
 	u8			sup_pclk;	/* 1 :SH7757, 0: SH7724/SH7372 */
 	unsigned long		caps;
@@ -66,6 +52,7 @@ struct sh_mmcif_plat_data {
 #define MMCIF_CE_INT_MASK	0x00000044
 #define MMCIF_CE_HOST_STS1	0x00000048
 #define MMCIF_CE_HOST_STS2	0x0000004C
+#define MMCIF_CE_CLK_CTRL2	0x00000070
 #define MMCIF_CE_VERSION	0x0000007C
 
 /* CE_BUF_ACC */
@@ -77,18 +64,15 @@ struct sh_mmcif_plat_data {
 
 /* CE_CLK_CTRL */
 #define CLK_ENABLE		(1 << 24) /* 1: output mmc clock */
-#define CLK_CLEAR		((1 << 19) | (1 << 18) | (1 << 17) | (1 << 16))
-#define CLK_SUP_PCLK		((1 << 19) | (1 << 18) | (1 << 17) | (1 << 16))
-#define CLKDIV_4		(1<<16) /* mmc clock frequency.
-					 * n: bus clock/(2^(n+1)) */
-#define CLKDIV_256		(7<<16) /* mmc clock frequency. (see above) */
-#define SRSPTO_256		((1 << 13) | (0 << 12)) /* resp timeout */
-#define SRBSYTO_29		((1 << 11) | (1 << 10) |	\
-				 (1 << 9) | (1 << 8)) /* resp busy timeout */
-#define SRWDTO_29		((1 << 7) | (1 << 6) |		\
-				 (1 << 5) | (1 << 4)) /* read/write timeout */
-#define SCCSTO_29		((1 << 3) | (1 << 2) |		\
-				 (1 << 1) | (1 << 0)) /* ccs timeout */
+#define CLK_CLEAR		(0xf << 16)
+#define CLK_SUP_PCLK		(0xf << 16)
+#define CLKDIV_4		(1 << 16) /* mmc clock frequency.
+					   * n: bus clock/(2^(n+1)) */
+#define CLKDIV_256		(7 << 16) /* mmc clock frequency. (see above) */
+#define SRSPTO_256		(2 << 12) /* resp timeout */
+#define SRBSYTO_29		(0xf << 8) /* resp busy timeout */
+#define SRWDTO_29		(0xf << 4) /* read/write timeout */
+#define SCCSTO_29		(0xf << 0) /* ccs timeout */
 
 /* CE_VERSION */
 #define SOFT_RST_ON		(1 << 31)

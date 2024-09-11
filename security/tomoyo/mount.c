@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * security/tomoyo/mount.c
  *
@@ -5,6 +6,7 @@
  */
 
 #include <linux/slab.h>
+#include <uapi/linux/mount.h>
 #include "common.h"
 
 /* String table for special mount operations. */
@@ -47,6 +49,7 @@ static bool tomoyo_check_mount_acl(struct tomoyo_request_info *r,
 {
 	const struct tomoyo_mount_acl *acl =
 		container_of(ptr, typeof(*acl), head);
+
 	return tomoyo_compare_number_union(r->param.mount.flags,
 					   &acl->flags) &&
 		tomoyo_compare_name_union(r->param.mount.type,
@@ -71,8 +74,9 @@ static bool tomoyo_check_mount_acl(struct tomoyo_request_info *r,
  *
  * Caller holds tomoyo_read_lock().
  */
-static int tomoyo_mount_acl(struct tomoyo_request_info *r, char *dev_name,
-			    struct path *dir, const char *type,
+static int tomoyo_mount_acl(struct tomoyo_request_info *r,
+			    const char *dev_name,
+			    const struct path *dir, const char *type,
 			    unsigned long flags)
 {
 	struct tomoyo_obj_info obj = { };
@@ -86,6 +90,7 @@ static int tomoyo_mount_acl(struct tomoyo_request_info *r, char *dev_name,
 	struct tomoyo_path_info rdir;
 	int need_dev = 0;
 	int error = -ENOMEM;
+
 	r->obj = &obj;
 
 	/* Get fstype. */
@@ -183,7 +188,7 @@ static int tomoyo_mount_acl(struct tomoyo_request_info *r, char *dev_name,
  *
  * Returns 0 on success, negative value otherwise.
  */
-int tomoyo_mount_permission(char *dev_name, struct path *path,
+int tomoyo_mount_permission(const char *dev_name, const struct path *path,
 			    const char *type, unsigned long flags,
 			    void *data_page)
 {
@@ -199,30 +204,32 @@ int tomoyo_mount_permission(char *dev_name, struct path *path,
 	if (flags & MS_REMOUNT) {
 		type = tomoyo_mounts[TOMOYO_MOUNT_REMOUNT];
 		flags &= ~MS_REMOUNT;
-	}
-	if (flags & MS_MOVE) {
-		type = tomoyo_mounts[TOMOYO_MOUNT_MOVE];
-		flags &= ~MS_MOVE;
-	}
-	if (flags & MS_BIND) {
+	} else if (flags & MS_BIND) {
 		type = tomoyo_mounts[TOMOYO_MOUNT_BIND];
 		flags &= ~MS_BIND;
-	}
-	if (flags & MS_UNBINDABLE) {
-		type = tomoyo_mounts[TOMOYO_MOUNT_MAKE_UNBINDABLE];
-		flags &= ~MS_UNBINDABLE;
-	}
-	if (flags & MS_PRIVATE) {
-		type = tomoyo_mounts[TOMOYO_MOUNT_MAKE_PRIVATE];
-		flags &= ~MS_PRIVATE;
-	}
-	if (flags & MS_SLAVE) {
-		type = tomoyo_mounts[TOMOYO_MOUNT_MAKE_SLAVE];
-		flags &= ~MS_SLAVE;
-	}
-	if (flags & MS_SHARED) {
+	} else if (flags & MS_SHARED) {
+		if (flags & (MS_PRIVATE | MS_SLAVE | MS_UNBINDABLE))
+			return -EINVAL;
 		type = tomoyo_mounts[TOMOYO_MOUNT_MAKE_SHARED];
 		flags &= ~MS_SHARED;
+	} else if (flags & MS_PRIVATE) {
+		if (flags & (MS_SHARED | MS_SLAVE | MS_UNBINDABLE))
+			return -EINVAL;
+		type = tomoyo_mounts[TOMOYO_MOUNT_MAKE_PRIVATE];
+		flags &= ~MS_PRIVATE;
+	} else if (flags & MS_SLAVE) {
+		if (flags & (MS_SHARED | MS_PRIVATE | MS_UNBINDABLE))
+			return -EINVAL;
+		type = tomoyo_mounts[TOMOYO_MOUNT_MAKE_SLAVE];
+		flags &= ~MS_SLAVE;
+	} else if (flags & MS_UNBINDABLE) {
+		if (flags & (MS_SHARED | MS_PRIVATE | MS_SLAVE))
+			return -EINVAL;
+		type = tomoyo_mounts[TOMOYO_MOUNT_MAKE_UNBINDABLE];
+		flags &= ~MS_UNBINDABLE;
+	} else if (flags & MS_MOVE) {
+		type = tomoyo_mounts[TOMOYO_MOUNT_MOVE];
+		flags &= ~MS_MOVE;
 	}
 	if (!type)
 		type = "<NULL>";

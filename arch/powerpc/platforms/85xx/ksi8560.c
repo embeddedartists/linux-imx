@@ -20,7 +20,6 @@
 #include <linux/seq_file.h>
 #include <linux/of_platform.h>
 
-#include <asm/system.h>
 #include <asm/time.h>
 #include <asm/machdep.h>
 #include <asm/pci-bridge.h>
@@ -45,7 +44,7 @@
 
 static void __iomem *cpld_base = NULL;
 
-static void machine_restart(char *cmd)
+static void __noreturn machine_restart(char *cmd)
 {
 	if (cpld_base)
 		out_8(cpld_base + KSI8560_CPLD_RCR1, KSI8560_CPLD_RCR1_CPUHR);
@@ -57,8 +56,7 @@ static void machine_restart(char *cmd)
 
 static void __init ksi8560_pic_init(void)
 {
-	struct mpic *mpic = mpic_alloc(NULL, 0,
-			MPIC_WANTS_RESET | MPIC_BIG_ENDIAN,
+	struct mpic *mpic = mpic_alloc(NULL, 0, MPIC_BIG_ENDIAN,
 			0, 256, " OpenPIC  ");
 	BUG_ON(mpic == NULL);
 	mpic_init(mpic);
@@ -178,9 +176,7 @@ machine_device_initcall(ksi8560, mpc85xx_common_publish_devices);
  */
 static int __init ksi8560_probe(void)
 {
-	unsigned long root = of_get_flat_dt_root();
-
-	return of_flat_dt_is_compatible(root, "emerson,KSI8560");
+	return of_machine_is_compatible("emerson,KSI8560");
 }
 
 define_machine(ksi8560) {

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  arch/arm/mach-pxa/colibri-pxa300.c
  *
@@ -5,10 +6,6 @@
  *
  *  Daniel Mack <daniel@caiaq.de>
  *  Matthias Meier <matthias.j.meier@gmx.net>
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License version 2 as
- *  published by the Free Software Foundation.
  */
 
 #include <linux/init.h>
@@ -18,14 +15,14 @@
 #include <linux/interrupt.h>
 
 #include <asm/mach-types.h>
-#include <asm/sizes.h>
+#include <linux/sizes.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/irq.h>
 
-#include <mach/pxa300.h>
-#include <mach/colibri.h>
-#include <mach/ohci.h>
-#include <mach/pxafb.h>
+#include "pxa300.h"
+#include "colibri.h"
+#include <linux/platform_data/usb-ohci-pxa27x.h>
+#include <linux/platform_data/video-pxafb.h>
 #include <mach/audio.h>
 
 #include "generic.h"
@@ -186,9 +183,10 @@ MACHINE_START(COLIBRI300, "Toradex Colibri PXA300")
 	.atag_offset	= 0x100,
 	.init_machine	= colibri_pxa300_init,
 	.map_io		= pxa3xx_map_io,
+	.nr_irqs	= PXA_NR_IRQS,
 	.init_irq	= pxa3xx_init_irq,
 	.handle_irq	= pxa3xx_handle_irq,
-	.timer		= &pxa_timer,
+	.init_time	= pxa_timer_init,
 	.restart	= pxa_restart,
 MACHINE_END
 

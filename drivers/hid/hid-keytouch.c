@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  HID driver for Keytouch devices not fully compliant with HID standard
  *
@@ -5,10 +6,6 @@
  */
 
 /*
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the Free
- * Software Foundation; either version 2 of the License, or (at your option)
- * any later version.
  */
 
 #include <linux/device.h>
@@ -49,18 +46,7 @@ static struct hid_driver keytouch_driver = {
 	.id_table = keytouch_devices,
 	.report_fixup = keytouch_report_fixup,
 };
+module_hid_driver(keytouch_driver);
 
-static int __init keytouch_init(void)
-{
-	return hid_register_driver(&keytouch_driver);
-}
-
-static void __exit keytouch_exit(void)
-{
-	hid_unregister_driver(&keytouch_driver);
-}
-
-module_init(keytouch_init);
-module_exit(keytouch_exit);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Jiri Kosina");

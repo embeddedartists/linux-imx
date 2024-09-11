@@ -4,7 +4,7 @@
  * This file is released under the GPL.
  */
 
-#include "dm.h"
+#include "dm-core.h"
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -15,8 +15,6 @@
 
 static LIST_HEAD(_targets);
 static DECLARE_RWSEM(_lock);
-
-#define DM_MOD_NAME_SIZE 32
 
 static inline struct target_type *__find_target_type(const char *name)
 {
@@ -116,7 +114,7 @@ static int io_err_ctr(struct dm_target *tt, unsigned int argc, char **args)
 	/*
 	 * Return error for discards instead of -EOPNOTSUPP
 	 */
-	tt->num_discard_requests = 1;
+	tt->num_discard_bios = 1;
 
 	return 0;
 }
@@ -126,18 +124,39 @@ static void io_err_dtr(struct dm_target *tt)
 	/* empty */
 }
 
-static int io_err_map(struct dm_target *tt, struct bio *bio,
-		      union map_info *map_context)
+static int io_err_map(struct dm_target *tt, struct bio *bio)
+{
+	return DM_MAPIO_KILL;
+}
+
+static int io_err_clone_and_map_rq(struct dm_target *ti, struct request *rq,
+				   union map_info *map_context,
+				   struct request **clone)
+{
+	return DM_MAPIO_KILL;
+}
+
+static void io_err_release_clone_rq(struct request *clone,
+				    union map_info *map_context)
+{
+}
+
+static long io_err_dax_direct_access(struct dm_target *ti, pgoff_t pgoff,
+		long nr_pages, void **kaddr, pfn_t *pfn)
 {
 	return -EIO;
 }
 
 static struct target_type error_target = {
 	.name = "error",
-	.version = {1, 0, 1},
+	.version = {1, 5, 0},
+	.features = DM_TARGET_WILDCARD,
 	.ctr  = io_err_ctr,
 	.dtr  = io_err_dtr,
 	.map  = io_err_map,
+	.clone_and_map_rq = io_err_clone_and_map_rq,
+	.release_clone_rq = io_err_release_clone_rq,
+	.direct_access = io_err_dax_direct_access,
 };
 
 int __init dm_target_init(void)

@@ -1,10 +1,10 @@
-/*
- * Freescale MPC5200 PSC in I2S mode
- * ALSA SoC Digital Audio Interface (DAI) driver
- *
- * Copyright (C) 2008 Secret Lab Technologies Ltd.
- * Copyright (C) 2009 Jon Smirl, Digispeaker
- */
+// SPDX-License-Identifier: GPL-2.0-only
+//
+// Freescale MPC5200 PSC in I2S mode
+// ALSA SoC Digital Audio Interface (DAI) driver
+//
+// Copyright (C) 2008 Secret Lab Technologies Ltd.
+// Copyright (C) 2009 Jon Smirl, Digispeaker
 
 #include <linux/module.h>
 #include <linux/of_device.h>
@@ -26,8 +26,7 @@
  * ALSA that we support all rates and let the codec driver decide what rates
  * are really supported.
  */
-#define PSC_I2S_RATES (SNDRV_PCM_RATE_5512 | SNDRV_PCM_RATE_8000_192000 | \
-			SNDRV_PCM_RATE_CONTINUOUS)
+#define PSC_I2S_RATES SNDRV_PCM_RATE_CONTINUOUS
 
 /**
  * PSC_I2S_FORMATS: audio formats supported by the PSC I2S mode
@@ -39,8 +38,8 @@ static int psc_i2s_hw_params(struct snd_pcm_substream *substream,
 				 struct snd_pcm_hw_params *params,
 				 struct snd_soc_dai *dai)
 {
-	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct psc_dma *psc_dma = snd_soc_dai_get_drvdata(rtd->cpu_dai);
+	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
+	struct psc_dma *psc_dma = snd_soc_dai_get_drvdata(asoc_rtd_to_cpu(rtd, 0));
 	u32 mode;
 
 	dev_dbg(psc_dma->dev, "%s(substream=%p) p_size=%i p_bytes=%i"
@@ -130,13 +129,16 @@ static const struct snd_soc_dai_ops psc_i2s_dai_ops = {
 };
 
 static struct snd_soc_dai_driver psc_i2s_dai[] = {{
+	.name = "mpc5200-psc-i2s.0",
 	.playback = {
+		.stream_name = "I2S Playback",
 		.channels_min = 2,
 		.channels_max = 2,
 		.rates = PSC_I2S_RATES,
 		.formats = PSC_I2S_FORMATS,
 	},
 	.capture = {
+		.stream_name = "I2S Capture",
 		.channels_min = 2,
 		.channels_max = 2,
 		.rates = PSC_I2S_RATES,
@@ -145,18 +147,27 @@ static struct snd_soc_dai_driver psc_i2s_dai[] = {{
 	.ops = &psc_i2s_dai_ops,
 } };
 
+static const struct snd_soc_component_driver psc_i2s_component = {
+	.name		= "mpc5200-i2s",
+};
+
 /* ---------------------------------------------------------------------
  * OF platform bus binding code:
  * - Probe/remove operations
  * - OF device match table
  */
-static int __devinit psc_i2s_of_probe(struct platform_device *op)
+static int psc_i2s_of_probe(struct platform_device *op)
 {
 	int rc;
 	struct psc_dma *psc_dma;
 	struct mpc52xx_psc __iomem *regs;
 
-	rc = snd_soc_register_dais(&op->dev, psc_i2s_dai, ARRAY_SIZE(psc_i2s_dai));
+	rc = mpc5200_audio_dma_create(op);
+	if (rc != 0)
+		return rc;
+
+	rc = snd_soc_register_component(&op->dev, &psc_i2s_component,
+					psc_i2s_dai, ARRAY_SIZE(psc_i2s_dai));
 	if (rc != 0) {
 		pr_err("Failed to register DAI\n");
 		return rc;
@@ -198,14 +209,15 @@ static int __devinit psc_i2s_of_probe(struct platform_device *op)
 
 }
 
-static int __devexit psc_i2s_of_remove(struct platform_device *op)
+static int psc_i2s_of_remove(struct platform_device *op)
 {
-	snd_soc_unregister_dais(&op->dev, ARRAY_SIZE(psc_i2s_dai));
+	mpc5200_audio_dma_destroy(op);
+	snd_soc_unregister_component(&op->dev);
 	return 0;
 }
 
 /* Match table for of_platform binding */
-static struct of_device_id psc_i2s_match[] __devinitdata = {
+static const struct of_device_id psc_i2s_match[] = {
 	{ .compatible = "fsl,mpc5200-psc-i2s", },
 	{ .compatible = "fsl,mpc5200b-psc-i2s", },
 	{}
@@ -214,10 +226,9 @@ MODULE_DEVICE_TABLE(of, psc_i2s_match);
 
 static struct platform_driver psc_i2s_driver = {
 	.probe = psc_i2s_of_probe,
-	.remove = __devexit_p(psc_i2s_of_remove),
+	.remove = psc_i2s_of_remove,
 	.driver = {
 		.name = "mpc5200-psc-i2s",
-		.owner = THIS_MODULE,
 		.of_match_table = psc_i2s_match,
 	},
 };

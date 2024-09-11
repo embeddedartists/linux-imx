@@ -1,18 +1,11 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2005-2010 Brocade Communications Systems, Inc.
+ * Copyright (c) 2005-2014 Brocade Communications Systems, Inc.
+ * Copyright (c) 2014- QLogic Corporation.
  * All rights reserved
- * www.brocade.com
+ * www.qlogic.com
  *
- * Linux driver for Brocade Fibre Channel Host Bus Adapter.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License (GPL) Version 2 as
- * published by the Free Software Foundation
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
+ * Linux driver for QLogic BR-series Fibre Channel Host Bus Adapter.
  */
 
 /*
@@ -37,12 +30,14 @@
 #include <linux/vmalloc.h>
 #include <linux/workqueue.h>
 #include <linux/bitops.h>
+#include <linux/aer.h>
 #include <scsi/scsi.h>
 #include <scsi/scsi_host.h>
 #include <scsi/scsi_tcq.h>
 #include <scsi/scsi_transport_fc.h>
 #include <scsi/scsi_transport.h>
 #include <scsi/scsi_bsg_fc.h>
+#include <scsi/scsi_devinfo.h>
 
 #include "bfa_modules.h"
 #include "bfa_fcs.h"
@@ -55,7 +50,7 @@
 #ifdef BFA_DRIVER_VERSION
 #define BFAD_DRIVER_VERSION    BFA_DRIVER_VERSION
 #else
-#define BFAD_DRIVER_VERSION    "3.0.2.2"
+#define BFAD_DRIVER_VERSION    "3.2.25.1"
 #endif
 
 #define BFAD_PROTO_NAME FCPI_NAME
@@ -80,6 +75,8 @@
 #define BFAD_FC4_PROBE_DONE			0x00000200
 #define BFAD_PORT_DELETE			0x00000001
 #define BFAD_INTX_ON				0x00000400
+#define BFAD_EEH_BUSY				0x00000800
+#define BFAD_EEH_PCI_CHANNEL_IO_PERM_FAILURE	0x00001000
 /*
  * BFAD related definition
  */
@@ -227,6 +224,7 @@ struct bfad_s {
 	struct list_head	active_aen_q;
 	struct bfa_aen_entry_s	aen_list[BFA_AEN_MAX_ENTRY];
 	spinlock_t		bfad_aen_spinlock;
+	struct list_head	vport_list;
 };
 
 /* BFAD state machine events */
@@ -235,8 +233,8 @@ enum bfad_sm_event {
 	BFAD_E_KTHREAD_CREATE_FAILED	= 2,
 	BFAD_E_INIT			= 3,
 	BFAD_E_INIT_SUCCESS		= 4,
-	BFAD_E_INIT_FAILED		= 5,
-	BFAD_E_INTR_INIT_FAILED		= 6,
+	BFAD_E_HAL_INIT_FAILED		= 5,
+	BFAD_E_INIT_FAILED		= 6,
 	BFAD_E_FCS_EXIT_COMP		= 7,
 	BFAD_E_EXIT_COMP		= 8,
 	BFAD_E_STOP			= 9
@@ -308,7 +306,7 @@ int		bfad_setup_intr(struct bfad_s *bfad);
 void		bfad_remove_intr(struct bfad_s *bfad);
 void		bfad_update_hal_cfg(struct bfa_iocfc_cfg_s *bfa_cfg);
 bfa_status_t	bfad_hal_mem_alloc(struct bfad_s *bfad);
-void		bfad_bfa_tmo(unsigned long data);
+void		bfad_bfa_tmo(struct timer_list *t);
 void		bfad_init_timer(struct bfad_s *bfad);
 int		bfad_pci_init(struct pci_dev *pdev, struct bfad_s *bfad);
 void		bfad_pci_uninit(struct pci_dev *pdev, struct bfad_s *bfad);

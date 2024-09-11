@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * An I2C driver for the Intersil ISL 12022
  *
@@ -5,10 +6,6 @@
  *
  * Based on the Philips PCF8563 RTC
  * by Alessandro Zummo <a.zummo@towertech.it>.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version
- * 2 as published by the Free Software Foundation.
  */
 
 #include <linux/i2c.h>
@@ -16,8 +13,9 @@
 #include <linux/rtc.h>
 #include <linux/slab.h>
 #include <linux/module.h>
-
-#define DRV_VERSION "0.1"
+#include <linux/err.h>
+#include <linux/of.h>
+#include <linux/of_device.h>
 
 /* ISL register offsets */
 #define ISL12022_REG_SC		0x00
@@ -103,8 +101,9 @@ static int isl12022_write_reg(struct i2c_client *client,
  * In the routines that deal directly with the isl12022 hardware, we use
  * rtc_time -- month 0-11, hour 0-23, yr = calendar year-epoch.
  */
-static int isl12022_get_datetime(struct i2c_client *client, struct rtc_time *tm)
+static int isl12022_rtc_read_time(struct device *dev, struct rtc_time *tm)
 {
+	struct i2c_client *client = to_i2c_client(dev);
 	uint8_t buf[ISL12022_REG_INT + 1];
 	int ret;
 
@@ -148,16 +147,12 @@ static int isl12022_get_datetime(struct i2c_client *client, struct rtc_time *tm)
 		tm->tm_sec, tm->tm_min, tm->tm_hour,
 		tm->tm_mday, tm->tm_mon, tm->tm_year, tm->tm_wday);
 
-	/* The clock can give out invalid datetime, but we cannot return
-	 * -EINVAL otherwise hwclock will refuse to set the time on bootup. */
-	if (rtc_valid_tm(tm) < 0)
-		dev_err(&client->dev, "retrieved date and time is invalid.\n");
-
 	return 0;
 }
 
-static int isl12022_set_datetime(struct i2c_client *client, struct rtc_time *tm)
+static int isl12022_rtc_set_time(struct device *dev, struct rtc_time *tm)
 {
+	struct i2c_client *client = to_i2c_client(dev);
 	struct isl12022 *isl12022 = i2c_get_clientdata(client);
 	size_t i;
 	int ret;
@@ -203,7 +198,7 @@ static int isl12022_set_datetime(struct i2c_client *client, struct rtc_time *tm)
 				return ret;
 		}
 
-		isl12022->write_enabled = 1;
+		isl12022->write_enabled = true;
 	}
 
 	/* hours, minutes and seconds */
@@ -227,19 +222,9 @@ static int isl12022_set_datetime(struct i2c_client *client, struct rtc_time *tm)
 					 buf[ISL12022_REG_SC + i]);
 		if (ret)
 			return -EIO;
-	};
+	}
 
 	return 0;
-}
-
-static int isl12022_rtc_read_time(struct device *dev, struct rtc_time *tm)
-{
-	return isl12022_get_datetime(to_i2c_client(dev), tm);
-}
-
-static int isl12022_rtc_set_time(struct device *dev, struct rtc_time *tm)
-{
-	return isl12022_set_datetime(to_i2c_client(dev), tm);
 }
 
 static const struct rtc_class_ops isl12022_rtc_ops = {
@@ -252,50 +237,33 @@ static int isl12022_probe(struct i2c_client *client,
 {
 	struct isl12022 *isl12022;
 
-	int ret = 0;
-
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C))
 		return -ENODEV;
 
-	isl12022 = kzalloc(sizeof(struct isl12022), GFP_KERNEL);
+	isl12022 = devm_kzalloc(&client->dev, sizeof(struct isl12022),
+				GFP_KERNEL);
 	if (!isl12022)
 		return -ENOMEM;
 
-	dev_dbg(&client->dev, "chip found, driver version " DRV_VERSION "\n");
-
 	i2c_set_clientdata(client, isl12022);
 
-	isl12022->rtc = rtc_device_register(isl12022_driver.driver.name,
-					    &client->dev,
-					    &isl12022_rtc_ops,
-					    THIS_MODULE);
-
-	if (IS_ERR(isl12022->rtc)) {
-		ret = PTR_ERR(isl12022->rtc);
-		goto exit_kfree;
-	}
-
-	return 0;
-
-exit_kfree:
-	kfree(isl12022);
-
-	return ret;
+	isl12022->rtc = devm_rtc_device_register(&client->dev,
+					isl12022_driver.driver.name,
+					&isl12022_rtc_ops, THIS_MODULE);
+	return PTR_ERR_OR_ZERO(isl12022->rtc);
 }
 
-static int isl12022_remove(struct i2c_client *client)
-{
-	struct isl12022 *isl12022 = i2c_get_clientdata(client);
-
-	rtc_device_unregister(isl12022->rtc);
-	kfree(isl12022);
-
-	return 0;
-}
+#ifdef CONFIG_OF
+static const struct of_device_id isl12022_dt_match[] = {
+	{ .compatible = "isl,isl12022" }, /* for backward compat., don't use */
+	{ .compatible = "isil,isl12022" },
+	{ },
+};
+MODULE_DEVICE_TABLE(of, isl12022_dt_match);
+#endif
 
 static const struct i2c_device_id isl12022_id[] = {
 	{ "isl12022", 0 },
-	{ "rtc8564", 0 },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, isl12022_id);
@@ -303,26 +271,16 @@ MODULE_DEVICE_TABLE(i2c, isl12022_id);
 static struct i2c_driver isl12022_driver = {
 	.driver		= {
 		.name	= "rtc-isl12022",
+#ifdef CONFIG_OF
+		.of_match_table = of_match_ptr(isl12022_dt_match),
+#endif
 	},
 	.probe		= isl12022_probe,
-	.remove		= isl12022_remove,
 	.id_table	= isl12022_id,
 };
 
-static int __init isl12022_init(void)
-{
-	return i2c_add_driver(&isl12022_driver);
-}
-
-static void __exit isl12022_exit(void)
-{
-	i2c_del_driver(&isl12022_driver);
-}
-
-module_init(isl12022_init);
-module_exit(isl12022_exit);
+module_i2c_driver(isl12022_driver);
 
 MODULE_AUTHOR("roman.fietze@telemotive.de");
 MODULE_DESCRIPTION("ISL 12022 RTC driver");
 MODULE_LICENSE("GPL");
-MODULE_VERSION(DRV_VERSION);

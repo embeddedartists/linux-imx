@@ -1,14 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * linux/drivers/pcmcia/pxa2xx_colibri.c
  *
  * Driver for Toradex Colibri PXA270 CF socket
  *
  * Copyright (C) 2010 Marek Vasut <marek.vasut@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
  */
 
 #include <linux/module.h>
@@ -53,13 +49,6 @@ static struct gpio colibri_pcmcia_gpios[] = {
 	{ 0,	GPIOF_INIT_HIGH,"PCMCIA Reset" },
 };
 
-static struct pcmcia_irqs colibri_irqs[] = {
-	{
-		.sock = 0,
-		.str  = "PCMCIA CD"
-	},
-};
-
 static int colibri_pcmcia_hw_init(struct soc_pcmcia_socket *skt)
 {
 	int ret;
@@ -69,19 +58,10 @@ static int colibri_pcmcia_hw_init(struct soc_pcmcia_socket *skt)
 	if (ret)
 		goto err1;
 
-	colibri_irqs[0].irq = gpio_to_irq(colibri_pcmcia_gpios[DETECT].gpio);
 	skt->socket.pci_irq = gpio_to_irq(colibri_pcmcia_gpios[READY].gpio);
+	skt->stat[SOC_STAT_CD].irq = gpio_to_irq(colibri_pcmcia_gpios[DETECT].gpio);
+	skt->stat[SOC_STAT_CD].name = "PCMCIA CD";
 
-	ret = soc_pcmcia_request_irqs(skt, colibri_irqs,
-					ARRAY_SIZE(colibri_irqs));
-	if (ret)
-		goto err2;
-
-	return ret;
-
-err2:
-	gpio_free_array(colibri_pcmcia_gpios,
-			ARRAY_SIZE(colibri_pcmcia_gpios));
 err1:
 	return ret;
 }
@@ -100,7 +80,6 @@ static void colibri_pcmcia_socket_state(struct soc_pcmcia_socket *skt,
 	state->ready  = !!gpio_get_value(colibri_pcmcia_gpios[READY].gpio);
 	state->bvd1   = !!gpio_get_value(colibri_pcmcia_gpios[BVD1].gpio);
 	state->bvd2   = !!gpio_get_value(colibri_pcmcia_gpios[BVD2].gpio);
-	state->wrprot = 0;
 	state->vs_3v  = 1;
 	state->vs_Xv  = 0;
 }

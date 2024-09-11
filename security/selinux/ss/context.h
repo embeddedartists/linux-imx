@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * A security context is a set of security attributes
  * associated with each subject and object controlled
@@ -10,7 +11,7 @@
  * security server and can be changed without affecting
  * clients of the security server.
  *
- * Author : Stephen Smalley, <sds@epoch.ncsc.mil>
+ * Author : Stephen Smalley, <sds@tycho.nsa.gov>
  */
 #ifndef _SS_CONTEXT_H_
 #define _SS_CONTEXT_H_
@@ -70,6 +71,58 @@ static inline int mls_context_cpy_low(struct context *dst, struct context *src)
 	rc = ebitmap_cpy(&dst->range.level[1].cat, &src->range.level[0].cat);
 	if (rc)
 		ebitmap_destroy(&dst->range.level[0].cat);
+out:
+	return rc;
+}
+
+/*
+ * Sets both levels in the MLS range of 'dst' to the high level of 'src'.
+ */
+static inline int mls_context_cpy_high(struct context *dst, struct context *src)
+{
+	int rc;
+
+	dst->range.level[0].sens = src->range.level[1].sens;
+	rc = ebitmap_cpy(&dst->range.level[0].cat, &src->range.level[1].cat);
+	if (rc)
+		goto out;
+
+	dst->range.level[1].sens = src->range.level[1].sens;
+	rc = ebitmap_cpy(&dst->range.level[1].cat, &src->range.level[1].cat);
+	if (rc)
+		ebitmap_destroy(&dst->range.level[0].cat);
+out:
+	return rc;
+}
+
+
+static inline int mls_context_glblub(struct context *dst,
+				     struct context *c1, struct context *c2)
+{
+	struct mls_range *dr = &dst->range, *r1 = &c1->range, *r2 = &c2->range;
+	int rc = 0;
+
+	if (r1->level[1].sens < r2->level[0].sens ||
+	    r2->level[1].sens < r1->level[0].sens)
+		/* These ranges have no common sensitivities */
+		return -EINVAL;
+
+	/* Take the greatest of the low */
+	dr->level[0].sens = max(r1->level[0].sens, r2->level[0].sens);
+
+	/* Take the least of the high */
+	dr->level[1].sens = min(r1->level[1].sens, r2->level[1].sens);
+
+	rc = ebitmap_and(&dr->level[0].cat,
+			 &r1->level[0].cat, &r2->level[0].cat);
+	if (rc)
+		goto out;
+
+	rc = ebitmap_and(&dr->level[1].cat,
+			 &r1->level[1].cat, &r2->level[1].cat);
+	if (rc)
+		goto out;
+
 out:
 	return rc;
 }
@@ -138,6 +191,8 @@ static inline int context_cmp(struct context *c1, struct context *c2)
 		(c1->type == c2->type) &&
 		mls_context_cmp(c1, c2));
 }
+
+u32 context_compute_hash(const struct context *c);
 
 #endif	/* _SS_CONTEXT_H_ */
 

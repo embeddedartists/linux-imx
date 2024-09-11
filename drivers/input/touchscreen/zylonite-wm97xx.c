@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * zylonite-wm97xx.c  --  Zylonite Continuous Touch screen driver
  *
@@ -5,11 +6,6 @@
  * Author: Mark Brown <broonie@opensource.wolfsonmicro.com>
  * Parts Copyright : Ian Molton <spyro@f2s.com>
  *                   Andrew Zabolotny <zap@homelink.ru>
- *
- *  This program is free software; you can redistribute  it and/or modify it
- *  under  the terms of  the GNU General  Public License as published by the
- *  Free Software Foundation;  either version 2 of the  License, or (at your
- *  option) any later version.
  *
  * Notes:
  *     This is a wm97xx extended touch driver supporting interrupt driven
@@ -20,7 +16,6 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/kernel.h>
-#include <linux/init.h>
 #include <linux/delay.h>
 #include <linux/gpio.h>
 #include <linux/irq.h>

@@ -292,13 +292,8 @@ static int        nsp_cs_config (struct pcmcia_device *link);
 /* Linux SCSI subsystem specific functions */
 static struct Scsi_Host *nsp_detect     (struct scsi_host_template *sht);
 static const  char      *nsp_info       (struct Scsi_Host *shpnt);
-static        int        nsp_proc_info  (
-	                                 struct Scsi_Host *host,
-					 char   *buffer,
-					 char  **start,
-					 off_t   offset,
-					 int     length,
-					 int     inout);
+static        int        nsp_show_info  (struct seq_file *m,
+	                                 struct Scsi_Host *host);
 static int nsp_queuecommand(struct Scsi_Host *h, struct scsi_cmnd *SCpnt);
 
 /* Error handler */
@@ -330,10 +325,6 @@ static struct Scsi_Host *nsp_detect(struct scsi_host_template *sht);
 
 /* Interrupt handler */
 //static irqreturn_t nspintr(int irq, void *dev_id);
-
-/* Module entry point*/
-static int  __init nsp_cs_init(void);
-static void __exit nsp_cs_exit(void);
 
 /* Debug */
 #ifdef NSP_DEBUG
@@ -378,17 +369,6 @@ enum _burst_mode {
 	BURST_IO32  = 1,
 	BURST_MEM32 = 2,
 };
-
-/**************************************************************************
- * SCSI messaage
- */
-#define MSG_COMMAND_COMPLETE 0x00
-#define MSG_EXTENDED         0x01
-#define MSG_ABORT            0x06
-#define MSG_NO_OPERATION     0x08
-#define MSG_BUS_DEVICE_RESET 0x0c
-
-#define MSG_EXT_SDTR         0x01
 
 /* scatter-gather table */
 #  define BUFFER_ADDR ((char *)((sg_virt(SCpnt->SCp.buffer))))

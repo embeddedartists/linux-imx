@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /* NXP PCF50633 Input Driver
  *
  * (C) 2006-2008 by Openmoko, Inc.
@@ -6,17 +7,10 @@
  *
  * Broken down from monstrous PCF50633 driver mainly by
  * Harald Welte, Andy Green and Werner Almesberger
- *
- *  This program is free software; you can redistribute  it and/or modify it
- *  under  the terms of  the GNU General  Public License as published by the
- *  Free Software Foundation;  either version 2 of the  License, or (at your
- *  option) any later version.
- *
  */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/init.h>
 #include <linux/device.h>
 #include <linux/platform_device.h>
 #include <linux/input.h>
@@ -53,7 +47,7 @@ pcf50633_input_irq(int irq, void *data)
 	input_sync(input->input_dev);
 }
 
-static int __devinit pcf50633_input_probe(struct platform_device *pdev)
+static int pcf50633_input_probe(struct platform_device *pdev)
 {
 	struct pcf50633_input *input;
 	struct input_dev *input_dev;
@@ -93,7 +87,7 @@ static int __devinit pcf50633_input_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int __devexit pcf50633_input_remove(struct platform_device *pdev)
+static int pcf50633_input_remove(struct platform_device *pdev)
 {
 	struct pcf50633_input *input  = platform_get_drvdata(pdev);
 
@@ -111,7 +105,7 @@ static struct platform_driver pcf50633_input_driver = {
 		.name = "pcf50633-input",
 	},
 	.probe = pcf50633_input_probe,
-	.remove = __devexit_p(pcf50633_input_remove),
+	.remove = pcf50633_input_remove,
 };
 module_platform_driver(pcf50633_input_driver);
 

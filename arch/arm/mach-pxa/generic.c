@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  linux/arch/arm/mach-pxa/generic.c
  *
@@ -6,10 +7,6 @@
  *  Copyright:	MontaVista Software Inc.
  *
  * Code common to all PXA machines.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  *
  * Since this file should be linked before any other machine specific file,
  * the __initcall() here will be executed first.  This serves as default
@@ -22,15 +19,16 @@
 #include <linux/init.h>
 
 #include <mach/hardware.h>
-#include <asm/system.h>
 #include <asm/mach/map.h>
 #include <asm/mach-types.h>
 
+#include <mach/irqs.h>
 #include <mach/reset.h>
 #include <mach/smemc.h>
 #include <mach/pxa3xx-regs.h>
 
 #include "generic.h"
+#include <clocksource/pxa.h>
 
 void clear_reset_status(unsigned int mask)
 {
@@ -42,20 +40,19 @@ void clear_reset_status(unsigned int mask)
 	}
 }
 
-unsigned long get_clock_tick_rate(void)
+/*
+ * For non device-tree builds, keep legacy timer init
+ */
+void __init pxa_timer_init(void)
 {
-	unsigned long clock_tick_rate;
-
 	if (cpu_is_pxa25x())
-		clock_tick_rate = 3686400;
-	else if (machine_is_mainstone())
-		clock_tick_rate = 3249600;
-	else
-		clock_tick_rate = 3250000;
-
-	return clock_tick_rate;
+		pxa25x_clocks_init();
+	if (cpu_is_pxa27x())
+		pxa27x_clocks_init();
+	if (cpu_is_pxa3xx())
+		pxa3xx_clocks_init();
+	pxa_timer_nodt_init(IRQ_OST0, io_p2v(0x40a00000));
 }
-EXPORT_SYMBOL(get_clock_tick_rate);
 
 /*
  * Get the clock frequency as reflected by CCCR and the turbo flag.
@@ -80,19 +77,15 @@ EXPORT_SYMBOL(get_clk_frequency_khz);
  */
 static struct map_desc common_io_desc[] __initdata = {
   	{	/* Devs */
-		.virtual	=  0xf2000000,
-		.pfn		= __phys_to_pfn(0x40000000),
-		.length		= 0x02000000,
-		.type		= MT_DEVICE
-	}, {	/* UNCACHED_PHYS_0 */
-		.virtual	= 0xff000000,
-		.pfn		= __phys_to_pfn(0x00000000),
-		.length		= 0x00100000,
+		.virtual	= (unsigned long)PERIPH_VIRT,
+		.pfn		= __phys_to_pfn(PERIPH_PHYS),
+		.length		= PERIPH_SIZE,
 		.type		= MT_DEVICE
 	}
 };
 
 void __init pxa_map_io(void)
 {
+	debug_ll_io_init();
 	iotable_init(ARRAY_AND_SIZE(common_io_desc));
 }

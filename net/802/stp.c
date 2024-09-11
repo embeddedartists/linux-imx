@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *	STP SAP demux
  *
  *	Copyright (c) 2008 Patrick McHardy <kaber@trash.net>
- *
- *	This program is free software; you can redistribute it and/or
- *	modify it under the terms of the GNU General Public License
- *	version 2 as published by the Free Software Foundation.
  */
 #include <linux/mutex.h>
 #include <linux/skbuff.h>
@@ -46,7 +43,7 @@ static int stp_pdu_rcv(struct sk_buff *skb, struct net_device *dev,
 		proto = rcu_dereference(garp_protos[eh->h_dest[5] -
 						    GARP_ADDR_MIN]);
 		if (proto &&
-		    compare_ether_addr(eh->h_dest, proto->group_address))
+		    !ether_addr_equal(eh->h_dest, proto->group_address))
 			goto err;
 	} else
 		proto = rcu_dereference(stp_proto);

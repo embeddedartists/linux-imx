@@ -1,26 +1,13 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Memory subsystem initialization for Hexagon
  *
- * Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
+ * Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/init.h>
 #include <linux/mm.h>
-#include <linux/bootmem.h>
+#include <linux/memblock.h>
 #include <asm/atomic.h>
 #include <linux/highmem.h>
 #include <asm/tlb.h>
@@ -31,20 +18,17 @@
  * Define a startpg just past the end of the kernel image and a lastpg
  * that corresponds to the end of real or simulated platform memory.
  */
-#define bootmem_startpg (PFN_UP(((unsigned long) _end) - PAGE_OFFSET))
+#define bootmem_startpg (PFN_UP(((unsigned long) _end) - PAGE_OFFSET + PHYS_OFFSET))
 
-unsigned long bootmem_lastpg;  /*  Should be set by platform code  */
+unsigned long bootmem_lastpg;	/*  Should be set by platform code  */
+unsigned long __phys_offset;	/*  physical kernel offset >> 12  */
 
 /*  Set as variable to limit PMD copies  */
 int max_kernel_seg = 0x303;
 
-/*  think this should be (page_size-1) the way it's used...*/
-unsigned long zero_page_mask;
-
 /*  indicate pfn's of high memory  */
 unsigned long highstart_pfn, highend_pfn;
 
-/* struct mmu_gather defined in asm-generic.h;  */
 DEFINE_PER_CPU(struct mmu_gather, mmu_gathers);
 
 /* Default cache attribute for newly created page tables */
@@ -70,10 +54,7 @@ unsigned long long kmap_generation;
 void __init mem_init(void)
 {
 	/*  No idea where this is actually declared.  Seems to evade LXR.  */
-	totalram_pages += free_all_bootmem();
-	num_physpages = bootmem_lastpg;	/*  seriously, what?  */
-
-	printk(KERN_INFO "totalram_pages = %ld\n", totalram_pages);
+	memblock_free_all();
 
 	/*
 	 *  To-Do:  someone somewhere should wipe out the bootmem map
@@ -87,29 +68,6 @@ void __init mem_init(void)
 	 * kernel segment table's physical address.
 	 */
 	init_mm.context.ptbase = __pa(init_mm.pgd);
-}
-
-/*
- * free_initmem - frees memory used by stuff declared with __init
- *
- * Todo:  free pages between __init_begin and __init_end; possibly
- * some devtree related stuff as well.
- */
-void __init_refok free_initmem(void)
-{
-}
-
-/*
- * free_initrd_mem - frees...  initrd memory.
- * @start - start of init memory
- * @end - end of init memory
- *
- * Apparently has to be passed the address of the initrd memory.
- *
- * Wrapped by #ifdef CONFIG_BLKDEV_INITRD
- */
-void free_initrd_mem(unsigned long start, unsigned long end)
-{
 }
 
 void sync_icache_dcache(pte_t pte)
@@ -132,7 +90,7 @@ void sync_icache_dcache(pte_t pte)
  */
 void __init paging_init(void)
 {
-	unsigned long zones_sizes[MAX_NR_ZONES] = {0, };
+	unsigned long max_zone_pfn[MAX_NR_ZONES] = {0, };
 
 	/*
 	 *  This is not particularly well documented anywhere, but
@@ -142,9 +100,9 @@ void __init paging_init(void)
 	 *  adjust accordingly.
 	 */
 
-	zones_sizes[ZONE_NORMAL] = max_low_pfn;
+	max_zone_pfn[ZONE_NORMAL] = max_low_pfn;
 
-	free_area_init(zones_sizes);  /*  sets up the zonelists and mem_map  */
+	free_area_init(max_zone_pfn);  /*  sets up the zonelists and mem_map  */
 
 	/*
 	 * Start of high memory area.  Will probably need something more
@@ -181,7 +139,6 @@ size_t hexagon_coherent_pool_size = (size_t) (DMA_RESERVE << 22);
 
 void __init setup_arch_memory(void)
 {
-	int bootmap_size;
 	/*  XXX Todo: this probably should be cleaned up  */
 	u32 *segtable = (u32 *) &swapper_pg_dir[0];
 	u32 *segtable_end;
@@ -193,20 +150,30 @@ void __init setup_arch_memory(void)
 	 * This needs to change for highmem setups.
 	 */
 
+	/*  Prior to this, bootmem_lastpg is actually mem size  */
+	bootmem_lastpg += ARCH_PFN_OFFSET;
+
 	/* Memory size needs to be a multiple of 16M */
 	bootmem_lastpg = PFN_DOWN((bootmem_lastpg << PAGE_SHIFT) &
 		~((BIG_KERNEL_PAGE_SIZE) - 1));
 
+	memblock_add(PHYS_OFFSET,
+		     (bootmem_lastpg - ARCH_PFN_OFFSET) << PAGE_SHIFT);
+
+	/* Reserve kernel text/data/bss */
+	memblock_reserve(PHYS_OFFSET,
+			 (bootmem_startpg - ARCH_PFN_OFFSET) << PAGE_SHIFT);
 	/*
 	 * Reserve the top DMA_RESERVE bytes of RAM for DMA (uncached)
 	 * memory allocation
 	 */
-	bootmap_size = init_bootmem(bootmem_startpg, bootmem_lastpg -
-				    PFN_DOWN(DMA_RESERVED_BYTES));
+	max_low_pfn = bootmem_lastpg - PFN_DOWN(DMA_RESERVED_BYTES);
+	min_low_pfn = ARCH_PFN_OFFSET;
+	memblock_reserve(PFN_PHYS(max_low_pfn), DMA_RESERVED_BYTES);
 
 	printk(KERN_INFO "bootmem_startpg:  0x%08lx\n", bootmem_startpg);
 	printk(KERN_INFO "bootmem_lastpg:  0x%08lx\n", bootmem_lastpg);
-	printk(KERN_INFO "bootmap_size:  %d\n", bootmap_size);
+	printk(KERN_INFO "min_low_pfn:  0x%08lx\n", min_low_pfn);
 	printk(KERN_INFO "max_low_pfn:  0x%08lx\n", max_low_pfn);
 
 	/*
@@ -221,14 +188,17 @@ void __init setup_arch_memory(void)
 	/*  this actually only goes to the end of the first gig  */
 	segtable_end = segtable + (1<<(30-22));
 
-	/*  Move forward to the start of empty pages  */
-	segtable += bootmem_lastpg >> (22-PAGE_SHIFT);
+	/*
+	 * Move forward to the start of empty pages; take into account
+	 * phys_offset shift.
+	 */
 
+	segtable += (bootmem_lastpg-ARCH_PFN_OFFSET)>>(22-PAGE_SHIFT);
 	{
-	    int i;
+		int i;
 
-	    for (i = 1 ; i <= DMA_RESERVE ; i++)
-		segtable[-i] = ((segtable[-i] & __HVM_PTE_PGMASK_4MB)
+		for (i = 1 ; i <= DMA_RESERVE ; i++)
+			segtable[-i] = ((segtable[-i] & __HVM_PTE_PGMASK_4MB)
 				| __HVM_PTE_R | __HVM_PTE_W | __HVM_PTE_X
 				| __HEXAGON_C_UNC << 6
 				| __HVM_PDE_S_4MB);
@@ -251,14 +221,6 @@ void __init setup_arch_memory(void)
 		__HVM_PDE_S_4KB;
 	printk(KERN_INFO "*segtable = 0x%08x\n", *segtable);
 #endif
-
-	/*
-	 * Free all the memory that wasn't taken up by the bootmap, the DMA
-	 * reserve, or kernel itself.
-	 */
-	free_bootmem(PFN_PHYS(bootmem_startpg)+bootmap_size,
-		     PFN_PHYS(bootmem_lastpg - bootmem_startpg) - bootmap_size -
-		     DMA_RESERVED_BYTES);
 
 	/*
 	 *  The bootmem allocator seemingly just lives to feed memory

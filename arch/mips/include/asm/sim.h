@@ -20,10 +20,10 @@
 #define save_static_function(symbol)					\
 __asm__(								\
 	".text\n\t"							\
-	".globl\t" #symbol "\n\t"					\
+	".globl\t__" #symbol "\n\t"					\
 	".align\t2\n\t"							\
-	".type\t" #symbol ", @function\n\t"				\
-	".ent\t" #symbol ", 0\n"					\
+	".type\t__" #symbol ", @function\n\t"				\
+	".ent\t__" #symbol ", 0\n__"					\
 	#symbol":\n\t"							\
 	".frame\t$29, 0, $31\n\t"					\
 	"sw\t$16,"__str(PT_R16)"($29)\t\t\t# save_static_function\n\t"	\
@@ -35,11 +35,9 @@ __asm__(								\
 	"sw\t$22,"__str(PT_R22)"($29)\n\t"				\
 	"sw\t$23,"__str(PT_R23)"($29)\n\t"				\
 	"sw\t$30,"__str(PT_R30)"($29)\n\t"				\
-	"j\t_" #symbol "\n\t"						\
-	".end\t" #symbol "\n\t"						\
-	".size\t" #symbol",. - " #symbol)
-
-#define nabi_no_regargs
+	"j\t" #symbol "\n\t"						\
+	".end\t__" #symbol "\n\t"					\
+	".size\t__" #symbol",. - __" #symbol)
 
 #endif /* CONFIG_32BIT */
 
@@ -48,10 +46,10 @@ __asm__(								\
 #define save_static_function(symbol)					\
 __asm__(								\
 	".text\n\t"							\
-	".globl\t" #symbol "\n\t"					\
+	".globl\t__" #symbol "\n\t"					\
 	".align\t2\n\t"							\
-	".type\t" #symbol ", @function\n\t"				\
-	".ent\t" #symbol ", 0\n"					\
+	".type\t__" #symbol ", @function\n\t"				\
+	".ent\t__" #symbol ", 0\n__"					\
 	#symbol":\n\t"							\
 	".frame\t$29, 0, $31\n\t"					\
 	"sd\t$16,"__str(PT_R16)"($29)\t\t\t# save_static_function\n\t"	\
@@ -63,19 +61,9 @@ __asm__(								\
 	"sd\t$22,"__str(PT_R22)"($29)\n\t"				\
 	"sd\t$23,"__str(PT_R23)"($29)\n\t"				\
 	"sd\t$30,"__str(PT_R30)"($29)\n\t"				\
-	"j\t_" #symbol "\n\t"						\
-	".end\t" #symbol "\n\t"						\
-	".size\t" #symbol",. - " #symbol)
-
-#define nabi_no_regargs							\
-	unsigned long __dummy0,						\
-	unsigned long __dummy1,						\
-	unsigned long __dummy2,						\
-	unsigned long __dummy3,						\
-	unsigned long __dummy4,						\
-	unsigned long __dummy5,						\
-	unsigned long __dummy6,						\
-	unsigned long __dummy7,
+	"j\t" #symbol "\n\t"						\
+	".end\t__" #symbol "\n\t"					\
+	".size\t__" #symbol",. - __" #symbol)
 
 #endif /* CONFIG_64BIT */
 

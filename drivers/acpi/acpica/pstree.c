@@ -1,50 +1,17 @@
+// SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0
 /******************************************************************************
  *
  * Module Name: pstree - Parser op tree manipulation/traversal/search
  *
+ * Copyright (C) 2000 - 2021, Intel Corp.
+ *
  *****************************************************************************/
-
-/*
- * Copyright (C) 2000 - 2011, Intel Corp.
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions, and the following disclaimer,
- *    without modification.
- * 2. Redistributions in binary form must reproduce at minimum a disclaimer
- *    substantially similar to the "NO WARRANTY" disclaimer below
- *    ("Disclaimer") and any redistribution must be conditioned upon
- *    including a substantially similar Disclaimer requirement for further
- *    binary redistribution.
- * 3. Neither the names of the above-listed copyright holders nor the names
- *    of any contributors may be used to endorse or promote products derived
- *    from this software without specific prior written permission.
- *
- * Alternatively, this software may be distributed under the terms of the
- * GNU General Public License ("GPL") version 2 as published by the Free
- * Software Foundation.
- *
- * NO WARRANTY
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * HOLDERS OR CONTRIBUTORS BE LIABLE FOR SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
- * IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGES.
- */
 
 #include <acpi/acpi.h>
 #include "accommon.h"
 #include "acparser.h"
 #include "amlcode.h"
+#include "acconvert.h"
 
 #define _COMPONENT          ACPI_PARSER
 ACPI_MODULE_NAME("pstree")
@@ -58,8 +25,8 @@ union acpi_parse_object *acpi_ps_get_child(union acpi_parse_object *op);
  *
  * FUNCTION:    acpi_ps_get_arg
  *
- * PARAMETERS:  Op              - Get an argument for this op
- *              Argn            - Nth argument to get
+ * PARAMETERS:  op              - Get an argument for this op
+ *              argn            - Nth argument to get
  *
  * RETURN:      The argument (as an Op object). NULL if argument does not exist
  *
@@ -74,6 +41,12 @@ union acpi_parse_object *acpi_ps_get_arg(union acpi_parse_object *op, u32 argn)
 
 	ACPI_FUNCTION_ENTRY();
 
+/*
+	if (Op->Common.aml_opcode == AML_INT_CONNECTION_OP)
+	{
+		return (Op->Common.Value.Arg);
+	}
+*/
 	/* Get the info structure for this opcode */
 
 	op_info = acpi_ps_get_opcode_info(op->common.aml_opcode);
@@ -108,8 +81,8 @@ union acpi_parse_object *acpi_ps_get_arg(union acpi_parse_object *op, u32 argn)
  *
  * FUNCTION:    acpi_ps_append_arg
  *
- * PARAMETERS:  Op              - Append an argument to this Op.
- *              Arg             - Argument Op to append
+ * PARAMETERS:  op              - Append an argument to this Op.
+ *              arg             - Argument Op to append
  *
  * RETURN:      None.
  *
@@ -123,10 +96,10 @@ acpi_ps_append_arg(union acpi_parse_object *op, union acpi_parse_object *arg)
 	union acpi_parse_object *prev_arg;
 	const struct acpi_opcode_info *op_info;
 
-	ACPI_FUNCTION_ENTRY();
+	ACPI_FUNCTION_TRACE(ps_append_arg);
 
 	if (!op) {
-		return;
+		return_VOID;
 	}
 
 	/* Get the info structure for this opcode */
@@ -138,7 +111,7 @@ acpi_ps_append_arg(union acpi_parse_object *op, union acpi_parse_object *arg)
 
 		ACPI_ERROR((AE_INFO, "Invalid AML Opcode: 0x%2.2X",
 			    op->common.aml_opcode));
-		return;
+		return_VOID;
 	}
 
 	/* Check if this opcode requires argument sub-objects */
@@ -147,7 +120,7 @@ acpi_ps_append_arg(union acpi_parse_object *op, union acpi_parse_object *arg)
 
 		/* Has no linked argument objects */
 
-		return;
+		return_VOID;
 	}
 
 	/* Append the argument to the linked argument list */
@@ -175,15 +148,16 @@ acpi_ps_append_arg(union acpi_parse_object *op, union acpi_parse_object *arg)
 
 		op->common.arg_list_length++;
 	}
+
+	return_VOID;
 }
 
-#ifdef ACPI_FUTURE_USAGE
 /*******************************************************************************
  *
  * FUNCTION:    acpi_ps_get_depth_next
  *
- * PARAMETERS:  Origin          - Root of subtree to search
- *              Op              - Last (previous) Op that was found
+ * PARAMETERS:  origin          - Root of subtree to search
+ *              op              - Last (previous) Op that was found
  *
  * RETURN:      Next Op found in the search.
  *
@@ -209,6 +183,7 @@ union acpi_parse_object *acpi_ps_get_depth_next(union acpi_parse_object *origin,
 
 	next = acpi_ps_get_arg(op, 0);
 	if (next) {
+		ASL_CV_LABEL_FILENODE(next);
 		return (next);
 	}
 
@@ -216,6 +191,7 @@ union acpi_parse_object *acpi_ps_get_depth_next(union acpi_parse_object *origin,
 
 	next = op->common.next;
 	if (next) {
+		ASL_CV_LABEL_FILENODE(next);
 		return (next);
 	}
 
@@ -226,6 +202,8 @@ union acpi_parse_object *acpi_ps_get_depth_next(union acpi_parse_object *origin,
 	while (parent) {
 		arg = acpi_ps_get_arg(parent, 0);
 		while (arg && (arg != origin) && (arg != op)) {
+
+			ASL_CV_LABEL_FILENODE(arg);
 			arg = arg->common.next;
 		}
 
@@ -240,6 +218,7 @@ union acpi_parse_object *acpi_ps_get_depth_next(union acpi_parse_object *origin,
 
 			/* Found sibling of parent */
 
+			ASL_CV_LABEL_FILENODE(parent->common.next);
 			return (parent->common.next);
 		}
 
@@ -247,6 +226,7 @@ union acpi_parse_object *acpi_ps_get_depth_next(union acpi_parse_object *origin,
 		parent = parent->common.parent;
 	}
 
+	ASL_CV_LABEL_FILENODE(next);
 	return (next);
 }
 
@@ -255,7 +235,7 @@ union acpi_parse_object *acpi_ps_get_depth_next(union acpi_parse_object *origin,
  *
  * FUNCTION:    acpi_ps_get_child
  *
- * PARAMETERS:  Op              - Get the child of this Op
+ * PARAMETERS:  op              - Get the child of this Op
  *
  * RETURN:      Child Op, Null if none is found.
  *
@@ -281,6 +261,7 @@ union acpi_parse_object *acpi_ps_get_child(union acpi_parse_object *op)
 
 	case AML_BUFFER_OP:
 	case AML_PACKAGE_OP:
+	case AML_VARIABLE_PACKAGE_OP:
 	case AML_METHOD_OP:
 	case AML_IF_OP:
 	case AML_WHILE_OP:
@@ -289,7 +270,7 @@ union acpi_parse_object *acpi_ps_get_child(union acpi_parse_object *op)
 		child = acpi_ps_get_arg(op, 1);
 		break;
 
-	case AML_POWER_RES_OP:
+	case AML_POWER_RESOURCE_OP:
 	case AML_INDEX_FIELD_OP:
 
 		child = acpi_ps_get_arg(op, 2);
@@ -302,11 +283,12 @@ union acpi_parse_object *acpi_ps_get_child(union acpi_parse_object *op)
 		break;
 
 	default:
+
 		/* All others have no children */
+
 		break;
 	}
 
 	return (child);
 }
 #endif
-#endif				/*  ACPI_FUTURE_USAGE  */

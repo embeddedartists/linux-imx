@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Support for SuperH MigoR Quarter VGA LCD Panel
  *
@@ -5,10 +6,6 @@
  *
  * Based on lcd_powertip.c from Kenati Technologies Pvt Ltd.
  * Copyright (c) 2007 Ujjwal Pande <ujjwal@kenati.com>,
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #include <linux/delay.h>
@@ -113,8 +110,7 @@ static const unsigned short magic3_data[] = {
 	0x0010, 0x16B0, 0x0011, 0x0111, 0x0007, 0x0061,
 };
 
-int migor_lcd_qvga_setup(void *board_data, void *sohandle,
-			 struct sh_mobile_lcdc_sys_bus_ops *so)
+int migor_lcd_qvga_setup(void *sohandle, struct sh_mobile_lcdc_sys_bus_ops *so)
 {
 	unsigned long xres = 320;
 	unsigned long yres = 240;

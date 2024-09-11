@@ -1,5 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
- *  linux/drivers/net/ehea/ehea_qmr.c
+ *  linux/drivers/net/ethernet/ibm/ehea/ehea_qmr.c
  *
  *  eHEA ethernet device driver for IBM eServer System p
  *
@@ -9,21 +10,6 @@
  *       Christoph Raisch <raisch@de.ibm.com>
  *       Jan-Bernd Themann <themann@de.ibm.com>
  *       Thomas Klein <tklein@de.ibm.com>
- *
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -34,9 +20,7 @@
 #include "ehea_phyp.h"
 #include "ehea_qmr.h"
 
-struct ehea_bmap *ehea_bmap = NULL;
-
-
+static struct ehea_bmap *ehea_bmap;
 
 static void *hw_qpageit_get_inc(struct hw_queue *queue)
 {
@@ -66,11 +50,10 @@ static int hw_queue_ctor(struct hw_queue *queue, const u32 nr_of_pages,
 	}
 
 	queue->queue_length = nr_of_pages * pagesize;
-	queue->queue_pages = kmalloc(nr_of_pages * sizeof(void *), GFP_KERNEL);
-	if (!queue->queue_pages) {
-		pr_err("no mem for queue_pages\n");
+	queue->queue_pages = kmalloc_array(nr_of_pages, sizeof(void *),
+					   GFP_KERNEL);
+	if (!queue->queue_pages)
 		return -ENOMEM;
-	}
 
 	/*
 	 * allocate pages for queue:
@@ -106,11 +89,13 @@ out_nomem:
 
 static void hw_queue_dtor(struct hw_queue *queue)
 {
-	int pages_per_kpage = PAGE_SIZE / queue->pagesize;
+	int pages_per_kpage;
 	int i, nr_pages;
 
 	if (!queue || !queue->queue_pages)
 		return;
+
+	pages_per_kpage = PAGE_SIZE / queue->pagesize;
 
 	nr_pages = queue->queue_length / queue->pagesize;
 
@@ -124,27 +109,20 @@ struct ehea_cq *ehea_create_cq(struct ehea_adapter *adapter,
 			       int nr_of_cqe, u64 eq_handle, u32 cq_token)
 {
 	struct ehea_cq *cq;
-	struct h_epa epa;
-	u64 *cq_handle_ref, hret, rpage;
-	u32 act_nr_of_entries, act_pages, counter;
+	u64 hret, rpage;
+	u32 counter;
 	int ret;
 	void *vpage;
 
 	cq = kzalloc(sizeof(*cq), GFP_KERNEL);
-	if (!cq) {
-		pr_err("no mem for cq\n");
+	if (!cq)
 		goto out_nomem;
-	}
 
 	cq->attr.max_nr_of_cqes = nr_of_cqe;
 	cq->attr.cq_token = cq_token;
 	cq->attr.eq_handle = eq_handle;
 
 	cq->adapter = adapter;
-
-	cq_handle_ref = &cq->fw_handle;
-	act_nr_of_entries = 0;
-	act_pages = 0;
 
 	hret = ehea_h_alloc_resource_cq(adapter->handle, &cq->attr,
 					&cq->fw_handle, &cq->epas);
@@ -165,7 +143,7 @@ struct ehea_cq *ehea_create_cq(struct ehea_adapter *adapter,
 			goto out_kill_hwq;
 		}
 
-		rpage = virt_to_abs(vpage);
+		rpage = __pa(vpage);
 		hret = ehea_h_register_rpage(adapter->handle,
 					     0, EHEA_CQ_REGISTER_ORIG,
 					     cq->fw_handle, rpage, 1);
@@ -193,7 +171,6 @@ struct ehea_cq *ehea_create_cq(struct ehea_adapter *adapter,
 	}
 
 	hw_qeit_reset(&cq->hw_queue);
-	epa = cq->epas.kernel;
 	ehea_reset_cq_ep(cq);
 	ehea_reset_cq_n1(cq);
 
@@ -212,7 +189,7 @@ out_nomem:
 	return NULL;
 }
 
-u64 ehea_destroy_cq_res(struct ehea_cq *cq, u64 force)
+static u64 ehea_destroy_cq_res(struct ehea_cq *cq, u64 force)
 {
 	u64 hret;
 	u64 adapter_handle = cq->adapter->handle;
@@ -259,10 +236,8 @@ struct ehea_eq *ehea_create_eq(struct ehea_adapter *adapter,
 	struct ehea_eq *eq;
 
 	eq = kzalloc(sizeof(*eq), GFP_KERNEL);
-	if (!eq) {
-		pr_err("no mem for eq\n");
+	if (!eq)
 		return NULL;
-	}
 
 	eq->adapter = adapter;
 	eq->attr.type = type;
@@ -292,7 +267,7 @@ struct ehea_eq *ehea_create_eq(struct ehea_adapter *adapter,
 			goto out_kill_hwq;
 		}
 
-		rpage = virt_to_abs(vpage);
+		rpage = __pa(vpage);
 
 		hret = ehea_h_register_rpage(adapter->handle, 0,
 					     EHEA_EQ_REGISTER_ORIG,
@@ -337,7 +312,7 @@ struct ehea_eqe *ehea_poll_eq(struct ehea_eq *eq)
 	return eqe;
 }
 
-u64 ehea_destroy_eq_res(struct ehea_eq *eq, u64 force)
+static u64 ehea_destroy_eq_res(struct ehea_eq *eq, u64 force)
 {
 	u64 hret;
 	unsigned long flags;
@@ -378,10 +353,8 @@ int ehea_destroy_eq(struct ehea_eq *eq)
 	return 0;
 }
 
-/**
- * allocates memory for a queue and registers pages in phyp
- */
-int ehea_qp_alloc_register(struct ehea_qp *qp, struct hw_queue *hw_queue,
+/* allocates memory for a queue and registers pages in phyp */
+static int ehea_qp_alloc_register(struct ehea_qp *qp, struct hw_queue *hw_queue,
 			   int nr_pages, int wqe_size, int act_nr_sges,
 			   struct ehea_adapter *adapter, int h_call_q_selector)
 {
@@ -399,7 +372,7 @@ int ehea_qp_alloc_register(struct ehea_qp *qp, struct hw_queue *hw_queue,
 			pr_err("hw_qpageit_get_inc failed\n");
 			goto out_kill_hwq;
 		}
-		rpage = virt_to_abs(vpage);
+		rpage = __pa(vpage);
 		hret = ehea_h_register_rpage(adapter->handle,
 					     0, h_call_q_selector,
 					     qp->fw_handle, rpage, 1);
@@ -432,10 +405,8 @@ struct ehea_qp *ehea_create_qp(struct ehea_adapter *adapter,
 
 
 	qp = kzalloc(sizeof(*qp), GFP_KERNEL);
-	if (!qp) {
-		pr_err("no mem for qp\n");
+	if (!qp)
 		return NULL;
-	}
 
 	qp->adapter = adapter;
 
@@ -516,7 +487,7 @@ out_freemem:
 	return NULL;
 }
 
-u64 ehea_destroy_qp_res(struct ehea_qp *qp, u64 force)
+static u64 ehea_destroy_qp_res(struct ehea_qp *qp, u64 force)
 {
 	u64 hret;
 	struct ehea_qp_init_attr *qp_attr = &qp->init_attr;
@@ -699,13 +670,10 @@ int ehea_rem_sect_bmap(unsigned long pfn, unsigned long nr_pages)
 
 static int ehea_is_hugepage(unsigned long pfn)
 {
-	int page_order;
-
 	if (pfn & EHEA_HUGEPAGE_PFN_MASK)
 		return 0;
 
-	page_order = compound_order(pfn_to_page(pfn));
-	if (page_order + PAGE_SHIFT != EHEA_HUGEPAGESHIFT)
+	if (page_shift(pfn_to_page(pfn)) != EHEA_HUGEPAGESHIFT)
 		return 0;
 
 	return 1;
@@ -794,7 +762,7 @@ u64 ehea_map_vaddr(void *caddr)
 	if (!ehea_bmap)
 		return EHEA_INVAL_ADDR;
 
-	index = virt_to_abs(caddr) >> SECTION_SIZE_BITS;
+	index = __pa(caddr) >> SECTION_SIZE_BITS;
 	top = (index >> EHEA_TOP_INDEX_SHIFT) & EHEA_INDEX_MASK;
 	if (!ehea_bmap->top[top])
 		return EHEA_INVAL_ADDR;
@@ -816,7 +784,7 @@ static inline void *ehea_calc_sectbase(int top, int dir, int idx)
 	unsigned long ret = idx;
 	ret |= dir << EHEA_DIR_INDEX_SHIFT;
 	ret |= top << EHEA_TOP_INDEX_SHIFT;
-	return abs_to_virt(ret << SECTION_SIZE_BITS);
+	return __va(ret << SECTION_SIZE_BITS);
 }
 
 static u64 ehea_reg_mr_section(int top, int dir, int idx, u64 *pt,
@@ -826,7 +794,7 @@ static u64 ehea_reg_mr_section(int top, int dir, int idx, u64 *pt,
 	void *pg;
 	u64 j, m, hret;
 	unsigned long k = 0;
-	u64 pt_abs = virt_to_abs(pt);
+	u64 pt_abs = __pa(pt);
 
 	void *sectbase = ehea_calc_sectbase(top, dir, idx);
 
@@ -834,7 +802,7 @@ static u64 ehea_reg_mr_section(int top, int dir, int idx, u64 *pt,
 
 		for (m = 0; m < EHEA_MAX_RPAGE; m++) {
 			pg = sectbase + ((k++) * EHEA_PAGESIZE);
-			pt[m] = virt_to_abs(pg);
+			pt[m] = __pa(pg);
 		}
 		hret = ehea_h_register_rpage_mr(adapter->handle, mr->handle, 0,
 						0, pt_abs, EHEA_MAX_RPAGE);
@@ -976,7 +944,7 @@ int ehea_gen_smr(struct ehea_adapter *adapter, struct ehea_mr *old_mr,
 	return 0;
 }
 
-void print_error_data(u64 *data)
+static void print_error_data(u64 *data)
 {
 	int length;
 	u64 type = EHEA_BMASK_GET(ERROR_DATA_TYPE, data[2]);

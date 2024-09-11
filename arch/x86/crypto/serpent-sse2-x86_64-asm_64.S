@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Serpent Cipher 8-way parallel algorithm (x86_64/SSE2)
  *
@@ -6,23 +7,9 @@
  * Based on crypto/serpent.c by
  *  Copyright (C) 2002 Dag Arne Osvik <osvik@ii.uib.no>
  *                2003 Herbert Valerio Riedel <hvr@gnu.org>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
- * USA
- *
  */
+
+#include <linux/linkage.h>
 
 .file "serpent-sse2-x86_64-asm_64.S"
 .text
@@ -585,23 +572,20 @@
 	get_key(i, 1, RK1); \
 	SBOX ## _2(x0 ## 2, x1 ## 2, x2 ## 2, x3 ## 2, x4 ## 2); \
 
-#define transpose_4x4(x0, x1, x2, x3, t1, t2, t3) \
-	movdqa x2,		t3; \
-	movdqa x0,		t1; \
-	unpcklps x3,		t3; \
+#define transpose_4x4(x0, x1, x2, x3, t0, t1, t2) \
 	movdqa x0,		t2; \
-	unpcklps x1,		t1; \
-	unpckhps x1,		t2; \
-	movdqa t3,		x1; \
-	unpckhps x3,		x2; \
-	movdqa t1,		x0; \
-	movhlps t1,		x1; \
-	movdqa t2,		t1; \
-	movlhps t3,		x0; \
-	movlhps x2,		t1; \
-	movhlps t2,		x2; \
-	movdqa x2,		x3; \
-	movdqa t1,		x2;
+	punpckldq x1,		x0; \
+	punpckhdq x1,		t2; \
+	movdqa x2,		t1; \
+	punpckhdq x3,		x2; \
+	punpckldq x3,		t1; \
+	movdqa x0,		x1; \
+	punpcklqdq t1,		x0; \
+	punpckhqdq t1,		x1; \
+	movdqa t2,		x3; \
+	punpcklqdq x2,		t2; \
+	punpckhqdq x2,		x3; \
+	movdqa t2,		x2;
 
 #define read_blocks(in, x0, x1, x2, x3, t0, t1, t2) \
 	movdqu (0*4*4)(in),	x0; \
@@ -635,11 +619,7 @@
 	pxor t0,		x3; \
 	movdqu x3,		(3*4*4)(out);
 
-.align 8
-.global __serpent_enc_blk_8way
-.type   __serpent_enc_blk_8way,@function;
-
-__serpent_enc_blk_8way:
+SYM_FUNC_START(__serpent_enc_blk_8way)
 	/* input:
 	 *	%rdi: ctx, CTX
 	 *	%rsi: dst
@@ -690,24 +670,21 @@ __serpent_enc_blk_8way:
 	leaq (4*4*4)(%rsi), %rax;
 
 	testb %cl, %cl;
-	jnz __enc_xor8;
+	jnz .L__enc_xor8;
 
 	write_blocks(%rsi, RA1, RB1, RC1, RD1, RK0, RK1, RK2);
 	write_blocks(%rax, RA2, RB2, RC2, RD2, RK0, RK1, RK2);
 
 	ret;
 
-__enc_xor8:
+.L__enc_xor8:
 	xor_blocks(%rsi, RA1, RB1, RC1, RD1, RK0, RK1, RK2);
 	xor_blocks(%rax, RA2, RB2, RC2, RD2, RK0, RK1, RK2);
 
 	ret;
+SYM_FUNC_END(__serpent_enc_blk_8way)
 
-.align 8
-.global serpent_dec_blk_8way
-.type   serpent_dec_blk_8way,@function;
-
-serpent_dec_blk_8way:
+SYM_FUNC_START(serpent_dec_blk_8way)
 	/* input:
 	 *	%rdi: ctx, CTX
 	 *	%rsi: dst
@@ -759,3 +736,4 @@ serpent_dec_blk_8way:
 	write_blocks(%rax, RC2, RD2, RB2, RE2, RK0, RK1, RK2);
 
 	ret;
+SYM_FUNC_END(serpent_dec_blk_8way)

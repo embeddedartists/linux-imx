@@ -1,40 +1,25 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Virtual Processor Dispatch Trace Log
  *
  * (C) Copyright IBM Corporation 2009
  *
  * Author: Jeremy Kerr <jk@ozlabs.org>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#include <linux/init.h>
 #include <linux/slab.h>
-#include <linux/debugfs.h>
 #include <linux/spinlock.h>
 #include <asm/smp.h>
-#include <asm/system.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
+#include <linux/debugfs.h>
 #include <asm/firmware.h>
+#include <asm/dtl.h>
 #include <asm/lppaca.h>
-
-#include "plpar_wrappers.h"
+#include <asm/plpar_wrappers.h>
+#include <asm/machdep.h>
 
 struct dtl {
 	struct dtl_entry	*buf;
-	struct dentry		*file;
 	int			cpu;
 	int			buf_entries;
 	u64			last_idx;
@@ -42,13 +27,7 @@ struct dtl {
 };
 static DEFINE_PER_CPU(struct dtl, cpu_dtl);
 
-/*
- * Dispatch trace log event mask:
- * 0x7: 0x1: voluntary virtual processor waits
- *      0x2: time-slice preempts
- *      0x4: virtual partition memory page faults
- */
-static u8 dtl_event_mask = 0x7;
+static u8 dtl_event_mask = DTL_LOG_ALL;
 
 
 /*
@@ -57,13 +36,12 @@ static u8 dtl_event_mask = 0x7;
  */
 static int dtl_buf_entries = N_DISPATCH_LOG;
 
-#ifdef CONFIG_VIRT_CPU_ACCOUNTING
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
 struct dtl_ring {
 	u64	write_index;
 	struct dtl_entry *write_ptr;
 	struct dtl_entry *buf;
 	struct dtl_entry *buf_end;
-	u8	saved_dtl_mask;
 };
 
 static DEFINE_PER_CPU(struct dtl_ring, dtl_rings);
@@ -76,7 +54,7 @@ static atomic_t dtl_count;
  */
 static void consume_dtle(struct dtl_entry *dtle, u64 index)
 {
-	struct dtl_ring *dtlr = &__get_cpu_var(dtl_rings);
+	struct dtl_ring *dtlr = this_cpu_ptr(&dtl_rings);
 	struct dtl_entry *wp = dtlr->write_ptr;
 	struct lppaca *vpa = local_paca->lppaca_ptr;
 
@@ -87,7 +65,7 @@ static void consume_dtle(struct dtl_entry *dtle, u64 index)
 	barrier();
 
 	/* check for hypervisor ring buffer overflow, ignore this entry if so */
-	if (index + N_DISPATCH_LOG < vpa->dtl_idx)
+	if (index + N_DISPATCH_LOG < be64_to_cpu(vpa->dtl_idx))
 		return;
 
 	++wp;
@@ -113,7 +91,6 @@ static int dtl_start(struct dtl *dtl)
 	dtlr->write_ptr = dtl->buf;
 
 	/* enable event logging */
-	dtlr->saved_dtl_mask = lppaca_of(dtl->cpu).dtl_enable_mask;
 	lppaca_of(dtl->cpu).dtl_enable_mask |= dtl_event_mask;
 
 	dtl_consumer = consume_dtle;
@@ -131,7 +108,7 @@ static void dtl_stop(struct dtl *dtl)
 	dtlr->buf = NULL;
 
 	/* restore dtl_enable_mask */
-	lppaca_of(dtl->cpu).dtl_enable_mask = dtlr->saved_dtl_mask;
+	lppaca_of(dtl->cpu).dtl_enable_mask = DTL_LOG_PREEMPT;
 
 	if (atomic_dec_and_test(&dtl_count))
 		dtl_consumer = NULL;
@@ -142,7 +119,7 @@ static u64 dtl_current_index(struct dtl *dtl)
 	return per_cpu(dtl_rings, dtl->cpu).write_index;
 }
 
-#else /* CONFIG_VIRT_CPU_ACCOUNTING */
+#else /* CONFIG_VIRT_CPU_ACCOUNTING_NATIVE */
 
 static int dtl_start(struct dtl *dtl)
 {
@@ -151,7 +128,7 @@ static int dtl_start(struct dtl *dtl)
 
 	/* Register our dtl buffer with the hypervisor. The HV expects the
 	 * buffer size to be passed in the second word of the buffer */
-	((u32 *)dtl->buf)[1] = DISPATCH_LOG_BYTES;
+	((u32 *)dtl->buf)[1] = cpu_to_be32(DISPATCH_LOG_BYTES);
 
 	hwcpu = get_hard_smp_processor_id(dtl->cpu);
 	addr = __pa(dtl->buf);
@@ -186,9 +163,9 @@ static void dtl_stop(struct dtl *dtl)
 
 static u64 dtl_current_index(struct dtl *dtl)
 {
-	return lppaca_of(dtl->cpu).dtl_idx;
+	return be64_to_cpu(lppaca_of(dtl->cpu).dtl_idx);
 }
-#endif /* CONFIG_VIRT_CPU_ACCOUNTING */
+#endif /* CONFIG_VIRT_CPU_ACCOUNTING_NATIVE */
 
 static int dtl_enable(struct dtl *dtl)
 {
@@ -203,11 +180,16 @@ static int dtl_enable(struct dtl *dtl)
 	if (dtl->buf)
 		return -EBUSY;
 
+	/* ensure there are no other conflicting dtl users */
+	if (!read_trylock(&dtl_access_lock))
+		return -EBUSY;
+
 	n_entries = dtl_buf_entries;
 	buf = kmem_cache_alloc_node(dtl_cache, GFP_KERNEL, cpu_to_node(dtl->cpu));
 	if (!buf) {
 		printk(KERN_WARNING "%s: buffer alloc failed for cpu %d\n",
 				__func__, dtl->cpu);
+		read_unlock(&dtl_access_lock);
 		return -ENOMEM;
 	}
 
@@ -224,8 +206,11 @@ static int dtl_enable(struct dtl *dtl)
 	}
 	spin_unlock(&dtl->lock);
 
-	if (rc)
+	if (rc) {
+		read_unlock(&dtl_access_lock);
 		kmem_cache_free(dtl_cache, buf);
+	}
+
 	return rc;
 }
 
@@ -237,6 +222,7 @@ static void dtl_disable(struct dtl *dtl)
 	dtl->buf = NULL;
 	dtl->buf_entries = 0;
 	spin_unlock(&dtl->lock);
+	read_unlock(&dtl_access_lock);
 }
 
 /* file interface */
@@ -334,46 +320,28 @@ static const struct file_operations dtl_fops = {
 
 static struct dentry *dtl_dir;
 
-static int dtl_setup_file(struct dtl *dtl)
+static void dtl_setup_file(struct dtl *dtl)
 {
 	char name[10];
 
 	sprintf(name, "cpu-%d", dtl->cpu);
 
-	dtl->file = debugfs_create_file(name, 0400, dtl_dir, dtl, &dtl_fops);
-	if (!dtl->file)
-		return -ENOMEM;
-
-	return 0;
+	debugfs_create_file(name, 0400, dtl_dir, dtl, &dtl_fops);
 }
 
 static int dtl_init(void)
 {
-	struct dentry *event_mask_file, *buf_entries_file;
-	int rc, i;
+	int i;
 
 	if (!firmware_has_feature(FW_FEATURE_SPLPAR))
 		return -ENODEV;
 
 	/* set up common debugfs structure */
 
-	rc = -ENOMEM;
-	dtl_dir = debugfs_create_dir("dtl", powerpc_debugfs_root);
-	if (!dtl_dir) {
-		printk(KERN_WARNING "%s: can't create dtl root dir\n",
-				__func__);
-		goto err;
-	}
+	dtl_dir = debugfs_create_dir("dtl", arch_debugfs_dir);
 
-	event_mask_file = debugfs_create_x8("dtl_event_mask", 0600,
-				dtl_dir, &dtl_event_mask);
-	buf_entries_file = debugfs_create_u32("dtl_buf_entries", 0400,
-				dtl_dir, &dtl_buf_entries);
-
-	if (!event_mask_file || !buf_entries_file) {
-		printk(KERN_WARNING "%s: can't create dtl files\n", __func__);
-		goto err_remove_dir;
-	}
+	debugfs_create_x8("dtl_event_mask", 0600, dtl_dir, &dtl_event_mask);
+	debugfs_create_u32("dtl_buf_entries", 0400, dtl_dir, &dtl_buf_entries);
 
 	/* set up the per-cpu log structures */
 	for_each_possible_cpu(i) {
@@ -381,16 +349,9 @@ static int dtl_init(void)
 		spin_lock_init(&dtl->lock);
 		dtl->cpu = i;
 
-		rc = dtl_setup_file(dtl);
-		if (rc)
-			goto err_remove_dir;
+		dtl_setup_file(dtl);
 	}
 
 	return 0;
-
-err_remove_dir:
-	debugfs_remove_recursive(dtl_dir);
-err:
-	return rc;
 }
-arch_initcall(dtl_init);
+machine_arch_initcall(pseries, dtl_init);

@@ -1,30 +1,5 @@
-/*******************************************************************************
-
-  Intel PRO/1000 Linux driver
-  Copyright(c) 1999 - 2006 Intel Corporation.
-
-  This program is free software; you can redistribute it and/or modify it
-  under the terms and conditions of the GNU General Public License,
-  version 2, as published by the Free Software Foundation.
-
-  This program is distributed in the hope it will be useful, but WITHOUT
-  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
-  more details.
-
-  You should have received a copy of the GNU General Public License along with
-  this program; if not, write to the Free Software Foundation, Inc.,
-  51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
-
-  The full GNU General Public License is included in this distribution in
-  the file called "COPYING".
-
-  Contact Information:
-  Linux NICS <linux.nics@intel.com>
-  e1000-devel Mailing List <e1000-devel@lists.sourceforge.net>
-  Intel Corporation, 5200 N.E. Elam Young Parkway, Hillsboro, OR 97124-6497
-
-*******************************************************************************/
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright(c) 1999 - 2006 Intel Corporation. */
 
 #include "e1000.h"
 
@@ -45,7 +20,7 @@
 
 #define E1000_PARAM_INIT { [0 ... E1000_MAX_NIC] = OPTION_UNSET }
 #define E1000_PARAM(X, desc) \
-	static int __devinitdata X[E1000_MAX_NIC+1] = E1000_PARAM_INIT; \
+	static int X[E1000_MAX_NIC+1] = E1000_PARAM_INIT; \
 	static unsigned int num_##X; \
 	module_param_array_named(X, X, int, &num_##X, 0); \
 	MODULE_PARM_DESC(X, desc);
@@ -205,9 +180,9 @@ struct e1000_option {
 	} arg;
 };
 
-static int __devinit e1000_validate_option(unsigned int *value,
-					   const struct e1000_option *opt,
-					   struct e1000_adapter *adapter)
+static int e1000_validate_option(unsigned int *value,
+				 const struct e1000_option *opt,
+				 struct e1000_adapter *adapter)
 {
 	if (*value == OPTION_UNSET) {
 		*value = opt->def;
@@ -267,8 +242,7 @@ static void e1000_check_copper_options(struct e1000_adapter *adapter);
  * value exists, a default value is used.  The final value is stored
  * in a variable in the adapter structure.
  **/
-
-void __devinit e1000_check_options(struct e1000_adapter *adapter)
+void e1000_check_options(struct e1000_adapter *adapter)
 {
 	struct e1000_option opt;
 	int bd = adapter->bd_number;
@@ -319,7 +293,8 @@ void __devinit e1000_check_options(struct e1000_adapter *adapter)
 			.def  = E1000_DEFAULT_RXD,
 			.arg  = { .r = {
 				.min = E1000_MIN_RXD,
-				.max = mac_type < e1000_82544 ? E1000_MAX_RXD : E1000_MAX_82544_RXD
+				.max = mac_type < e1000_82544 ? E1000_MAX_RXD :
+				       E1000_MAX_82544_RXD
 			}}
 		};
 
@@ -408,7 +383,7 @@ void __devinit e1000_check_options(struct e1000_adapter *adapter)
 		if (num_TxAbsIntDelay > bd) {
 			adapter->tx_abs_int_delay = TxAbsIntDelay[bd];
 			e1000_validate_option(&adapter->tx_abs_int_delay, &opt,
-			                      adapter);
+					      adapter);
 		} else {
 			adapter->tx_abs_int_delay = opt.def;
 		}
@@ -426,7 +401,7 @@ void __devinit e1000_check_options(struct e1000_adapter *adapter)
 		if (num_RxIntDelay > bd) {
 			adapter->rx_int_delay = RxIntDelay[bd];
 			e1000_validate_option(&adapter->rx_int_delay, &opt,
-			                      adapter);
+					      adapter);
 		} else {
 			adapter->rx_int_delay = opt.def;
 		}
@@ -444,7 +419,7 @@ void __devinit e1000_check_options(struct e1000_adapter *adapter)
 		if (num_RxAbsIntDelay > bd) {
 			adapter->rx_abs_int_delay = RxAbsIntDelay[bd];
 			e1000_validate_option(&adapter->rx_abs_int_delay, &opt,
-			                      adapter);
+					      adapter);
 		} else {
 			adapter->rx_abs_int_delay = opt.def;
 		}
@@ -479,16 +454,17 @@ void __devinit e1000_check_options(struct e1000_adapter *adapter)
 				break;
 			case 4:
 				e_dev_info("%s set to simplified "
-				           "(2000-8000) ints mode\n", opt.name);
+					   "(2000-8000) ints mode\n", opt.name);
 				adapter->itr_setting = adapter->itr;
 				break;
 			default:
 				e1000_validate_option(&adapter->itr, &opt,
-				        adapter);
+						      adapter);
 				/* save the setting, because the dynamic bits
 				 * change itr.
 				 * clear the lower two bits because they are
-				 * used as control */
+				 * used as control
+				 */
 				adapter->itr_setting = adapter->itr & ~3;
 				break;
 			}
@@ -533,8 +509,7 @@ void __devinit e1000_check_options(struct e1000_adapter *adapter)
  *
  * Handles speed and duplex options on fiber adapters
  **/
-
-static void __devinit e1000_check_fiber_options(struct e1000_adapter *adapter)
+static void e1000_check_fiber_options(struct e1000_adapter *adapter)
 {
 	int bd = adapter->bd_number;
 	if (num_Speed > bd) {
@@ -559,8 +534,7 @@ static void __devinit e1000_check_fiber_options(struct e1000_adapter *adapter)
  *
  * Handles speed and duplex options on copper adapters
  **/
-
-static void __devinit e1000_check_copper_options(struct e1000_adapter *adapter)
+static void e1000_check_copper_options(struct e1000_adapter *adapter)
 {
 	struct e1000_option opt;
 	unsigned int speed, dplx, an;
@@ -681,22 +655,22 @@ static void __devinit e1000_check_copper_options(struct e1000_adapter *adapter)
 		e_dev_info("Using Autonegotiation at Half Duplex only\n");
 		adapter->hw.autoneg = adapter->fc_autoneg = 1;
 		adapter->hw.autoneg_advertised = ADVERTISE_10_HALF |
-		                                 ADVERTISE_100_HALF;
+						 ADVERTISE_100_HALF;
 		break;
 	case FULL_DUPLEX:
 		e_dev_info("Full Duplex specified without Speed\n");
 		e_dev_info("Using Autonegotiation at Full Duplex only\n");
 		adapter->hw.autoneg = adapter->fc_autoneg = 1;
 		adapter->hw.autoneg_advertised = ADVERTISE_10_FULL |
-		                                 ADVERTISE_100_FULL |
-		                                 ADVERTISE_1000_FULL;
+						 ADVERTISE_100_FULL |
+						 ADVERTISE_1000_FULL;
 		break;
 	case SPEED_10:
 		e_dev_info("10 Mbps Speed specified without Duplex\n");
 		e_dev_info("Using Autonegotiation at 10 Mbps only\n");
 		adapter->hw.autoneg = adapter->fc_autoneg = 1;
 		adapter->hw.autoneg_advertised = ADVERTISE_10_HALF |
-		                                 ADVERTISE_10_FULL;
+						 ADVERTISE_10_FULL;
 		break;
 	case SPEED_10 + HALF_DUPLEX:
 		e_dev_info("Forcing to 10 Mbps Half Duplex\n");
@@ -715,7 +689,7 @@ static void __devinit e1000_check_copper_options(struct e1000_adapter *adapter)
 		e_dev_info("Using Autonegotiation at 100 Mbps only\n");
 		adapter->hw.autoneg = adapter->fc_autoneg = 1;
 		adapter->hw.autoneg_advertised = ADVERTISE_100_HALF |
-		                                 ADVERTISE_100_FULL;
+						 ADVERTISE_100_FULL;
 		break;
 	case SPEED_100 + HALF_DUPLEX:
 		e_dev_info("Forcing to 100 Mbps Half Duplex\n");
@@ -734,7 +708,7 @@ static void __devinit e1000_check_copper_options(struct e1000_adapter *adapter)
 		goto full_duplex_only;
 	case SPEED_1000 + HALF_DUPLEX:
 		e_dev_info("Half Duplex is not supported at 1000 Mbps\n");
-		/* fall through */
+		fallthrough;
 	case SPEED_1000 + FULL_DUPLEX:
 full_duplex_only:
 		e_dev_info("Using Autonegotiation at 1000 Mbps Full Duplex "

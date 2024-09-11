@@ -1,18 +1,11 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2005-2010 Brocade Communications Systems, Inc.
+ * Copyright (c) 2005-2014 Brocade Communications Systems, Inc.
+ * Copyright (c) 2014- QLogic Corporation.
  * All rights reserved
- * www.brocade.com
+ * www.qlogic.com
  *
- * Linux driver for Brocade Fibre Channel Host Bus Adapter.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License (GPL) Version 2 as
- * published by the Free Software Foundation
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
+ * Linux driver for QLogic BR-series Fibre Channel Host Bus Adapter.
  */
 
 #include "bfad_drv.h"
@@ -20,22 +13,6 @@
 #include "bfi_reg.h"
 
 BFA_TRC_FILE(HAL, CORE);
-
-/*
- * BFA module list terminated by NULL
- */
-static struct bfa_module_s *hal_mods[] = {
-	&hal_mod_fcdiag,
-	&hal_mod_sgpg,
-	&hal_mod_fcport,
-	&hal_mod_fcxp,
-	&hal_mod_lps,
-	&hal_mod_uf,
-	&hal_mod_rport,
-	&hal_mod_fcp,
-	&hal_mod_dconf,
-	NULL
-};
 
 /*
  * Message handlers for various modules.
@@ -89,6 +66,25 @@ static bfa_ioc_mbox_mcfunc_t  bfa_mbox_isrs[BFI_MC_MAX] = {
 };
 
 
+
+void
+__bfa_trc(struct bfa_trc_mod_s *trcm, int fileno, int line, u64 data)
+{
+	int		tail = trcm->tail;
+	struct bfa_trc_s	*trc = &trcm->trc[tail];
+
+	if (trcm->stopped)
+		return;
+
+	trc->fileno = (u16) fileno;
+	trc->line = (u16) line;
+	trc->data.u64 = data;
+	trc->timestamp = BFA_TRC_TS(trcm);
+
+	trcm->tail = (trcm->tail + 1) & (BFA_TRC_MAX - 1);
+	if (trcm->tail == trcm->head)
+		trcm->head = (trcm->head + 1) & (BFA_TRC_MAX - 1);
+}
 
 static void
 bfa_com_port_attach(struct bfa_s *bfa)
@@ -165,6 +161,16 @@ bfa_com_phy_attach(struct bfa_s *bfa, bfa_boolean_t mincfg)
 	bfa_phy_memclaim(phy, phy_dma->kva_curp, phy_dma->dma_curp, mincfg);
 }
 
+static void
+bfa_com_fru_attach(struct bfa_s *bfa, bfa_boolean_t mincfg)
+{
+	struct bfa_fru_s	*fru = BFA_FRU(bfa);
+	struct bfa_mem_dma_s	*fru_dma = BFA_MEM_FRU_DMA(bfa);
+
+	bfa_fru_attach(fru, &bfa->ioc, bfa, bfa->trcmod, mincfg);
+	bfa_fru_memclaim(fru, fru_dma->kva_curp, fru_dma->dma_curp, mincfg);
+}
+
 /*
  * BFA IOC FC related definitions
  */
@@ -200,13 +206,484 @@ enum {
 #define DEF_CFG_NUM_SBOOT_LUNS		16
 
 /*
+ * IOCFC state machine definitions/declarations
+ */
+bfa_fsm_state_decl(bfa_iocfc, stopped, struct bfa_iocfc_s, enum iocfc_event);
+bfa_fsm_state_decl(bfa_iocfc, initing, struct bfa_iocfc_s, enum iocfc_event);
+bfa_fsm_state_decl(bfa_iocfc, dconf_read, struct bfa_iocfc_s, enum iocfc_event);
+bfa_fsm_state_decl(bfa_iocfc, init_cfg_wait,
+		   struct bfa_iocfc_s, enum iocfc_event);
+bfa_fsm_state_decl(bfa_iocfc, init_cfg_done,
+		   struct bfa_iocfc_s, enum iocfc_event);
+bfa_fsm_state_decl(bfa_iocfc, operational,
+		   struct bfa_iocfc_s, enum iocfc_event);
+bfa_fsm_state_decl(bfa_iocfc, dconf_write,
+		   struct bfa_iocfc_s, enum iocfc_event);
+bfa_fsm_state_decl(bfa_iocfc, stopping, struct bfa_iocfc_s, enum iocfc_event);
+bfa_fsm_state_decl(bfa_iocfc, enabling, struct bfa_iocfc_s, enum iocfc_event);
+bfa_fsm_state_decl(bfa_iocfc, cfg_wait, struct bfa_iocfc_s, enum iocfc_event);
+bfa_fsm_state_decl(bfa_iocfc, disabling, struct bfa_iocfc_s, enum iocfc_event);
+bfa_fsm_state_decl(bfa_iocfc, disabled, struct bfa_iocfc_s, enum iocfc_event);
+bfa_fsm_state_decl(bfa_iocfc, failed, struct bfa_iocfc_s, enum iocfc_event);
+bfa_fsm_state_decl(bfa_iocfc, init_failed,
+		   struct bfa_iocfc_s, enum iocfc_event);
+
+/*
  * forward declaration for IOC FC functions
  */
+static void bfa_iocfc_start_submod(struct bfa_s *bfa);
+static void bfa_iocfc_disable_submod(struct bfa_s *bfa);
+static void bfa_iocfc_send_cfg(void *bfa_arg);
 static void bfa_iocfc_enable_cbfn(void *bfa_arg, enum bfa_status status);
 static void bfa_iocfc_disable_cbfn(void *bfa_arg);
 static void bfa_iocfc_hbfail_cbfn(void *bfa_arg);
 static void bfa_iocfc_reset_cbfn(void *bfa_arg);
 static struct bfa_ioc_cbfn_s bfa_iocfc_cbfn;
+static void bfa_iocfc_init_cb(void *bfa_arg, bfa_boolean_t complete);
+static void bfa_iocfc_stop_cb(void *bfa_arg, bfa_boolean_t compl);
+static void bfa_iocfc_enable_cb(void *bfa_arg, bfa_boolean_t compl);
+static void bfa_iocfc_disable_cb(void *bfa_arg, bfa_boolean_t compl);
+
+static void
+bfa_iocfc_sm_stopped_entry(struct bfa_iocfc_s *iocfc)
+{
+}
+
+static void
+bfa_iocfc_sm_stopped(struct bfa_iocfc_s *iocfc, enum iocfc_event event)
+{
+	bfa_trc(iocfc->bfa, event);
+
+	switch (event) {
+	case IOCFC_E_INIT:
+	case IOCFC_E_ENABLE:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_initing);
+		break;
+	default:
+		bfa_sm_fault(iocfc->bfa, event);
+		break;
+	}
+}
+
+static void
+bfa_iocfc_sm_initing_entry(struct bfa_iocfc_s *iocfc)
+{
+	bfa_ioc_enable(&iocfc->bfa->ioc);
+}
+
+static void
+bfa_iocfc_sm_initing(struct bfa_iocfc_s *iocfc, enum iocfc_event event)
+{
+	bfa_trc(iocfc->bfa, event);
+
+	switch (event) {
+	case IOCFC_E_IOC_ENABLED:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_dconf_read);
+		break;
+
+	case IOCFC_E_DISABLE:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_disabling);
+		break;
+
+	case IOCFC_E_STOP:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_stopping);
+		break;
+
+	case IOCFC_E_IOC_FAILED:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_init_failed);
+		break;
+	default:
+		bfa_sm_fault(iocfc->bfa, event);
+		break;
+	}
+}
+
+static void
+bfa_iocfc_sm_dconf_read_entry(struct bfa_iocfc_s *iocfc)
+{
+	bfa_dconf_modinit(iocfc->bfa);
+}
+
+static void
+bfa_iocfc_sm_dconf_read(struct bfa_iocfc_s *iocfc, enum iocfc_event event)
+{
+	bfa_trc(iocfc->bfa, event);
+
+	switch (event) {
+	case IOCFC_E_DCONF_DONE:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_init_cfg_wait);
+		break;
+
+	case IOCFC_E_DISABLE:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_disabling);
+		break;
+
+	case IOCFC_E_STOP:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_stopping);
+		break;
+
+	case IOCFC_E_IOC_FAILED:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_init_failed);
+		break;
+	default:
+		bfa_sm_fault(iocfc->bfa, event);
+		break;
+	}
+}
+
+static void
+bfa_iocfc_sm_init_cfg_wait_entry(struct bfa_iocfc_s *iocfc)
+{
+	bfa_iocfc_send_cfg(iocfc->bfa);
+}
+
+static void
+bfa_iocfc_sm_init_cfg_wait(struct bfa_iocfc_s *iocfc, enum iocfc_event event)
+{
+	bfa_trc(iocfc->bfa, event);
+
+	switch (event) {
+	case IOCFC_E_CFG_DONE:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_init_cfg_done);
+		break;
+
+	case IOCFC_E_DISABLE:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_disabling);
+		break;
+
+	case IOCFC_E_STOP:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_stopping);
+		break;
+
+	case IOCFC_E_IOC_FAILED:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_init_failed);
+		break;
+	default:
+		bfa_sm_fault(iocfc->bfa, event);
+		break;
+	}
+}
+
+static void
+bfa_iocfc_sm_init_cfg_done_entry(struct bfa_iocfc_s *iocfc)
+{
+	iocfc->bfa->iocfc.op_status = BFA_STATUS_OK;
+	bfa_cb_queue(iocfc->bfa, &iocfc->bfa->iocfc.init_hcb_qe,
+		     bfa_iocfc_init_cb, iocfc->bfa);
+}
+
+static void
+bfa_iocfc_sm_init_cfg_done(struct bfa_iocfc_s *iocfc, enum iocfc_event event)
+{
+	bfa_trc(iocfc->bfa, event);
+
+	switch (event) {
+	case IOCFC_E_START:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_operational);
+		break;
+	case IOCFC_E_STOP:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_stopping);
+		break;
+	case IOCFC_E_DISABLE:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_disabling);
+		break;
+	case IOCFC_E_IOC_FAILED:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_failed);
+		break;
+	default:
+		bfa_sm_fault(iocfc->bfa, event);
+		break;
+	}
+}
+
+static void
+bfa_iocfc_sm_operational_entry(struct bfa_iocfc_s *iocfc)
+{
+	bfa_fcport_init(iocfc->bfa);
+	bfa_iocfc_start_submod(iocfc->bfa);
+}
+
+static void
+bfa_iocfc_sm_operational(struct bfa_iocfc_s *iocfc, enum iocfc_event event)
+{
+	bfa_trc(iocfc->bfa, event);
+
+	switch (event) {
+	case IOCFC_E_STOP:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_dconf_write);
+		break;
+	case IOCFC_E_DISABLE:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_disabling);
+		break;
+	case IOCFC_E_IOC_FAILED:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_failed);
+		break;
+	default:
+		bfa_sm_fault(iocfc->bfa, event);
+		break;
+	}
+}
+
+static void
+bfa_iocfc_sm_dconf_write_entry(struct bfa_iocfc_s *iocfc)
+{
+	bfa_dconf_modexit(iocfc->bfa);
+}
+
+static void
+bfa_iocfc_sm_dconf_write(struct bfa_iocfc_s *iocfc, enum iocfc_event event)
+{
+	bfa_trc(iocfc->bfa, event);
+
+	switch (event) {
+	case IOCFC_E_DCONF_DONE:
+	case IOCFC_E_IOC_FAILED:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_stopping);
+		break;
+	default:
+		bfa_sm_fault(iocfc->bfa, event);
+		break;
+	}
+}
+
+static void
+bfa_iocfc_sm_stopping_entry(struct bfa_iocfc_s *iocfc)
+{
+	bfa_ioc_disable(&iocfc->bfa->ioc);
+}
+
+static void
+bfa_iocfc_sm_stopping(struct bfa_iocfc_s *iocfc, enum iocfc_event event)
+{
+	bfa_trc(iocfc->bfa, event);
+
+	switch (event) {
+	case IOCFC_E_IOC_DISABLED:
+		bfa_isr_disable(iocfc->bfa);
+		bfa_iocfc_disable_submod(iocfc->bfa);
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_stopped);
+		iocfc->bfa->iocfc.op_status = BFA_STATUS_OK;
+		bfa_cb_queue(iocfc->bfa, &iocfc->bfa->iocfc.stop_hcb_qe,
+			     bfa_iocfc_stop_cb, iocfc->bfa);
+		break;
+
+	case IOCFC_E_IOC_ENABLED:
+	case IOCFC_E_DCONF_DONE:
+	case IOCFC_E_CFG_DONE:
+		break;
+
+	default:
+		bfa_sm_fault(iocfc->bfa, event);
+		break;
+	}
+}
+
+static void
+bfa_iocfc_sm_enabling_entry(struct bfa_iocfc_s *iocfc)
+{
+	bfa_ioc_enable(&iocfc->bfa->ioc);
+}
+
+static void
+bfa_iocfc_sm_enabling(struct bfa_iocfc_s *iocfc, enum iocfc_event event)
+{
+	bfa_trc(iocfc->bfa, event);
+
+	switch (event) {
+	case IOCFC_E_IOC_ENABLED:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_cfg_wait);
+		break;
+
+	case IOCFC_E_DISABLE:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_disabling);
+		break;
+
+	case IOCFC_E_STOP:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_dconf_write);
+		break;
+
+	case IOCFC_E_IOC_FAILED:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_failed);
+
+		if (iocfc->bfa->iocfc.cb_reqd == BFA_FALSE)
+			break;
+
+		iocfc->bfa->iocfc.op_status = BFA_STATUS_FAILED;
+		bfa_cb_queue(iocfc->bfa, &iocfc->bfa->iocfc.en_hcb_qe,
+			     bfa_iocfc_enable_cb, iocfc->bfa);
+		iocfc->bfa->iocfc.cb_reqd = BFA_FALSE;
+		break;
+	default:
+		bfa_sm_fault(iocfc->bfa, event);
+		break;
+	}
+}
+
+static void
+bfa_iocfc_sm_cfg_wait_entry(struct bfa_iocfc_s *iocfc)
+{
+	bfa_iocfc_send_cfg(iocfc->bfa);
+}
+
+static void
+bfa_iocfc_sm_cfg_wait(struct bfa_iocfc_s *iocfc, enum iocfc_event event)
+{
+	bfa_trc(iocfc->bfa, event);
+
+	switch (event) {
+	case IOCFC_E_CFG_DONE:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_operational);
+		if (iocfc->bfa->iocfc.cb_reqd == BFA_FALSE)
+			break;
+
+		iocfc->bfa->iocfc.op_status = BFA_STATUS_OK;
+		bfa_cb_queue(iocfc->bfa, &iocfc->bfa->iocfc.en_hcb_qe,
+			     bfa_iocfc_enable_cb, iocfc->bfa);
+		iocfc->bfa->iocfc.cb_reqd = BFA_FALSE;
+		break;
+	case IOCFC_E_DISABLE:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_disabling);
+		break;
+
+	case IOCFC_E_STOP:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_dconf_write);
+		break;
+	case IOCFC_E_IOC_FAILED:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_failed);
+		if (iocfc->bfa->iocfc.cb_reqd == BFA_FALSE)
+			break;
+
+		iocfc->bfa->iocfc.op_status = BFA_STATUS_FAILED;
+		bfa_cb_queue(iocfc->bfa, &iocfc->bfa->iocfc.en_hcb_qe,
+			     bfa_iocfc_enable_cb, iocfc->bfa);
+		iocfc->bfa->iocfc.cb_reqd = BFA_FALSE;
+		break;
+	default:
+		bfa_sm_fault(iocfc->bfa, event);
+		break;
+	}
+}
+
+static void
+bfa_iocfc_sm_disabling_entry(struct bfa_iocfc_s *iocfc)
+{
+	bfa_ioc_disable(&iocfc->bfa->ioc);
+}
+
+static void
+bfa_iocfc_sm_disabling(struct bfa_iocfc_s *iocfc, enum iocfc_event event)
+{
+	bfa_trc(iocfc->bfa, event);
+
+	switch (event) {
+	case IOCFC_E_IOC_DISABLED:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_disabled);
+		break;
+	case IOCFC_E_IOC_ENABLED:
+	case IOCFC_E_DCONF_DONE:
+	case IOCFC_E_CFG_DONE:
+		break;
+	default:
+		bfa_sm_fault(iocfc->bfa, event);
+		break;
+	}
+}
+
+static void
+bfa_iocfc_sm_disabled_entry(struct bfa_iocfc_s *iocfc)
+{
+	bfa_isr_disable(iocfc->bfa);
+	bfa_iocfc_disable_submod(iocfc->bfa);
+	iocfc->bfa->iocfc.op_status = BFA_STATUS_OK;
+	bfa_cb_queue(iocfc->bfa, &iocfc->bfa->iocfc.dis_hcb_qe,
+		     bfa_iocfc_disable_cb, iocfc->bfa);
+}
+
+static void
+bfa_iocfc_sm_disabled(struct bfa_iocfc_s *iocfc, enum iocfc_event event)
+{
+	bfa_trc(iocfc->bfa, event);
+
+	switch (event) {
+	case IOCFC_E_STOP:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_dconf_write);
+		break;
+	case IOCFC_E_ENABLE:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_enabling);
+		break;
+	default:
+		bfa_sm_fault(iocfc->bfa, event);
+		break;
+	}
+}
+
+static void
+bfa_iocfc_sm_failed_entry(struct bfa_iocfc_s *iocfc)
+{
+	bfa_isr_disable(iocfc->bfa);
+	bfa_iocfc_disable_submod(iocfc->bfa);
+}
+
+static void
+bfa_iocfc_sm_failed(struct bfa_iocfc_s *iocfc, enum iocfc_event event)
+{
+	bfa_trc(iocfc->bfa, event);
+
+	switch (event) {
+	case IOCFC_E_STOP:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_dconf_write);
+		break;
+	case IOCFC_E_DISABLE:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_disabling);
+		break;
+	case IOCFC_E_IOC_ENABLED:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_cfg_wait);
+		break;
+	case IOCFC_E_IOC_FAILED:
+		break;
+	default:
+		bfa_sm_fault(iocfc->bfa, event);
+		break;
+	}
+}
+
+static void
+bfa_iocfc_sm_init_failed_entry(struct bfa_iocfc_s *iocfc)
+{
+	bfa_isr_disable(iocfc->bfa);
+	iocfc->bfa->iocfc.op_status = BFA_STATUS_FAILED;
+	bfa_cb_queue(iocfc->bfa, &iocfc->bfa->iocfc.init_hcb_qe,
+		     bfa_iocfc_init_cb, iocfc->bfa);
+}
+
+static void
+bfa_iocfc_sm_init_failed(struct bfa_iocfc_s *iocfc, enum iocfc_event event)
+{
+	bfa_trc(iocfc->bfa, event);
+
+	switch (event) {
+	case IOCFC_E_STOP:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_stopping);
+		break;
+	case IOCFC_E_DISABLE:
+		bfa_ioc_disable(&iocfc->bfa->ioc);
+		break;
+	case IOCFC_E_IOC_ENABLED:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_dconf_read);
+		break;
+	case IOCFC_E_IOC_DISABLED:
+		bfa_fsm_set_state(iocfc, bfa_iocfc_sm_stopped);
+		iocfc->bfa->iocfc.op_status = BFA_STATUS_OK;
+		bfa_cb_queue(iocfc->bfa, &iocfc->bfa->iocfc.dis_hcb_qe,
+			     bfa_iocfc_disable_cb, iocfc->bfa);
+		break;
+	case IOCFC_E_IOC_FAILED:
+		break;
+	default:
+		bfa_sm_fault(iocfc->bfa, event);
+		break;
+	}
+}
 
 /*
  * BFA Interrupt handling functions
@@ -231,15 +708,18 @@ bfa_reqq_resume(struct bfa_s *bfa, int qid)
 	}
 }
 
-static inline void
+static bfa_boolean_t
 bfa_isr_rspq(struct bfa_s *bfa, int qid)
 {
 	struct bfi_msg_s *m;
 	u32	pi, ci;
 	struct list_head *waitq;
+	bfa_boolean_t ret;
 
 	ci = bfa_rspq_ci(bfa, qid);
 	pi = bfa_rspq_pi(bfa, qid);
+
+	ret = (ci != pi);
 
 	while (ci != pi) {
 		m = bfa_rspq_elem(bfa, qid, ci);
@@ -260,6 +740,8 @@ bfa_isr_rspq(struct bfa_s *bfa, int qid)
 	waitq = bfa_reqq(bfa, qid);
 	if (!list_empty(waitq))
 		bfa_reqq_resume(bfa, qid);
+
+	return ret;
 }
 
 static inline void
@@ -320,6 +802,7 @@ bfa_intx(struct bfa_s *bfa)
 {
 	u32 intr, qintr;
 	int queue;
+	bfa_boolean_t rspq_comp = BFA_FALSE;
 
 	intr = readl(bfa->iocfc.bfa_regs.intr_status);
 
@@ -332,11 +815,12 @@ bfa_intx(struct bfa_s *bfa)
 	 */
 	if (bfa->queue_process) {
 		for (queue = 0; queue < BFI_IOC_MAX_CQS; queue++)
-			bfa_isr_rspq(bfa, queue);
+			if (bfa_isr_rspq(bfa, queue))
+				rspq_comp = BFA_TRUE;
 	}
 
 	if (!intr)
-		return BFA_TRUE;
+		return (qintr | rspq_comp) ? BFA_TRUE : BFA_FALSE;
 
 	/*
 	 * CPE completion queue interrupt
@@ -350,7 +834,8 @@ bfa_intx(struct bfa_s *bfa)
 	if (!intr)
 		return BFA_TRUE;
 
-	bfa_msix_lpu_err(bfa, intr);
+	if (bfa->intr_enabled)
+		bfa_msix_lpu_err(bfa, intr);
 
 	return BFA_TRUE;
 }
@@ -359,30 +844,37 @@ void
 bfa_isr_enable(struct bfa_s *bfa)
 {
 	u32 umsk;
-	int pci_func = bfa_ioc_pcifn(&bfa->ioc);
+	int port_id = bfa_ioc_portid(&bfa->ioc);
 
-	bfa_trc(bfa, pci_func);
+	bfa_trc(bfa, bfa_ioc_pcifn(&bfa->ioc));
+	bfa_trc(bfa, port_id);
 
 	bfa_msix_ctrl_install(bfa);
 
 	if (bfa_asic_id_ct2(bfa->ioc.pcidev.device_id)) {
 		umsk = __HFN_INT_ERR_MASK_CT2;
-		umsk |= pci_func == 0 ?
+		umsk |= port_id == 0 ?
 			__HFN_INT_FN0_MASK_CT2 : __HFN_INT_FN1_MASK_CT2;
 	} else {
 		umsk = __HFN_INT_ERR_MASK;
-		umsk |= pci_func == 0 ? __HFN_INT_FN0_MASK : __HFN_INT_FN1_MASK;
+		umsk |= port_id == 0 ? __HFN_INT_FN0_MASK : __HFN_INT_FN1_MASK;
 	}
 
 	writel(umsk, bfa->iocfc.bfa_regs.intr_status);
 	writel(~umsk, bfa->iocfc.bfa_regs.intr_mask);
 	bfa->iocfc.intr_mask = ~umsk;
 	bfa_isr_mode_set(bfa, bfa->msix.nvecs != 0);
+
+	/*
+	 * Set the flag indicating successful enabling of interrupts
+	 */
+	bfa->intr_enabled = BFA_TRUE;
 }
 
 void
 bfa_isr_disable(struct bfa_s *bfa)
 {
+	bfa->intr_enabled = BFA_FALSE;
 	bfa_isr_mode_set(bfa, BFA_FALSE);
 	writel(-1L, bfa->iocfc.bfa_regs.intr_mask);
 	bfa_msix_uninstall(bfa);
@@ -498,7 +990,8 @@ bfa_iocfc_send_cfg(void *bfa_arg)
 		cfg_info->single_msix_vec = 1;
 	cfg_info->endian_sig = BFI_IOC_ENDIAN_SIG;
 	cfg_info->num_cqs = cfg->fwcfg.num_cqs;
-	cfg_info->num_ioim_reqs = cpu_to_be16(cfg->fwcfg.num_ioim_reqs);
+	cfg_info->num_ioim_reqs = cpu_to_be16(bfa_fcpim_get_throttle_cfg(bfa,
+					       cfg->fwcfg.num_ioim_reqs));
 	cfg_info->num_fwtio_reqs = cpu_to_be16(cfg->fwcfg.num_fwtio_reqs);
 
 	bfa_dma_be_addr_set(cfg_info->cfgrsp_addr, iocfc->cfgrsp_dma.pa);
@@ -525,10 +1018,8 @@ bfa_iocfc_send_cfg(void *bfa_arg)
 	 * Enable interrupt coalescing if it is driver init path
 	 * and not ioc disable/enable path.
 	 */
-	if (!iocfc->cfgdone)
+	if (bfa_fsm_cmp_state(iocfc, bfa_iocfc_sm_init_cfg_wait))
 		cfg_info->intr_attr.coalesce = BFA_TRUE;
-
-	iocfc->cfgdone = BFA_FALSE;
 
 	/*
 	 * dma map IOC configuration itself
@@ -549,8 +1040,6 @@ bfa_iocfc_init_mem(struct bfa_s *bfa, void *bfad, struct bfa_iocfc_cfg_s *cfg,
 
 	bfa->bfad = bfad;
 	iocfc->bfa = bfa;
-	iocfc->action = BFA_IOCFC_ACT_NONE;
-
 	iocfc->cfg = *cfg;
 
 	/*
@@ -601,7 +1090,7 @@ bfa_iocfc_mem_claim(struct bfa_s *bfa, struct bfa_iocfc_cfg_s *cfg)
 {
 	u8	*dm_kva = NULL;
 	u64	dm_pa = 0;
-	int	i, per_reqq_sz, per_rspq_sz, dbgsz;
+	int	i, per_reqq_sz, per_rspq_sz;
 	struct bfa_iocfc_s  *iocfc = &bfa->iocfc;
 	struct bfa_mem_dma_s *ioc_dma = BFA_MEM_IOC_DMA(bfa);
 	struct bfa_mem_dma_s *iocfc_dma = BFA_MEM_IOCFC_DMA(bfa);
@@ -662,11 +1151,8 @@ bfa_iocfc_mem_claim(struct bfa_s *bfa, struct bfa_iocfc_cfg_s *cfg)
 			BFA_CACHELINE_SZ);
 
 	/* Claim IOCFC kva memory */
-	dbgsz = (bfa_auto_recover) ? BFA_DBG_FWTRC_LEN : 0;
-	if (dbgsz > 0) {
-		bfa_ioc_debug_memclaim(&bfa->ioc, bfa_mem_kva_curp(iocfc));
-		bfa_mem_kva_curp(iocfc) += dbgsz;
-	}
+	bfa_ioc_debug_memclaim(&bfa->ioc, bfa_mem_kva_curp(iocfc));
+	bfa_mem_kva_curp(iocfc) += BFA_DBG_FWTRC_LEN;
 }
 
 /*
@@ -681,8 +1167,15 @@ bfa_iocfc_start_submod(struct bfa_s *bfa)
 	for (i = 0; i < BFI_IOC_MAX_CQS; i++)
 		bfa_isr_rspq_ack(bfa, i, bfa_rspq_ci(bfa, i));
 
-	for (i = 0; hal_mods[i]; i++)
-		hal_mods[i]->start(bfa);
+	bfa_fcport_start(bfa);
+	bfa_uf_start(bfa);
+	/*
+	 * bfa_init() with flash read is complete. now invalidate the stale
+	 * content of lun mask like unit attention, rp tag and lp tag.
+	 */
+	bfa_ioim_lm_init(BFA_FCP_MOD(bfa)->bfa);
+
+	bfa->iocfc.submod_enabled = BFA_TRUE;
 }
 
 /*
@@ -691,10 +1184,18 @@ bfa_iocfc_start_submod(struct bfa_s *bfa)
 static void
 bfa_iocfc_disable_submod(struct bfa_s *bfa)
 {
-	int		i;
+	if (bfa->iocfc.submod_enabled == BFA_FALSE)
+		return;
 
-	for (i = 0; hal_mods[i]; i++)
-		hal_mods[i]->iocdisable(bfa);
+	bfa_fcdiag_iocdisable(bfa);
+	bfa_fcport_iocdisable(bfa);
+	bfa_fcxp_iocdisable(bfa);
+	bfa_lps_iocdisable(bfa);
+	bfa_rport_iocdisable(bfa);
+	bfa_fcp_iocdisable(bfa);
+	bfa_dconf_iocdisable(bfa);
+
+	bfa->iocfc.submod_enabled = BFA_FALSE;
 }
 
 static void
@@ -702,15 +1203,8 @@ bfa_iocfc_init_cb(void *bfa_arg, bfa_boolean_t complete)
 {
 	struct bfa_s	*bfa = bfa_arg;
 
-	if (complete) {
-		if (bfa->iocfc.cfgdone && BFA_DCONF_MOD(bfa)->flashdone)
-			bfa_cb_init(bfa->bfad, BFA_STATUS_OK);
-		else
-			bfa_cb_init(bfa->bfad, BFA_STATUS_FAILED);
-	} else {
-		if (bfa->iocfc.cfgdone)
-			bfa->iocfc.action = BFA_IOCFC_ACT_NONE;
-	}
+	if (complete)
+		bfa_cb_init(bfa->bfad, bfa->iocfc.op_status);
 }
 
 static void
@@ -721,8 +1215,6 @@ bfa_iocfc_stop_cb(void *bfa_arg, bfa_boolean_t compl)
 
 	if (compl)
 		complete(&bfad->comp);
-	else
-		bfa->iocfc.action = BFA_IOCFC_ACT_NONE;
 }
 
 static void
@@ -745,7 +1237,7 @@ bfa_iocfc_disable_cb(void *bfa_arg, bfa_boolean_t compl)
 		complete(&bfad->disable_comp);
 }
 
-/**
+/*
  * configure queue registers from firmware response
  */
 static void
@@ -769,10 +1261,14 @@ bfa_iocfc_qreg(struct bfa_s *bfa, struct bfi_iocfc_qreg_s *qreg)
 static void
 bfa_iocfc_res_recfg(struct bfa_s *bfa, struct bfa_iocfc_fwcfg_s *fwcfg)
 {
+	struct bfa_iocfc_s	*iocfc   = &bfa->iocfc;
+	struct bfi_iocfc_cfg_s	*cfg_info = iocfc->cfginfo;
+
 	bfa_fcxp_res_recfg(bfa, fwcfg->num_fcxp_reqs);
 	bfa_uf_res_recfg(bfa, fwcfg->num_uf_bufs);
 	bfa_rport_res_recfg(bfa, fwcfg->num_rports);
-	bfa_fcp_res_recfg(bfa, fwcfg->num_ioim_reqs);
+	bfa_fcp_res_recfg(bfa, cpu_to_be16(cfg_info->num_ioim_reqs),
+			  fwcfg->num_ioim_reqs);
 	bfa_tskim_res_recfg(bfa, fwcfg->num_tskim_reqs);
 }
 
@@ -794,8 +1290,6 @@ bfa_iocfc_cfgrsp(struct bfa_s *bfa)
 	fwcfg->num_uf_bufs    = be16_to_cpu(fwcfg->num_uf_bufs);
 	fwcfg->num_rports     = be16_to_cpu(fwcfg->num_rports);
 
-	iocfc->cfgdone = BFA_TRUE;
-
 	/*
 	 * configure queue register offsets as learnt from firmware
 	 */
@@ -811,22 +1305,13 @@ bfa_iocfc_cfgrsp(struct bfa_s *bfa)
 	 */
 	bfa_msix_queue_install(bfa);
 
-	/*
-	 * Configuration is complete - initialize/start submodules
-	 */
-	bfa_fcport_init(bfa);
-
-	if (iocfc->action == BFA_IOCFC_ACT_INIT) {
-		if (BFA_DCONF_MOD(bfa)->flashdone == BFA_TRUE)
-			bfa_cb_queue(bfa, &iocfc->init_hcb_qe,
-				bfa_iocfc_init_cb, bfa);
-	} else {
-		if (bfa->iocfc.action == BFA_IOCFC_ACT_ENABLE)
-			bfa_cb_queue(bfa, &bfa->iocfc.en_hcb_qe,
-					bfa_iocfc_enable_cb, bfa);
-		bfa_iocfc_start_submod(bfa);
+	if (bfa->iocfc.cfgrsp->pbc_cfg.pbc_pwwn != 0) {
+		bfa->ioc.attr->pwwn = bfa->iocfc.cfgrsp->pbc_cfg.pbc_pwwn;
+		bfa->ioc.attr->nwwn = bfa->iocfc.cfgrsp->pbc_cfg.pbc_nwwn;
+		bfa_fsm_send_event(iocfc, IOCFC_E_CFG_DONE);
 	}
 }
+
 void
 bfa_iocfc_reset_queues(struct bfa_s *bfa)
 {
@@ -838,6 +1323,23 @@ bfa_iocfc_reset_queues(struct bfa_s *bfa)
 		bfa_rspq_ci(bfa, q) = 0;
 		bfa_rspq_pi(bfa, q) = 0;
 	}
+}
+
+/*
+ *	Process FAA pwwn msg from fw.
+ */
+static void
+bfa_iocfc_process_faa_addr(struct bfa_s *bfa, struct bfi_faa_addr_msg_s *msg)
+{
+	struct bfa_iocfc_s		*iocfc   = &bfa->iocfc;
+	struct bfi_iocfc_cfgrsp_s	*cfgrsp  = iocfc->cfgrsp;
+
+	cfgrsp->pbc_cfg.pbc_pwwn = msg->pwwn;
+	cfgrsp->pbc_cfg.pbc_nwwn = msg->nwwn;
+
+	bfa->ioc.attr->pwwn = msg->pwwn;
+	bfa->ioc.attr->nwwn = msg->nwwn;
+	bfa_fsm_send_event(iocfc, IOCFC_E_CFG_DONE);
 }
 
 /* Fabric Assigned Address specific functions */
@@ -855,79 +1357,8 @@ bfa_faa_validate_request(struct bfa_s *bfa)
 		if ((ioc_type != BFA_IOC_TYPE_FC) || bfa_mfg_is_mezz(card_type))
 			return BFA_STATUS_FEATURE_NOT_SUPPORTED;
 	} else {
-		if (!bfa_ioc_is_acq_addr(&bfa->ioc))
-			return BFA_STATUS_IOC_NON_OP;
+		return BFA_STATUS_IOC_NON_OP;
 	}
-
-	return BFA_STATUS_OK;
-}
-
-bfa_status_t
-bfa_faa_enable(struct bfa_s *bfa, bfa_cb_iocfc_t cbfn, void *cbarg)
-{
-	struct bfi_faa_en_dis_s faa_enable_req;
-	struct bfa_iocfc_s	*iocfc = &bfa->iocfc;
-	bfa_status_t		status;
-
-	iocfc->faa_args.faa_cb.faa_cbfn = cbfn;
-	iocfc->faa_args.faa_cb.faa_cbarg = cbarg;
-
-	status = bfa_faa_validate_request(bfa);
-	if (status != BFA_STATUS_OK)
-		return status;
-
-	if (iocfc->faa_args.busy == BFA_TRUE)
-		return BFA_STATUS_DEVBUSY;
-
-	if (iocfc->faa_args.faa_state == BFA_FAA_ENABLED)
-		return BFA_STATUS_FAA_ENABLED;
-
-	if (bfa_fcport_is_trunk_enabled(bfa))
-		return BFA_STATUS_ERROR_TRUNK_ENABLED;
-
-	bfa_fcport_cfg_faa(bfa, BFA_FAA_ENABLED);
-	iocfc->faa_args.busy = BFA_TRUE;
-
-	memset(&faa_enable_req, 0, sizeof(struct bfi_faa_en_dis_s));
-	bfi_h2i_set(faa_enable_req.mh, BFI_MC_IOCFC,
-		BFI_IOCFC_H2I_FAA_ENABLE_REQ, bfa_fn_lpu(bfa));
-
-	bfa_ioc_mbox_send(&bfa->ioc, &faa_enable_req,
-			sizeof(struct bfi_faa_en_dis_s));
-
-	return BFA_STATUS_OK;
-}
-
-bfa_status_t
-bfa_faa_disable(struct bfa_s *bfa, bfa_cb_iocfc_t cbfn,
-		void *cbarg)
-{
-	struct bfi_faa_en_dis_s faa_disable_req;
-	struct bfa_iocfc_s	*iocfc = &bfa->iocfc;
-	bfa_status_t		status;
-
-	iocfc->faa_args.faa_cb.faa_cbfn = cbfn;
-	iocfc->faa_args.faa_cb.faa_cbarg = cbarg;
-
-	status = bfa_faa_validate_request(bfa);
-	if (status != BFA_STATUS_OK)
-		return status;
-
-	if (iocfc->faa_args.busy == BFA_TRUE)
-		return BFA_STATUS_DEVBUSY;
-
-	if (iocfc->faa_args.faa_state == BFA_FAA_DISABLED)
-		return BFA_STATUS_FAA_DISABLED;
-
-	bfa_fcport_cfg_faa(bfa, BFA_FAA_DISABLED);
-	iocfc->faa_args.busy = BFA_TRUE;
-
-	memset(&faa_disable_req, 0, sizeof(struct bfi_faa_en_dis_s));
-	bfi_h2i_set(faa_disable_req.mh, BFI_MC_IOCFC,
-		BFI_IOCFC_H2I_FAA_DISABLE_REQ, bfa_fn_lpu(bfa));
-
-	bfa_ioc_mbox_send(&bfa->ioc, &faa_disable_req,
-		sizeof(struct bfi_faa_en_dis_s));
 
 	return BFA_STATUS_OK;
 }
@@ -940,16 +1371,16 @@ bfa_faa_query(struct bfa_s *bfa, struct bfa_faa_attr_s *attr,
 	struct bfa_iocfc_s      *iocfc = &bfa->iocfc;
 	bfa_status_t            status;
 
-	iocfc->faa_args.faa_attr = attr;
-	iocfc->faa_args.faa_cb.faa_cbfn = cbfn;
-	iocfc->faa_args.faa_cb.faa_cbarg = cbarg;
-
 	status = bfa_faa_validate_request(bfa);
 	if (status != BFA_STATUS_OK)
 		return status;
 
 	if (iocfc->faa_args.busy == BFA_TRUE)
 		return BFA_STATUS_DEVBUSY;
+
+	iocfc->faa_args.faa_attr = attr;
+	iocfc->faa_args.faa_cb.faa_cbfn = cbfn;
+	iocfc->faa_args.faa_cb.faa_cbarg = cbarg;
 
 	iocfc->faa_args.busy = BFA_TRUE;
 	memset(&faa_attr_req, 0, sizeof(struct bfi_faa_query_s));
@@ -960,38 +1391,6 @@ bfa_faa_query(struct bfa_s *bfa, struct bfa_faa_attr_s *attr,
 		sizeof(struct bfi_faa_query_s));
 
 	return BFA_STATUS_OK;
-}
-
-/*
- *	FAA enable response
- */
-static void
-bfa_faa_enable_reply(struct bfa_iocfc_s *iocfc,
-		struct bfi_faa_en_dis_rsp_s *rsp)
-{
-	void	*cbarg = iocfc->faa_args.faa_cb.faa_cbarg;
-	bfa_status_t	status = rsp->status;
-
-	WARN_ON(!iocfc->faa_args.faa_cb.faa_cbfn);
-
-	iocfc->faa_args.faa_cb.faa_cbfn(cbarg, status);
-	iocfc->faa_args.busy = BFA_FALSE;
-}
-
-/*
- *	FAA disable response
- */
-static void
-bfa_faa_disable_reply(struct bfa_iocfc_s *iocfc,
-		struct bfi_faa_en_dis_rsp_s *rsp)
-{
-	void	*cbarg = iocfc->faa_args.faa_cb.faa_cbarg;
-	bfa_status_t	status = rsp->status;
-
-	WARN_ON(!iocfc->faa_args.faa_cb.faa_cbfn);
-
-	iocfc->faa_args.faa_cb.faa_cbfn(cbarg, status);
-	iocfc->faa_args.busy = BFA_FALSE;
 }
 
 /*
@@ -1023,25 +1422,10 @@ bfa_iocfc_enable_cbfn(void *bfa_arg, enum bfa_status status)
 {
 	struct bfa_s	*bfa = bfa_arg;
 
-	if (status == BFA_STATUS_FAA_ACQ_ADDR) {
-		bfa_cb_queue(bfa, &bfa->iocfc.init_hcb_qe,
-				bfa_iocfc_init_cb, bfa);
-		return;
-	}
-
-	if (status != BFA_STATUS_OK) {
-		bfa_isr_disable(bfa);
-		if (bfa->iocfc.action == BFA_IOCFC_ACT_INIT)
-			bfa_cb_queue(bfa, &bfa->iocfc.init_hcb_qe,
-				     bfa_iocfc_init_cb, bfa);
-		else if (bfa->iocfc.action == BFA_IOCFC_ACT_ENABLE)
-			bfa_cb_queue(bfa, &bfa->iocfc.en_hcb_qe,
-					bfa_iocfc_enable_cb, bfa);
-		return;
-	}
-
-	bfa_iocfc_send_cfg(bfa);
-	bfa_dconf_modinit(bfa);
+	if (status == BFA_STATUS_OK)
+		bfa_fsm_send_event(&bfa->iocfc, IOCFC_E_IOC_ENABLED);
+	else
+		bfa_fsm_send_event(&bfa->iocfc, IOCFC_E_IOC_FAILED);
 }
 
 /*
@@ -1052,17 +1436,8 @@ bfa_iocfc_disable_cbfn(void *bfa_arg)
 {
 	struct bfa_s	*bfa = bfa_arg;
 
-	bfa_isr_disable(bfa);
-	bfa_iocfc_disable_submod(bfa);
-
-	if (bfa->iocfc.action == BFA_IOCFC_ACT_STOP)
-		bfa_cb_queue(bfa, &bfa->iocfc.stop_hcb_qe, bfa_iocfc_stop_cb,
-			     bfa);
-	else {
-		WARN_ON(bfa->iocfc.action != BFA_IOCFC_ACT_DISABLE);
-		bfa_cb_queue(bfa, &bfa->iocfc.dis_hcb_qe, bfa_iocfc_disable_cb,
-			     bfa);
-	}
+	bfa->queue_process = BFA_FALSE;
+	bfa_fsm_send_event(&bfa->iocfc, IOCFC_E_IOC_DISABLED);
 }
 
 /*
@@ -1074,13 +1449,7 @@ bfa_iocfc_hbfail_cbfn(void *bfa_arg)
 	struct bfa_s	*bfa = bfa_arg;
 
 	bfa->queue_process = BFA_FALSE;
-
-	bfa_isr_disable(bfa);
-	bfa_iocfc_disable_submod(bfa);
-
-	if (bfa->iocfc.action == BFA_IOCFC_ACT_INIT)
-		bfa_cb_queue(bfa, &bfa->iocfc.init_hcb_qe, bfa_iocfc_init_cb,
-			     bfa);
+	bfa_fsm_send_event(&bfa->iocfc, IOCFC_E_IOC_FAILED);
 }
 
 /*
@@ -1094,7 +1463,6 @@ bfa_iocfc_reset_cbfn(void *bfa_arg)
 	bfa_iocfc_reset_queues(bfa);
 	bfa_isr_enable(bfa);
 }
-
 
 /*
  * Query IOC memory requirement information.
@@ -1139,8 +1507,7 @@ bfa_iocfc_meminfo(struct bfa_iocfc_cfg_s *cfg, struct bfa_meminfo_s *meminfo,
 	bfa_mem_dma_setup(meminfo, iocfc_dma, dm_len);
 
 	/* kva memory setup for IOCFC */
-	bfa_mem_kva_setup(meminfo, iocfc_kva,
-			((bfa_auto_recover) ? BFA_DBG_FWTRC_LEN : 0));
+	bfa_mem_kva_setup(meminfo, iocfc_kva, BFA_DBG_FWTRC_LEN);
 }
 
 /*
@@ -1171,6 +1538,12 @@ bfa_iocfc_attach(struct bfa_s *bfa, void *bfad, struct bfa_iocfc_cfg_s *cfg,
 	INIT_LIST_HEAD(&bfa->comp_q);
 	for (i = 0; i < BFI_IOC_MAX_CQS; i++)
 		INIT_LIST_HEAD(&bfa->reqq_waitq[i]);
+
+	bfa->iocfc.cb_reqd = BFA_FALSE;
+	bfa->iocfc.op_status = BFA_STATUS_OK;
+	bfa->iocfc.submod_enabled = BFA_FALSE;
+
+	bfa_fsm_set_state(&bfa->iocfc, bfa_iocfc_sm_stopped);
 }
 
 /*
@@ -1179,8 +1552,7 @@ bfa_iocfc_attach(struct bfa_s *bfa, void *bfad, struct bfa_iocfc_cfg_s *cfg,
 void
 bfa_iocfc_init(struct bfa_s *bfa)
 {
-	bfa->iocfc.action = BFA_IOCFC_ACT_INIT;
-	bfa_ioc_enable(&bfa->ioc);
+	bfa_fsm_send_event(&bfa->iocfc, IOCFC_E_INIT);
 }
 
 /*
@@ -1190,8 +1562,7 @@ bfa_iocfc_init(struct bfa_s *bfa)
 void
 bfa_iocfc_start(struct bfa_s *bfa)
 {
-	if (bfa->iocfc.cfgdone)
-		bfa_iocfc_start_submod(bfa);
+	bfa_fsm_send_event(&bfa->iocfc, IOCFC_E_START);
 }
 
 /*
@@ -1201,12 +1572,7 @@ bfa_iocfc_start(struct bfa_s *bfa)
 void
 bfa_iocfc_stop(struct bfa_s *bfa)
 {
-	bfa->iocfc.action = BFA_IOCFC_ACT_STOP;
-
-	bfa->queue_process = BFA_FALSE;
-	bfa_dconf_modexit(bfa);
-	if (BFA_DCONF_MOD(bfa)->flashdone == BFA_TRUE)
-		bfa_ioc_disable(&bfa->ioc);
+	bfa_fsm_send_event(&bfa->iocfc, IOCFC_E_STOP);
 }
 
 void
@@ -1226,13 +1592,9 @@ bfa_iocfc_isr(void *bfaarg, struct bfi_mbmsg_s *m)
 	case BFI_IOCFC_I2H_UPDATEQ_RSP:
 		iocfc->updateq_cbfn(iocfc->updateq_cbarg, BFA_STATUS_OK);
 		break;
-	case BFI_IOCFC_I2H_FAA_ENABLE_RSP:
-		bfa_faa_enable_reply(iocfc,
-			(struct bfi_faa_en_dis_rsp_s *)msg);
-		break;
-	case BFI_IOCFC_I2H_FAA_DISABLE_RSP:
-		bfa_faa_disable_reply(iocfc,
-			(struct bfi_faa_en_dis_rsp_s *)msg);
+	case BFI_IOCFC_I2H_ADDR_MSG:
+		bfa_iocfc_process_faa_addr(bfa,
+				(struct bfi_faa_addr_msg_s *)msg);
 		break;
 	case BFI_IOCFC_I2H_FAA_QUERY_RSP:
 		bfa_faa_query_reply(iocfc, (bfi_faa_query_rsp_t *)msg);
@@ -1306,8 +1668,8 @@ bfa_iocfc_enable(struct bfa_s *bfa)
 {
 	bfa_plog_str(bfa->plog, BFA_PL_MID_HAL, BFA_PL_EID_MISC, 0,
 		     "IOC Enable");
-	bfa->iocfc.action = BFA_IOCFC_ACT_ENABLE;
-	bfa_ioc_enable(&bfa->ioc);
+	bfa->iocfc.cb_reqd = BFA_TRUE;
+	bfa_fsm_send_event(&bfa->iocfc, IOCFC_E_ENABLE);
 }
 
 void
@@ -1315,17 +1677,15 @@ bfa_iocfc_disable(struct bfa_s *bfa)
 {
 	bfa_plog_str(bfa->plog, BFA_PL_MID_HAL, BFA_PL_EID_MISC, 0,
 		     "IOC Disable");
-	bfa->iocfc.action = BFA_IOCFC_ACT_DISABLE;
 
-	bfa->queue_process = BFA_FALSE;
-	bfa_ioc_disable(&bfa->ioc);
+	bfa_fsm_send_event(&bfa->iocfc, IOCFC_E_DISABLE);
 }
-
 
 bfa_boolean_t
 bfa_iocfc_is_operational(struct bfa_s *bfa)
 {
-	return bfa_ioc_is_operational(&bfa->ioc) && bfa->iocfc.cfgdone;
+	return bfa_ioc_is_operational(&bfa->ioc) &&
+		bfa_fsm_cmp_state(&bfa->iocfc, bfa_iocfc_sm_operational);
 }
 
 /*
@@ -1397,7 +1757,6 @@ void
 bfa_cfg_get_meminfo(struct bfa_iocfc_cfg_s *cfg, struct bfa_meminfo_s *meminfo,
 		struct bfa_s *bfa)
 {
-	int		i;
 	struct bfa_mem_dma_s *port_dma = BFA_MEM_PORT_DMA(bfa);
 	struct bfa_mem_dma_s *ablk_dma = BFA_MEM_ABLK_DMA(bfa);
 	struct bfa_mem_dma_s *cee_dma = BFA_MEM_CEE_DMA(bfa);
@@ -1405,6 +1764,7 @@ bfa_cfg_get_meminfo(struct bfa_iocfc_cfg_s *cfg, struct bfa_meminfo_s *meminfo,
 	struct bfa_mem_dma_s *flash_dma = BFA_MEM_FLASH_DMA(bfa);
 	struct bfa_mem_dma_s *diag_dma = BFA_MEM_DIAG_DMA(bfa);
 	struct bfa_mem_dma_s *phy_dma = BFA_MEM_PHY_DMA(bfa);
+	struct bfa_mem_dma_s *fru_dma = BFA_MEM_FRU_DMA(bfa);
 
 	WARN_ON((cfg == NULL) || (meminfo == NULL));
 
@@ -1415,9 +1775,14 @@ bfa_cfg_get_meminfo(struct bfa_iocfc_cfg_s *cfg, struct bfa_meminfo_s *meminfo,
 	INIT_LIST_HEAD(&meminfo->kva_info.qe);
 
 	bfa_iocfc_meminfo(cfg, meminfo, bfa);
-
-	for (i = 0; hal_mods[i]; i++)
-		hal_mods[i]->meminfo(cfg, meminfo, bfa);
+	bfa_sgpg_meminfo(cfg, meminfo, bfa);
+	bfa_fcport_meminfo(cfg, meminfo, bfa);
+	bfa_fcxp_meminfo(cfg, meminfo, bfa);
+	bfa_lps_meminfo(cfg, meminfo, bfa);
+	bfa_uf_meminfo(cfg, meminfo, bfa);
+	bfa_rport_meminfo(cfg, meminfo, bfa);
+	bfa_fcp_meminfo(cfg, meminfo, bfa);
+	bfa_dconf_meminfo(cfg, meminfo, bfa);
 
 	/* dma info setup */
 	bfa_mem_dma_setup(meminfo, port_dma, bfa_port_meminfo());
@@ -1429,6 +1794,8 @@ bfa_cfg_get_meminfo(struct bfa_iocfc_cfg_s *cfg, struct bfa_meminfo_s *meminfo,
 	bfa_mem_dma_setup(meminfo, diag_dma, bfa_diag_meminfo());
 	bfa_mem_dma_setup(meminfo, phy_dma,
 			  bfa_phy_meminfo(cfg->drvcfg.min_cfg));
+	bfa_mem_dma_setup(meminfo, fru_dma,
+			  bfa_fru_meminfo(cfg->drvcfg.min_cfg));
 }
 
 /*
@@ -1461,7 +1828,6 @@ void
 bfa_attach(struct bfa_s *bfa, void *bfad, struct bfa_iocfc_cfg_s *cfg,
 	       struct bfa_meminfo_s *meminfo, struct bfa_pcidev_s *pcidev)
 {
-	int	i;
 	struct bfa_mem_dma_s *dma_info, *dma_elem;
 	struct bfa_mem_kva_s *kva_info, *kva_elem;
 	struct list_head *dm_qe, *km_qe;
@@ -1490,10 +1856,15 @@ bfa_attach(struct bfa_s *bfa, void *bfad, struct bfa_iocfc_cfg_s *cfg,
 	}
 
 	bfa_iocfc_attach(bfa, bfad, cfg, pcidev);
-
-	for (i = 0; hal_mods[i]; i++)
-		hal_mods[i]->attach(bfa, bfad, cfg, pcidev);
-
+	bfa_fcdiag_attach(bfa, bfad, cfg, pcidev);
+	bfa_sgpg_attach(bfa, bfad, cfg, pcidev);
+	bfa_fcport_attach(bfa, bfad, cfg, pcidev);
+	bfa_fcxp_attach(bfa, bfad, cfg, pcidev);
+	bfa_lps_attach(bfa, bfad, cfg, pcidev);
+	bfa_uf_attach(bfa, bfad, cfg, pcidev);
+	bfa_rport_attach(bfa, bfad, cfg, pcidev);
+	bfa_fcp_attach(bfa, bfad, cfg, pcidev);
+	bfa_dconf_attach(bfa, bfad, cfg);
 	bfa_com_port_attach(bfa);
 	bfa_com_ablk_attach(bfa);
 	bfa_com_cee_attach(bfa);
@@ -1501,6 +1872,7 @@ bfa_attach(struct bfa_s *bfa, void *bfad, struct bfa_iocfc_cfg_s *cfg,
 	bfa_com_flash_attach(bfa, cfg->drvcfg.min_cfg);
 	bfa_com_diag_attach(bfa);
 	bfa_com_phy_attach(bfa, cfg->drvcfg.min_cfg);
+	bfa_com_fru_attach(bfa, cfg->drvcfg.min_cfg);
 }
 
 /*
@@ -1519,10 +1891,6 @@ bfa_attach(struct bfa_s *bfa, void *bfad, struct bfa_iocfc_cfg_s *cfg,
 void
 bfa_detach(struct bfa_s *bfa)
 {
-	int	i;
-
-	for (i = 0; hal_mods[i]; i++)
-		hal_mods[i]->detach(bfa);
 	bfa_ioc_detach(&bfa->ioc);
 }
 
@@ -1567,16 +1935,6 @@ bfa_comp_free(struct bfa_s *bfa, struct list_head *comp_q)
 	}
 }
 
-void
-bfa_iocfc_cb_dconf_modinit(struct bfa_s *bfa, bfa_status_t status)
-{
-	if (bfa->iocfc.action == BFA_IOCFC_ACT_INIT) {
-		if (bfa->iocfc.cfgdone == BFA_TRUE)
-			bfa_cb_queue(bfa, &bfa->iocfc.init_hcb_qe,
-				bfa_iocfc_init_cb, bfa);
-	}
-}
-
 /*
  * Return the list of PCI vendor/device id lists supported by this
  * BFA instance.
@@ -1591,7 +1949,7 @@ bfa_get_pciids(struct bfa_pciid_s **pciids, int *npciids)
 		{BFA_PCI_VENDOR_ID_BROCADE, BFA_PCI_DEVICE_ID_CT_FC},
 	};
 
-	*npciids = sizeof(__pciids) / sizeof(__pciids[0]);
+	*npciids = ARRAY_SIZE(__pciids);
 	*pciids = __pciids;
 }
 

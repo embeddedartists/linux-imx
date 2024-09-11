@@ -12,9 +12,9 @@
 
 #include <linux/kernel.h>
 #include <linux/compiler.h>
-#include <asm/system.h>
 #include <asm/exceptions.h>
 #include <asm/pvr.h>
+#include <linux/irqflags.h>
 
 /*
  * Until we get an assembler that knows about the pvr registers,
@@ -28,7 +28,7 @@
 	tmp = 0x0;	/* Prevent warning about unused */	\
 	__asm__ __volatile__ (					\
 			"mfs	%0, rpvr" #pvrid ";"		\
-			: "=r" (tmp) : : "memory"); 		\
+			: "=r" (tmp) : : "memory");		\
 	val = tmp;						\
 }
 

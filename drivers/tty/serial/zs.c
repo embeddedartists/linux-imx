@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * zs.c: Serial port driver for IOASIC DECstations.
  *
@@ -43,10 +44,6 @@
  * complicated and prevents the use of some automatic modes of operation.
  */
 
-#if defined(CONFIG_SERIAL_ZS_CONSOLE) && defined(CONFIG_MAGIC_SYSRQ)
-#define SUPPORT_SYSRQ
-#endif
-
 #include <linux/bug.h>
 #include <linux/console.h>
 #include <linux/delay.h>
@@ -57,6 +54,7 @@
 #include <linux/ioport.h>
 #include <linux/irqflags.h>
 #include <linux/kernel.h>
+#include <linux/module.h>
 #include <linux/major.h>
 #include <linux/serial.h>
 #include <linux/serial_core.h>
@@ -67,7 +65,6 @@
 #include <linux/types.h>
 
 #include <linux/atomic.h>
-#include <asm/system.h>
 
 #include <asm/dec/interrupts.h>
 #include <asm/dec/ioasic_addrs.h>
@@ -603,7 +600,7 @@ static void zs_receive_chars(struct zs_port *zport)
 		uart_insert_char(uport, status, Rx_OVR, ch, flag);
 	}
 
-	tty_flip_buffer_push(uport->state->port.tty);
+	tty_flip_buffer_push(&uport->state->port);
 }
 
 static void zs_raw_transmit_chars(struct zs_port *zport)
@@ -923,7 +920,7 @@ static void zs_set_termios(struct uart_port *uport, struct ktermios *termios,
 	uport->read_status_mask = Rx_OVR;
 	if (termios->c_iflag & INPCK)
 		uport->read_status_mask |= FRM_ERR | PAR_ERR;
-	if (termios->c_iflag & (BRKINT | PARMRK))
+	if (termios->c_iflag & (IGNBRK | BRKINT | PARMRK))
 		uport->read_status_mask |= Rx_BRK;
 
 	uport->ignore_status_mask = 0;
@@ -991,7 +988,7 @@ static void zs_release_port(struct uart_port *uport)
 static int zs_map_port(struct uart_port *uport)
 {
 	if (!uport->membase)
-		uport->membase = ioremap_nocache(uport->mapbase,
+		uport->membase = ioremap(uport->mapbase,
 						 ZS_CHAN_IO_SIZE);
 	if (!uport->membase) {
 		printk(KERN_ERR "zs: Cannot map MMIO\n");
@@ -1045,7 +1042,7 @@ static int zs_verify_port(struct uart_port *uport, struct serial_struct *ser)
 }
 
 
-static struct uart_ops zs_ops = {
+static const struct uart_ops zs_ops = {
 	.tx_empty	= zs_tx_empty,
 	.set_mctrl	= zs_set_mctrl,
 	.get_mctrl	= zs_get_mctrl,
@@ -1105,6 +1102,7 @@ static int __init zs_probe_sccs(void)
 			zport->scc	= &zs_sccs[chip];
 			zport->clk_mode	= 16;
 
+			uport->has_sysrq = IS_ENABLED(CONFIG_SERIAL_ZS_CONSOLE);
 			uport->irq	= zs_parms.irq[chip];
 			uport->uartclk	= ZS_CLOCK;
 			uport->fifosize	= 1;
@@ -1181,6 +1179,10 @@ static void zs_console_write(struct console *co, const char *s,
 	if (txint & TxINT_ENAB) {
 		zport->regs[1] |= TxINT_ENAB;
 		write_zsreg(zport, R1, zport->regs[1]);
+
+		/* Resume any transmission as the TxIP bit won't be set.  */
+		if (!zport->tx_stopped)
+			zs_raw_transmit_chars(zport);
 	}
 	spin_unlock_irqrestore(&scc->zlock, flags);
 }

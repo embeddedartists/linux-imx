@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * DaVinci Key Scan Driver for TI platforms
  *
@@ -6,20 +7,6 @@
  * Author: Miguel Aguilar <miguel.aguilar@ridgerun.com>
  *
  * Initial Code: Sandeep Paulraj <s-paulraj@ti.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 #include <linux/module.h>
 #include <linux/init.h>
@@ -32,11 +19,7 @@
 #include <linux/errno.h>
 #include <linux/slab.h>
 
-#include <asm/irq.h>
-
-#include <mach/hardware.h>
-#include <mach/irqs.h>
-#include <mach/keyscan.h>
+#include <linux/platform_data/keyscan-davinci.h>
 
 /* Key scan registers */
 #define DAVINCI_KEYSCAN_KEYCTRL		0x0000
@@ -172,7 +155,7 @@ static int __init davinci_ks_probe(struct platform_device *pdev)
 	struct input_dev *key_dev;
 	struct resource *res, *mem;
 	struct device *dev = &pdev->dev;
-	struct davinci_ks_platform_data *pdata = pdev->dev.platform_data;
+	struct davinci_ks_platform_data *pdata = dev_get_platdata(dev);
 	int error, i;
 
 	if (pdata->device_enable) {
@@ -209,7 +192,6 @@ static int __init davinci_ks_probe(struct platform_device *pdev)
 
 	davinci_ks->irq = platform_get_irq(pdev, 0);
 	if (davinci_ks->irq < 0) {
-		dev_err(dev, "no key scan irq\n");
 		error = davinci_ks->irq;
 		goto fail2;
 	}
@@ -255,7 +237,7 @@ static int __init davinci_ks_probe(struct platform_device *pdev)
 
 	key_dev->name = "davinci_keyscan";
 	key_dev->phys = "davinci_keyscan/input0";
-	key_dev->dev.parent = &pdev->dev;
+	key_dev->dev.parent = dev;
 	key_dev->id.bustype = BUS_HOST;
 	key_dev->id.vendor = 0x0001;
 	key_dev->id.product = 0x0001;
@@ -303,7 +285,7 @@ fail1:
 	return error;
 }
 
-static int __devexit davinci_ks_remove(struct platform_device *pdev)
+static int davinci_ks_remove(struct platform_device *pdev)
 {
 	struct davinci_ks *davinci_ks = platform_get_drvdata(pdev);
 
@@ -314,8 +296,6 @@ static int __devexit davinci_ks_remove(struct platform_device *pdev)
 	iounmap(davinci_ks->base);
 	release_mem_region(davinci_ks->pbase, davinci_ks->base_size);
 
-	platform_set_drvdata(pdev, NULL);
-
 	kfree(davinci_ks);
 
 	return 0;
@@ -324,22 +304,11 @@ static int __devexit davinci_ks_remove(struct platform_device *pdev)
 static struct platform_driver davinci_ks_driver = {
 	.driver	= {
 		.name = "davinci_keyscan",
-		.owner = THIS_MODULE,
 	},
-	.remove	= __devexit_p(davinci_ks_remove),
+	.remove	= davinci_ks_remove,
 };
 
-static int __init davinci_ks_init(void)
-{
-	return platform_driver_probe(&davinci_ks_driver, davinci_ks_probe);
-}
-module_init(davinci_ks_init);
-
-static void __exit davinci_ks_exit(void)
-{
-	platform_driver_unregister(&davinci_ks_driver);
-}
-module_exit(davinci_ks_exit);
+module_platform_driver_probe(davinci_ks_driver, davinci_ks_probe);
 
 MODULE_AUTHOR("Miguel Aguilar");
 MODULE_DESCRIPTION("Texas Instruments DaVinci Key Scan Driver");

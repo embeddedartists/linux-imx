@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  Oki MSM6242 RTC Driver
  *
@@ -6,6 +7,8 @@
  *  Based on the A2000 TOD code in arch/m68k/amiga/config.c
  *  Copyright (C) 1993 Hamish Macdonald
  */
+
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/delay.h>
 #include <linux/io.h>
@@ -85,39 +88,27 @@ static inline void msm6242_write(struct msm6242_priv *priv, unsigned int val,
 	__raw_writel(val, &priv->regs[reg]);
 }
 
-static inline void msm6242_set(struct msm6242_priv *priv, unsigned int val,
-			       unsigned int reg)
-{
-	msm6242_write(priv, msm6242_read(priv, reg) | val, reg);
-}
-
-static inline void msm6242_clear(struct msm6242_priv *priv, unsigned int val,
-				 unsigned int reg)
-{
-	msm6242_write(priv, msm6242_read(priv, reg) & ~val, reg);
-}
-
 static void msm6242_lock(struct msm6242_priv *priv)
 {
 	int cnt = 5;
 
-	msm6242_set(priv, MSM6242_CD_HOLD, MSM6242_CD);
+	msm6242_write(priv, MSM6242_CD_HOLD|MSM6242_CD_IRQ_FLAG, MSM6242_CD);
 
 	while ((msm6242_read(priv, MSM6242_CD) & MSM6242_CD_BUSY) && cnt) {
-		msm6242_clear(priv, MSM6242_CD_HOLD, MSM6242_CD);
+		msm6242_write(priv, MSM6242_CD_IRQ_FLAG, MSM6242_CD);
 		udelay(70);
-		msm6242_set(priv, MSM6242_CD_HOLD, MSM6242_CD);
+		msm6242_write(priv, MSM6242_CD_HOLD|MSM6242_CD_IRQ_FLAG, MSM6242_CD);
 		cnt--;
 	}
 
 	if (!cnt)
-		pr_warning("msm6242: timed out waiting for RTC (0x%x)\n",
-			   msm6242_read(priv, MSM6242_CD));
+		pr_warn("timed out waiting for RTC (0x%x)\n",
+			msm6242_read(priv, MSM6242_CD));
 }
 
 static void msm6242_unlock(struct msm6242_priv *priv)
 {
-	msm6242_clear(priv, MSM6242_CD_HOLD, MSM6242_CD);
+	msm6242_write(priv, MSM6242_CD_IRQ_FLAG, MSM6242_CD);
 }
 
 static int msm6242_read_time(struct device *dev, struct rtc_time *tm)
@@ -130,7 +121,8 @@ static int msm6242_read_time(struct device *dev, struct rtc_time *tm)
 		      msm6242_read(priv, MSM6242_SECOND1);
 	tm->tm_min  = msm6242_read(priv, MSM6242_MINUTE10) * 10 +
 		      msm6242_read(priv, MSM6242_MINUTE1);
-	tm->tm_hour = (msm6242_read(priv, MSM6242_HOUR10 & 3)) * 10 +
+	tm->tm_hour = (msm6242_read(priv, MSM6242_HOUR10) &
+		       MSM6242_HOUR10_HR_MASK) * 10 +
 		      msm6242_read(priv, MSM6242_HOUR1);
 	tm->tm_mday = msm6242_read(priv, MSM6242_DAY10) * 10 +
 		      msm6242_read(priv, MSM6242_DAY1);
@@ -153,7 +145,7 @@ static int msm6242_read_time(struct device *dev, struct rtc_time *tm)
 
 	msm6242_unlock(priv);
 
-	return rtc_valid_tm(tm);
+	return 0;
 }
 
 static int msm6242_set_time(struct device *dev, struct rtc_time *tm)
@@ -194,76 +186,41 @@ static const struct rtc_class_ops msm6242_rtc_ops = {
 	.set_time	= msm6242_set_time,
 };
 
-static int __init msm6242_rtc_probe(struct platform_device *dev)
+static int __init msm6242_rtc_probe(struct platform_device *pdev)
 {
 	struct resource *res;
 	struct msm6242_priv *priv;
 	struct rtc_device *rtc;
-	int error;
 
-	res = platform_get_resource(dev, IORESOURCE_MEM, 0);
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res)
 		return -ENODEV;
 
-	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
+	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv)
 		return -ENOMEM;
 
-	priv->regs = ioremap(res->start, resource_size(res));
-	if (!priv->regs) {
-		error = -ENOMEM;
-		goto out_free_priv;
-	}
-	platform_set_drvdata(dev, priv);
+	priv->regs = devm_ioremap(&pdev->dev, res->start, resource_size(res));
+	if (!priv->regs)
+		return -ENOMEM;
+	platform_set_drvdata(pdev, priv);
 
-	rtc = rtc_device_register("rtc-msm6242", &dev->dev, &msm6242_rtc_ops,
-				  THIS_MODULE);
-	if (IS_ERR(rtc)) {
-		error = PTR_ERR(rtc);
-		goto out_unmap;
-	}
+	rtc = devm_rtc_device_register(&pdev->dev, "rtc-msm6242",
+				&msm6242_rtc_ops, THIS_MODULE);
+	if (IS_ERR(rtc))
+		return PTR_ERR(rtc);
 
 	priv->rtc = rtc;
-	return 0;
-
-out_unmap:
-	platform_set_drvdata(dev, NULL);
-	iounmap(priv->regs);
-out_free_priv:
-	kfree(priv);
-	return error;
-}
-
-static int __exit msm6242_rtc_remove(struct platform_device *dev)
-{
-	struct msm6242_priv *priv = platform_get_drvdata(dev);
-
-	rtc_device_unregister(priv->rtc);
-	iounmap(priv->regs);
-	kfree(priv);
 	return 0;
 }
 
 static struct platform_driver msm6242_rtc_driver = {
 	.driver	= {
 		.name	= "rtc-msm6242",
-		.owner	= THIS_MODULE,
 	},
-	.remove	= __exit_p(msm6242_rtc_remove),
 };
 
-static int __init msm6242_rtc_init(void)
-{
-	return platform_driver_probe(&msm6242_rtc_driver, msm6242_rtc_probe);
-}
-
-static void __exit msm6242_rtc_fini(void)
-{
-	platform_driver_unregister(&msm6242_rtc_driver);
-}
-
-module_init(msm6242_rtc_init);
-module_exit(msm6242_rtc_fini);
+module_platform_driver_probe(msm6242_rtc_driver, msm6242_rtc_probe);
 
 MODULE_AUTHOR("Geert Uytterhoeven <geert@linux-m68k.org>");
 MODULE_LICENSE("GPL");

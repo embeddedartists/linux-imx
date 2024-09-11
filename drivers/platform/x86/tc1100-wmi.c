@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  HP Compaq TC1100 Tablet WMI Extras Driver
  *
@@ -5,24 +6,6 @@
  *  Copyright (C) 2004 Jamey Hicks <jamey.hicks@hp.com>
  *  Copyright (C) 2001, 2002 Andy Grover <andrew.grover@intel.com>
  *  Copyright (C) 2001, 2002 Paul Diefenbaugh <paul.s.diefenbaugh@intel.com>
- *
- * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or (at
- *  your option) any later version.
- *
- *  This program is distributed in the hope that it will be useful, but
- *  WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- *  General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, write to the Free Software Foundation, Inc.,
- *  59 Temple Place, Suite 330, Boston, MA 02111-1307 USA.
- *
- * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -32,9 +15,7 @@
 #include <linux/slab.h>
 #include <linux/init.h>
 #include <linux/types.h>
-#include <acpi/acpi.h>
-#include <acpi/acpi_bus.h>
-#include <acpi/acpi_drivers.h>
+#include <linux/acpi.h>
 #include <linux/platform_device.h>
 
 #define GUID "C364AC71-36DB-495A-8494-B439D472A505"
@@ -54,7 +35,9 @@ struct tc1100_data {
 	u32 jogdial;
 };
 
+#ifdef CONFIG_PM
 static struct tc1100_data suspend_data;
+#endif
 
 /* --------------------------------------------------------------------------
 				Device Management
@@ -84,7 +67,7 @@ static int get_state(u32 *out, u8 instance)
 		tmp = 0;
 	}
 
-	if (result.length > 0 && result.pointer)
+	if (result.length > 0)
 		kfree(result.pointer);
 
 	switch (instance) {
@@ -173,7 +156,7 @@ static struct attribute *tc1100_attributes[] = {
 	NULL
 };
 
-static struct attribute_group tc1100_attribute_group = {
+static const struct attribute_group tc1100_attribute_group = {
 	.attrs	= tc1100_attributes,
 };
 
@@ -187,7 +170,7 @@ static int __init tc1100_probe(struct platform_device *device)
 }
 
 
-static int __devexit tc1100_remove(struct platform_device *device)
+static int tc1100_remove(struct platform_device *device)
 {
 	sysfs_remove_group(&device->dev.kobj, &tc1100_attribute_group);
 
@@ -236,12 +219,11 @@ static const struct dev_pm_ops tc1100_pm_ops = {
 static struct platform_driver tc1100_driver = {
 	.driver = {
 		.name = "tc1100-wmi",
-		.owner = THIS_MODULE,
 #ifdef CONFIG_PM
 		.pm = &tc1100_pm_ops,
 #endif
 	},
-	.remove = __devexit_p(tc1100_remove),
+	.remove = tc1100_remove,
 };
 
 static int __init tc1100_init(void)

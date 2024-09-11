@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _M68K_DELAY_H
 #define _M68K_DELAY_H
 
@@ -43,13 +44,11 @@ static inline void __delay(unsigned long loops)
 extern void __bad_udelay(void);
 
 
-#if defined(CONFIG_M68000) || defined(CONFIG_COLDFIRE)
+#ifdef CONFIG_CPU_HAS_NO_MULDIV64
 /*
  * The simpler m68k and ColdFire processors do not have a 32*32->64
  * multiply instruction. So we need to handle them a little differently.
  * We use a bit of shifting and a single 32*32->32 multiply to get close.
- * This is a macro so that the const version can factor out the first
- * multiply and shift.
  */
 #define	HZSCALE		(268435456 / (1000000 / HZ))
 
@@ -92,5 +91,35 @@ static inline void __udelay(unsigned long usecs)
 #define udelay(n) (__builtin_constant_p(n) ? \
 	((n) > 20000 ? __bad_udelay() : __const_udelay(n)) : __udelay(n))
 
+/*
+ * nanosecond delay:
+ *
+ * ((((HZSCALE) >> 11) * (loops_per_jiffy >> 11)) >> 6) is the number of loops
+ * per microsecond
+ *
+ * 1000 / ((((HZSCALE) >> 11) * (loops_per_jiffy >> 11)) >> 6) is the number of
+ * nanoseconds per loop
+ *
+ * So n / ( 1000 / ((((HZSCALE) >> 11) * (loops_per_jiffy >> 11)) >> 6) ) would
+ * be the number of loops for n nanoseconds
+ */
+
+/*
+ * The simpler m68k and ColdFire processors do not have a 32*32->64
+ * multiply instruction. So we need to handle them a little differently.
+ * We use a bit of shifting and a single 32*32->32 multiply to get close.
+ * This is a macro so that the const version can factor out the first
+ * multiply and shift.
+ */
+#define	HZSCALE		(268435456 / (1000000 / HZ))
+
+static inline void ndelay(unsigned long nsec)
+{
+	__delay(DIV_ROUND_UP(nsec *
+			     ((((HZSCALE) >> 11) *
+			       (loops_per_jiffy >> 11)) >> 6),
+			     1000));
+}
+#define ndelay(n) ndelay(n)
 
 #endif /* defined(_M68K_DELAY_H) */

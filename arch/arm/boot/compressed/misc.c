@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * misc.c
  * 
@@ -21,11 +22,11 @@ unsigned int __machine_arch_type;
 #include <linux/compiler.h>	/* for inline */
 #include <linux/types.h>
 #include <linux/linkage.h>
+#include "misc.h"
 
 static void putstr(const char *ptr);
-extern void error(char *x);
 
-#include <mach/uncompress.h>
+#include CONFIG_UNCOMPRESS_INCLUDE
 
 #ifdef CONFIG_DEBUG_ICEDCC
 
@@ -127,6 +128,13 @@ asmlinkage void __div0(void)
 	error("Attempting division by 0!");
 }
 
+const unsigned long __stack_chk_guard = 0x000a0dff;
+
+void __stack_chk_fail(void)
+{
+	error("stack-protector: Kernel stack is corrupted\n");
+}
+
 extern int do_decompress(u8 *input, int len, u8 *output, void (*error)(char *x));
 
 
@@ -151,4 +159,9 @@ decompress_kernel(unsigned long output_start, unsigned long free_mem_ptr_p,
 		error("decompressor returned an error");
 	else
 		putstr(" done, booting the kernel.\n");
+}
+
+void fortify_panic(const char *name)
+{
+	error("detected buffer overflow");
 }

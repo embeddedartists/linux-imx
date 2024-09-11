@@ -1,13 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Driver for the Cirrus EP93xx matrix keypad controller.
  *
  * Copyright (c) 2008 H Hartley Sweeten <hsweeten@visionengravers.com>
  *
  * Based on the pxa27x matrix keypad controller by Rodolfo Giometti.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  *
  * NOTE:
  *
@@ -27,9 +24,8 @@
 #include <linux/io.h>
 #include <linux/input/matrix_keypad.h>
 #include <linux/slab.h>
-
-#include <mach/hardware.h>
-#include <mach/ep93xx_keypad.h>
+#include <linux/soc/cirrus/ep93xx.h>
+#include <linux/platform_data/keypad-ep93xx.h>
 
 /*
  * Keypad Interface Register offsets
@@ -137,10 +133,7 @@ static void ep93xx_keypad_config(struct ep93xx_keypad *keypad)
 	struct ep93xx_keypad_platform_data *pdata = keypad->pdata;
 	unsigned int val = 0;
 
-	if (pdata->flags & EP93XX_KEYPAD_KDIV)
-		clk_set_rate(keypad->clk, EP93XX_KEYTCHCLK_DIV4);
-	else
-		clk_set_rate(keypad->clk, EP93XX_KEYTCHCLK_DIV16);
+	clk_set_rate(keypad->clk, pdata->clk_rate);
 
 	if (pdata->flags & EP93XX_KEYPAD_DISABLE_3_KEY)
 		val |= KEY_INIT_DIS3KY;
@@ -164,7 +157,7 @@ static int ep93xx_keypad_open(struct input_dev *pdev)
 
 	if (!keypad->enabled) {
 		ep93xx_keypad_config(keypad);
-		clk_enable(keypad->clk);
+		clk_prepare_enable(keypad->clk);
 		keypad->enabled = true;
 	}
 
@@ -176,22 +169,16 @@ static void ep93xx_keypad_close(struct input_dev *pdev)
 	struct ep93xx_keypad *keypad = input_get_drvdata(pdev);
 
 	if (keypad->enabled) {
-		clk_disable(keypad->clk);
+		clk_disable_unprepare(keypad->clk);
 		keypad->enabled = false;
 	}
 }
 
 
-#ifdef CONFIG_PM
-/*
- * NOTE: I don't know if this is correct, or will work on the ep93xx.
- *
- * None of the existing ep93xx drivers have power management support.
- * But, this is basically what the pxa27x_keypad driver does.
- */
-static int ep93xx_keypad_suspend(struct platform_device *pdev,
-				 pm_message_t state)
+#ifdef CONFIG_PM_SLEEP
+static int ep93xx_keypad_suspend(struct device *dev)
 {
+	struct platform_device *pdev = to_platform_device(dev);
 	struct ep93xx_keypad *keypad = platform_get_drvdata(pdev);
 	struct input_dev *input_dev = keypad->input_dev;
 
@@ -210,8 +197,9 @@ static int ep93xx_keypad_suspend(struct platform_device *pdev,
 	return 0;
 }
 
-static int ep93xx_keypad_resume(struct platform_device *pdev)
+static int ep93xx_keypad_resume(struct device *dev)
 {
+	struct platform_device *pdev = to_platform_device(dev);
 	struct ep93xx_keypad *keypad = platform_get_drvdata(pdev);
 	struct input_dev *input_dev = keypad->input_dev;
 
@@ -220,7 +208,7 @@ static int ep93xx_keypad_resume(struct platform_device *pdev)
 
 	mutex_lock(&input_dev->mutex);
 
-	if (input_dev->users) {
+	if (input_device_enabled(input_dev)) {
 		if (!keypad->enabled) {
 			ep93xx_keypad_config(keypad);
 			clk_enable(keypad->clk);
@@ -232,12 +220,12 @@ static int ep93xx_keypad_resume(struct platform_device *pdev)
 
 	return 0;
 }
-#else	/* !CONFIG_PM */
-#define ep93xx_keypad_suspend	NULL
-#define ep93xx_keypad_resume	NULL
-#endif	/* !CONFIG_PM */
+#endif
 
-static int __devinit ep93xx_keypad_probe(struct platform_device *pdev)
+static SIMPLE_DEV_PM_OPS(ep93xx_keypad_pm_ops,
+			 ep93xx_keypad_suspend, ep93xx_keypad_resume);
+
+static int ep93xx_keypad_probe(struct platform_device *pdev)
 {
 	struct ep93xx_keypad *keypad;
 	const struct matrix_keymap_data *keymap_data;
@@ -249,7 +237,7 @@ static int __devinit ep93xx_keypad_probe(struct platform_device *pdev)
 	if (!keypad)
 		return -ENOMEM;
 
-	keypad->pdata = pdev->dev.platform_data;
+	keypad->pdata = dev_get_platdata(&pdev->dev);
 	if (!keypad->pdata) {
 		err = -EINVAL;
 		goto failed_free;
@@ -262,8 +250,8 @@ static int __devinit ep93xx_keypad_probe(struct platform_device *pdev)
 	}
 
 	keypad->irq = platform_get_irq(pdev, 0);
-	if (!keypad->irq) {
-		err = -ENXIO;
+	if (keypad->irq < 0) {
+		err = keypad->irq;
 		goto failed_free;
 	}
 
@@ -308,19 +296,16 @@ static int __devinit ep93xx_keypad_probe(struct platform_device *pdev)
 	input_dev->open = ep93xx_keypad_open;
 	input_dev->close = ep93xx_keypad_close;
 	input_dev->dev.parent = &pdev->dev;
-	input_dev->keycode = keypad->keycodes;
-	input_dev->keycodesize = sizeof(keypad->keycodes[0]);
-	input_dev->keycodemax = ARRAY_SIZE(keypad->keycodes);
 
-	input_set_drvdata(input_dev, keypad);
+	err = matrix_keypad_build_keymap(keymap_data, NULL,
+					 EP93XX_MATRIX_ROWS, EP93XX_MATRIX_COLS,
+					 keypad->keycodes, input_dev);
+	if (err)
+		goto failed_free_dev;
 
-	input_dev->evbit[0] = BIT_MASK(EV_KEY);
 	if (keypad->pdata->flags & EP93XX_KEYPAD_AUTOREPEAT)
-		input_dev->evbit[0] |= BIT_MASK(EV_REP);
-
-	matrix_keypad_build_keymap(keymap_data, 3,
-				   input_dev->keycode, input_dev->keybit);
-	platform_set_drvdata(pdev, keypad);
+		__set_bit(EV_REP, input_dev->evbit);
+	input_set_drvdata(input_dev, keypad);
 
 	err = request_irq(keypad->irq, ep93xx_keypad_irq_handler,
 			  0, pdev->name, keypad);
@@ -331,13 +316,13 @@ static int __devinit ep93xx_keypad_probe(struct platform_device *pdev)
 	if (err)
 		goto failed_free_irq;
 
+	platform_set_drvdata(pdev, keypad);
 	device_init_wakeup(&pdev->dev, 1);
 
 	return 0;
 
 failed_free_irq:
-	free_irq(keypad->irq, pdev);
-	platform_set_drvdata(pdev, NULL);
+	free_irq(keypad->irq, keypad);
 failed_free_dev:
 	input_free_device(input_dev);
 failed_put_clk:
@@ -353,14 +338,12 @@ failed_free:
 	return err;
 }
 
-static int __devexit ep93xx_keypad_remove(struct platform_device *pdev)
+static int ep93xx_keypad_remove(struct platform_device *pdev)
 {
 	struct ep93xx_keypad *keypad = platform_get_drvdata(pdev);
 	struct resource *res;
 
-	free_irq(keypad->irq, pdev);
-
-	platform_set_drvdata(pdev, NULL);
+	free_irq(keypad->irq, keypad);
 
 	if (keypad->enabled)
 		clk_disable(keypad->clk);
@@ -383,12 +366,10 @@ static int __devexit ep93xx_keypad_remove(struct platform_device *pdev)
 static struct platform_driver ep93xx_keypad_driver = {
 	.driver		= {
 		.name	= "ep93xx-keypad",
-		.owner	= THIS_MODULE,
+		.pm	= &ep93xx_keypad_pm_ops,
 	},
 	.probe		= ep93xx_keypad_probe,
-	.remove		= __devexit_p(ep93xx_keypad_remove),
-	.suspend	= ep93xx_keypad_suspend,
-	.resume		= ep93xx_keypad_resume,
+	.remove		= ep93xx_keypad_remove,
 };
 module_platform_driver(ep93xx_keypad_driver);
 

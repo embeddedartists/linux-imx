@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Lock-less NULL terminated single linked list
  *
@@ -8,26 +9,11 @@
  *
  * Copyright 2010,2011 Intel Corp.
  *   Author: Huang Ying <ying.huang@intel.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License version
- * 2 as published by the Free Software Foundation;
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 #include <linux/kernel.h>
-#include <linux/module.h>
-#include <linux/interrupt.h>
+#include <linux/export.h>
 #include <linux/llist.h>
 
-#include <asm/system.h>
 
 /**
  * llist_add_batch - add several linked entries in batch
@@ -40,18 +26,13 @@
 bool llist_add_batch(struct llist_node *new_first, struct llist_node *new_last,
 		     struct llist_head *head)
 {
-	struct llist_node *entry, *old_entry;
+	struct llist_node *first;
 
-	entry = head->first;
-	for (;;) {
-		old_entry = entry;
-		new_last->next = entry;
-		entry = cmpxchg(&head->first, old_entry, new_first);
-		if (entry == old_entry)
-			break;
-	}
+	do {
+		new_last->next = first = READ_ONCE(head->first);
+	} while (cmpxchg(&head->first, first, new_first) != first);
 
-	return old_entry == NULL;
+	return !first;
 }
 EXPORT_SYMBOL_GPL(llist_add_batch);
 
@@ -73,12 +54,12 @@ struct llist_node *llist_del_first(struct llist_head *head)
 {
 	struct llist_node *entry, *old_entry, *next;
 
-	entry = head->first;
+	entry = smp_load_acquire(&head->first);
 	for (;;) {
 		if (entry == NULL)
 			return NULL;
 		old_entry = entry;
-		next = entry->next;
+		next = READ_ONCE(entry->next);
 		entry = cmpxchg(&head->first, old_entry, next);
 		if (entry == old_entry)
 			break;
@@ -87,3 +68,25 @@ struct llist_node *llist_del_first(struct llist_head *head)
 	return entry;
 }
 EXPORT_SYMBOL_GPL(llist_del_first);
+
+/**
+ * llist_reverse_order - reverse order of a llist chain
+ * @head:	first item of the list to be reversed
+ *
+ * Reverse the order of a chain of llist entries and return the
+ * new first entry.
+ */
+struct llist_node *llist_reverse_order(struct llist_node *head)
+{
+	struct llist_node *new_head = NULL;
+
+	while (head) {
+		struct llist_node *tmp = head;
+		head = head->next;
+		tmp->next = new_head;
+		new_head = tmp;
+	}
+
+	return new_head;
+}
+EXPORT_SYMBOL_GPL(llist_reverse_order);

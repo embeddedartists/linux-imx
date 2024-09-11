@@ -16,8 +16,9 @@
 #include <linux/mutex.h>
 #include <linux/fs.h>
 #include <linux/highmem.h>
-#include <asm/pgtable.h>
+#include <linux/pagemap.h>
 #include <asm/mmu_context.h>
+#include <asm/cache_insns.h>
 #include <asm/cacheflush.h>
 
 /*
@@ -111,7 +112,7 @@ static void sh4_flush_dcache_page(void *arg)
 	struct page *page = arg;
 	unsigned long addr = (unsigned long)page_address(page);
 #ifndef CONFIG_SMP
-	struct address_space *mapping = page_mapping(page);
+	struct address_space *mapping = page_mapping_file(page);
 
 	if (mapping && !mapping_mapped(mapping))
 		clear_bit(PG_dcache_clean, &page->flags);
@@ -132,9 +133,9 @@ static void flush_icache_all(void)
 	jump_to_uncached();
 
 	/* Flush I-cache */
-	ccr = __raw_readl(CCR);
+	ccr = __raw_readl(SH_CCR);
 	ccr |= CCR_CACHE_ICI;
-	__raw_writel(ccr, CCR);
+	__raw_writel(ccr, SH_CCR);
 
 	/*
 	 * back_to_cached() will take care of the barrier for us, don't add
@@ -182,7 +183,7 @@ static void sh4_flush_cache_all(void *unused)
  * accessed with (hence cache set) is in accord with the physical
  * address (i.e. tag).  It's no different here.
  *
- * Caller takes mm->mmap_sem.
+ * Caller takes mm->mmap_lock.
  */
 static void sh4_flush_cache_mm(void *arg)
 {
@@ -207,8 +208,6 @@ static void sh4_flush_cache_page(void *args)
 	struct page *page;
 	unsigned long address, pfn, phys;
 	int map_coherent = 0;
-	pgd_t *pgd;
-	pud_t *pud;
 	pmd_t *pmd;
 	pte_t *pte;
 	void *vaddr;
@@ -222,9 +221,7 @@ static void sh4_flush_cache_page(void *args)
 	if (cpu_context(smp_processor_id(), vma->vm_mm) == NO_CONTEXT)
 		return;
 
-	pgd = pgd_offset(vma->vm_mm, address);
-	pud = pud_offset(pgd, address);
-	pmd = pmd_offset(pud, address);
+	pmd = pmd_off(vma->vm_mm, address);
 	pte = pte_offset_kernel(pmd, address);
 
 	/* If the page isn't present, there is nothing to do here. */
@@ -240,11 +237,11 @@ static void sh4_flush_cache_page(void *args)
 		 */
 		map_coherent = (current_cpu_data.dcache.n_aliases &&
 			test_bit(PG_dcache_clean, &page->flags) &&
-			page_mapped(page));
+			page_mapcount(page));
 		if (map_coherent)
 			vaddr = kmap_coherent(page, address);
 		else
-			vaddr = kmap_atomic(page, KM_USER0);
+			vaddr = kmap_atomic(page);
 
 		address = (unsigned long)vaddr;
 	}
@@ -259,7 +256,7 @@ static void sh4_flush_cache_page(void *args)
 		if (map_coherent)
 			kunmap_coherent(vaddr);
 		else
-			kunmap_atomic(vaddr, KM_USER0);
+			kunmap_atomic(vaddr);
 	}
 }
 

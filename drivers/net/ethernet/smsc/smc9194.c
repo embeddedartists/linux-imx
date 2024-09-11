@@ -55,7 +55,7 @@
  ----------------------------------------------------------------------------*/
 
 static const char version[] =
-	"smc9194.c:v0.14 12/15/00 by Erik Stahlman (erik@vt.edu)\n";
+	"smc9194.c:v0.14 12/15/00 by Erik Stahlman (erik@vt.edu)";
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -95,14 +95,6 @@ static const char version[] =
 #define USE_32_BIT 1
 #endif
 
-#if defined(__H8300H__) || defined(__H8300S__)
-#define NO_AUTOPROBE
-#undef insl
-#undef outsl
-#define insl(a,b,l)  io_insl_noswap(a,b,l)
-#define outsl(a,b,l) io_outsl_noswap(a,b,l)
-#endif
-
 /*
  .the SMC9194 can be at any of the following port addresses.  To change,
  .for a slightly different card, you can add it to the array.  Keep in
@@ -114,12 +106,6 @@ struct devlist {
 	unsigned int irq;
 };
 
-#if defined(CONFIG_H8S_EDOSK2674)
-static struct devlist smc_devlist[] __initdata = {
-	{.port = 0xf80000, .irq = 16},
-	{.port = 0,        .irq = 0 },
-};
-#else
 static struct devlist smc_devlist[] __initdata = {
 	{.port = 0x200, .irq = 0},
 	{.port = 0x220, .irq = 0},
@@ -139,7 +125,6 @@ static struct devlist smc_devlist[] __initdata = {
 	{.port = 0x3E0, .irq = 0},
 	{.port = 0,     .irq = 0},
 };
-#endif
 /*
  . Wait time for memory to be free.  This probably shouldn't be
  . tuned that much, as waiting for this means nothing else happens
@@ -197,8 +182,8 @@ struct smc_local {
 	struct sk_buff * saved_skb;
 
 	/*
- 	 . This keeps track of how many packets that I have
- 	 . sent out.  When an TX_EMPTY interrupt comes, I know
+	 . This keeps track of how many packets that I have
+	 . sent out.  When an TX_EMPTY interrupt comes, I know
 	 . that all of these have been sent.
 	*/
 	int	packets_waiting;
@@ -231,7 +216,7 @@ static int smc_open(struct net_device *dev);
 /*
  . Our watchdog timed out. Called by the networking layer
 */
-static void smc_timeout(struct net_device *dev);
+static void smc_timeout(struct net_device *dev, unsigned int txqueue);
 
 /*
  . This is called by the kernel in response to 'ifconfig ethX down'.  It
@@ -358,7 +343,7 @@ static void smc_reset( int ioaddr )
 
 	/* Note:  It doesn't seem that waiting for the MMU busy is needed here,
 	   but this is a place where future chipsets _COULD_ break.  Be wary
- 	   of issuing another MMU command right after this */
+	   of issuing another MMU command right after this */
 
 	outb( 0, ioaddr + INT_MASK );
 }
@@ -536,9 +521,9 @@ static netdev_tx_t smc_wait_to_send_packet(struct sk_buff *skb,
 	SMC_SELECT_BANK( 2 );
 	outw( MC_ALLOC | numPages, ioaddr + MMU_CMD );
 	/*
- 	. Performance Hack
+	. Performance Hack
 	.
- 	. wait a short amount of time.. if I can send a packet now, I send
+	. wait a short amount of time.. if I can send a packet now, I send
 	. it now.  Otherwise, I enable an interrupt and wait for one to be
 	. available.
 	.
@@ -555,17 +540,17 @@ static netdev_tx_t smc_wait_to_send_packet(struct sk_buff *skb,
 		if ( status & IM_ALLOC_INT ) {
 			/* acknowledge the interrupt */
 			outb( IM_ALLOC_INT, ioaddr + INTERRUPT );
-  			break;
+			break;
 		}
-   	} while ( -- time_out );
+	} while ( -- time_out );
 
-   	if ( !time_out ) {
+	if ( !time_out ) {
 		/* oh well, wait until the chip finds memory later */
 		SMC_ENABLE_INT( IM_ALLOC_INT );
 		PRINTK2((CARDNAME": memory allocation deferred.\n"));
 		/* it's deferred, but I'll handle it later */
 		return NETDEV_TX_OK;
-   	}
+	}
 	/* or YES! I can send the packet now.. */
 	smc_hardware_send_packet(dev);
 	netif_wake_queue(dev);
@@ -612,7 +597,7 @@ static void smc_hardware_send_packet( struct net_device * dev )
 	packet_no = inb( ioaddr + PNR_ARR + 1 );
 	if ( packet_no & 0x80 ) {
 		/* or isn't there?  BAD CHIP! */
-		printk(KERN_DEBUG CARDNAME": Memory allocation failed.\n");
+		netdev_dbg(dev, CARDNAME": Memory allocation failed.\n");
 		dev_kfree_skb_any(skb);
 		lp->saved_skb = NULL;
 		netif_wake_queue(dev);
@@ -625,13 +610,13 @@ static void smc_hardware_send_packet( struct net_device * dev )
 	/* point to the beginning of the packet */
 	outw( PTR_AUTOINC , ioaddr + POINTER );
 
-   	PRINTK3((CARDNAME": Trying to xmit packet of length %x\n", length ));
+	PRINTK3((CARDNAME": Trying to xmit packet of length %x\n", length));
 #if SMC_DEBUG > 2
 	print_packet( buf, length );
 #endif
 
 	/* send the packet length ( +6 for status, length and ctl byte )
- 	   and the status word ( set to zeros ) */
+	   and the status word ( set to zeros ) */
 #ifdef USE_32_BIT
 	outl(  (length +6 ) << 16 , ioaddr + DATA_1 );
 #else
@@ -644,18 +629,14 @@ static void smc_hardware_send_packet( struct net_device * dev )
 	/* send the actual data
 	 . I _think_ it's faster to send the longs first, and then
 	 . mop up by sending the last word.  It depends heavily
- 	 . on alignment, at least on the 486.  Maybe it would be
- 	 . a good idea to check which is optimal?  But that could take
+	 . on alignment, at least on the 486.  Maybe it would be
+	 . a good idea to check which is optimal?  But that could take
 	 . almost as much time as is saved?
 	*/
 #ifdef USE_32_BIT
 	if ( length & 0x2  ) {
 		outsl(ioaddr + DATA_1, buf,  length >> 2 );
-#if !defined(__H8300H__) && !defined(__H8300S__)
 		outw( *((word *)(buf + (length & 0xFFFFFFFC))),ioaddr +DATA_1);
-#else
-		ctrl_outw( *((word *)(buf + (length & 0xFFFFFFFC))),ioaddr +DATA_1);
-#endif
 	}
 	else
 		outsl(ioaddr + DATA_1, buf,  length >> 2 );
@@ -682,7 +663,7 @@ static void smc_hardware_send_packet( struct net_device * dev )
 	lp->saved_skb = NULL;
 	dev_kfree_skb_any (skb);
 
-	dev->trans_start = jiffies;
+	netif_trans_update(dev);
 
 	/* we can send another packet */
 	netif_wake_queue(dev);
@@ -776,7 +757,7 @@ static int __init smc_findirq(int ioaddr)
 	outb( IM_ALLOC_INT, ioaddr + INT_MASK );
 
 	/*
- 	 . Allocate 512 bytes of memory.  Note that the chip was just
+	 . Allocate 512 bytes of memory.  Note that the chip was just
 	 . reset so all the memory is available
 	*/
 	outw( MC_ALLOC | 1, ioaddr + MMU_CMD );
@@ -828,7 +809,6 @@ static const struct net_device_ops smc_netdev_ops = {
 	.ndo_start_xmit    	= smc_wait_to_send_packet,
 	.ndo_tx_timeout	    	= smc_timeout,
 	.ndo_set_rx_mode	= smc_set_multicast_list,
-	.ndo_change_mtu		= eth_change_mtu,
 	.ndo_set_mac_address 	= eth_mac_addr,
 	.ndo_validate_addr	= eth_validate_addr,
 };
@@ -865,7 +845,6 @@ static const struct net_device_ops smc_netdev_ops = {
 static int __init smc_probe(struct net_device *dev, int ioaddr)
 {
 	int i, memory, retval;
-	static unsigned version_printed;
 	unsigned int bank;
 
 	const char *version_string;
@@ -892,16 +871,15 @@ static int __init smc_probe(struct net_device *dev, int ioaddr)
 		goto err_out;
 	}
 	/* The above MIGHT indicate a device, but I need to write to further
- 	 	test this.  */
+		test this.  */
 	outw( 0x0, ioaddr + BANK_SELECT );
 	bank = inw( ioaddr + BANK_SELECT );
 	if ( (bank & 0xFF00 ) != 0x3300 ) {
 		retval = -ENODEV;
 		goto err_out;
 	}
-#if !defined(CONFIG_H8S_EDOSK2674)
 	/* well, we've already written once, so hopefully another time won't
- 	   hurt.  This time, I need to switch the bank register to bank 1,
+	   hurt.  This time, I need to switch the bank register to bank 1,
 	   so I can access the base address register */
 	SMC_SELECT_BANK(1);
 	base_address_register = inw( ioaddr + BASE );
@@ -914,10 +892,6 @@ static int __init smc_probe(struct net_device *dev, int ioaddr)
 		retval = -ENODEV;
 		goto err_out;
 	}
-#else
-	(void)base_address_register; /* Warning suppression */
-#endif
-
 
 	/*  check if the revision register is something that I recognize.
 	    These might need to be added to later, as future revisions
@@ -937,14 +911,13 @@ static int __init smc_probe(struct net_device *dev, int ioaddr)
 	   It might be prudent to check a listing of MAC addresses
 	   against the hardware address, or do some other tests. */
 
-	if (version_printed++ == 0)
-		printk("%s", version);
+	pr_info_once("%s\n", version);
 
 	/* fill in some of the fields */
 	dev->base_addr = ioaddr;
 
 	/*
- 	 . Get the MAC address ( bank 1, regs 4 - 9 )
+	 . Get the MAC address ( bank 1, regs 4 - 9 )
 	*/
 	SMC_SELECT_BANK( 1 );
 	for ( i = 0; i < 6; i += 2 ) {
@@ -965,8 +938,8 @@ static int __init smc_probe(struct net_device *dev, int ioaddr)
 
 	/*
 	 Now, I want to find out more about the chip.  This is sort of
- 	 redundant, but it's cleaner to have it in both, rather than having
- 	 one VERY long probe procedure.
+	 redundant, but it's cleaner to have it in both, rather than having
+	 one VERY long probe procedure.
 	*/
 	SMC_SELECT_BANK(3);
 	revision_register  = inw( ioaddr + REVISION );
@@ -994,7 +967,7 @@ static int __init smc_probe(struct net_device *dev, int ioaddr)
 	/*
 	 . If dev->irq is 0, then the device has to be banged on to see
 	 . what the IRQ is.
- 	 .
+	 .
 	 . This banging doesn't always detect the IRQ, for unknown reasons.
 	 . a workaround is to reset the chip and try again.
 	 .
@@ -1005,7 +978,7 @@ static int __init smc_probe(struct net_device *dev, int ioaddr)
 	 .
 	 . Specifying an IRQ is done with the assumption that the user knows
 	 . what (s)he is doing.  No checking is done!!!!
- 	 .
+	 .
 	*/
 	if ( dev->irq < 2 ) {
 		int	trials;
@@ -1027,21 +1000,21 @@ static int __init smc_probe(struct net_device *dev, int ioaddr)
 
 	/* now, print out the card info, in a short format.. */
 
-	printk("%s: %s(r:%d) at %#3x IRQ:%d INTF:%s MEM:%db ", dev->name,
-		version_string, revision_register & 0xF, ioaddr, dev->irq,
-		if_string, memory );
+	netdev_info(dev, "%s(r:%d) at %#3x IRQ:%d INTF:%s MEM:%db ",
+		    version_string, revision_register & 0xF, ioaddr, dev->irq,
+		    if_string, memory);
 	/*
 	 . Print the Ethernet address
 	*/
-	printk("ADDR: %pM\n", dev->dev_addr);
+	netdev_info(dev, "ADDR: %pM\n", dev->dev_addr);
 
 	/* Grab the IRQ */
-      	retval = request_irq(dev->irq, smc_interrupt, 0, DRV_NAME, dev);
-      	if (retval) {
-		printk("%s: unable to get IRQ %d (irqval=%d).\n", DRV_NAME,
-			dev->irq, retval);
-  	  	goto err_out;
-      	}
+	retval = request_irq(dev->irq, smc_interrupt, 0, DRV_NAME, dev);
+	if (retval) {
+		netdev_warn(dev, "%s: unable to get IRQ %d (irqval=%d).\n",
+			    DRV_NAME, dev->irq, retval);
+		goto err_out;
+	}
 
 	dev->netdev_ops			= &smc_netdev_ops;
 	dev->watchdog_timeo		= HZ/20;
@@ -1057,34 +1030,8 @@ err_out:
 static void print_packet( byte * buf, int length )
 {
 #if 0
-	int i;
-	int remainder;
-	int lines;
-
-	printk("Packet of length %d\n", length);
-	lines = length / 16;
-	remainder = length % 16;
-
-	for ( i = 0; i < lines ; i ++ ) {
-		int cur;
-
-		for ( cur = 0; cur < 8; cur ++ ) {
-			byte a, b;
-
-			a = *(buf ++ );
-			b = *(buf ++ );
-			printk("%02x%02x ", a, b );
-		}
-		printk("\n");
-	}
-	for ( i = 0; i < remainder/2 ; i++ ) {
-		byte a, b;
-
-		a = *(buf ++ );
-		b = *(buf ++ );
-		printk("%02x%02x ", a, b );
-	}
-	printk("\n");
+	print_hex_dump_debug(DRV_NAME, DUMP_PREFIX_OFFSET, 16, 1,
+			     buf, length, true);
 #endif
 }
 #endif
@@ -1123,7 +1070,7 @@ static int smc_open(struct net_device *dev)
 	}
 
 	/*
-  		According to Becker, I have to set the hardware address
+		According to Becker, I have to set the hardware address
 		at this point, because the (l)user can set it with an
 		ioctl.  Easily done...
 	*/
@@ -1147,17 +1094,16 @@ static int smc_open(struct net_device *dev)
  .--------------------------------------------------------
 */
 
-static void smc_timeout(struct net_device *dev)
+static void smc_timeout(struct net_device *dev, unsigned int txqueue)
 {
 	/* If we get here, some higher level has decided we are broken.
 	   There should really be a "kick me" function call instead. */
-	printk(KERN_WARNING CARDNAME": transmit timed out, %s?\n",
-		tx_done(dev) ? "IRQ conflict" :
-		"network cable problem");
+	netdev_warn(dev, CARDNAME": transmit timed out, %s?\n",
+		    tx_done(dev) ? "IRQ conflict" : "network cable problem");
 	/* "kick" the adaptor */
 	smc_reset( dev->base_addr );
 	smc_enable( dev->base_addr );
-	dev->trans_start = jiffies; /* prevent tx timeout */
+	netif_trans_update(dev); /* prevent tx timeout */
 	/* clear anything saved */
 	((struct smc_local *)netdev_priv(dev))->saved_skb = NULL;
 	netif_wake_queue(dev);
@@ -1222,10 +1168,8 @@ static void smc_rcv(struct net_device *dev)
 		if ( status & RS_MULTICAST )
 			dev->stats.multicast++;
 
-		skb = dev_alloc_skb( packet_length + 5);
-
+		skb = netdev_alloc_skb(dev, packet_length + 5);
 		if ( skb == NULL ) {
-			printk(KERN_NOTICE CARDNAME ": Low memory, packet dropped.\n");
 			dev->stats.rx_dropped++;
 			goto done;
 		}
@@ -1325,8 +1269,7 @@ static void smc_tx( struct net_device * dev )
 	dev->stats.tx_errors++;
 	if ( tx_status & TS_LOSTCAR ) dev->stats.tx_carrier_errors++;
 	if ( tx_status & TS_LATCOL  ) {
-		printk(KERN_DEBUG CARDNAME
-			": Late collision occurred on last xmit.\n");
+		netdev_dbg(dev, CARDNAME": Late collision occurred on last xmit.\n");
 		dev->stats.tx_window_errors++;
 	}
 #if 0
@@ -1334,7 +1277,7 @@ static void smc_tx( struct net_device * dev )
 #endif
 
 	if ( tx_status & TS_SUCCESS ) {
-		printk(CARDNAME": Successful packet caused interrupt\n");
+		netdev_info(dev, CARDNAME": Successful packet caused interrupt\n");
 	}
 	/* re-enable transmit */
 	SMC_SELECT_BANK( 0 );
@@ -1558,14 +1501,14 @@ static void smc_set_multicast_list(struct net_device *dev)
 static struct net_device *devSMC9194;
 MODULE_LICENSE("GPL");
 
-module_param(io, int, 0);
-module_param(irq, int, 0);
+module_param_hw(io, int, ioport, 0);
+module_param_hw(irq, int, irq, 0);
 module_param(ifport, int, 0);
 MODULE_PARM_DESC(io, "SMC 99194 I/O base address");
 MODULE_PARM_DESC(irq, "SMC 99194 IRQ number");
 MODULE_PARM_DESC(ifport, "SMC 99194 interface port (0-default, 1-TP, 2-AUI)");
 
-int __init init_module(void)
+static int __init smc_init_module(void)
 {
 	if (io == 0)
 		printk(KERN_WARNING
@@ -1573,17 +1516,17 @@ int __init init_module(void)
 
 	/* copy the parameters from insmod into the device structure */
 	devSMC9194 = smc_init(-1);
-	if (IS_ERR(devSMC9194))
-		return PTR_ERR(devSMC9194);
-	return 0;
+	return PTR_ERR_OR_ZERO(devSMC9194);
 }
+module_init(smc_init_module);
 
-void __exit cleanup_module(void)
+static void __exit smc_cleanup_module(void)
 {
 	unregister_netdev(devSMC9194);
 	free_irq(devSMC9194->irq, devSMC9194);
 	release_region(devSMC9194->base_addr, SMC_IO_EXTENT);
 	free_netdev(devSMC9194);
 }
+module_exit(smc_cleanup_module);
 
 #endif /* MODULE */

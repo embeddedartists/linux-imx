@@ -24,27 +24,14 @@
    SOFTWARE IS DISCLAIMED.
 */
 
-#include <linux/module.h>
-
-#include <linux/types.h>
-#include <linux/capability.h>
-#include <linux/errno.h>
-#include <linux/kernel.h>
-#include <linux/poll.h>
-#include <linux/fcntl.h>
-#include <linux/skbuff.h>
-#include <linux/socket.h>
-#include <linux/ioctl.h>
+#include <linux/export.h>
 #include <linux/file.h>
-#include <linux/init.h>
-#include <linux/compat.h>
-#include <linux/gfp.h>
-#include <linux/uaccess.h>
-#include <net/sock.h>
-
-#include <asm/system.h>
 
 #include "bnep.h"
+
+static struct bt_sock_list bnep_sk_list = {
+	.lock = __RW_LOCK_UNLOCKED(bnep_sk_list.lock)
+};
 
 static int bnep_sock_release(struct socket *sock)
 {
@@ -55,27 +42,29 @@ static int bnep_sock_release(struct socket *sock)
 	if (!sk)
 		return 0;
 
+	bt_sock_unlink(&bnep_sk_list, sk);
+
 	sock_orphan(sk);
 	sock_put(sk);
 	return 0;
 }
 
-static int bnep_sock_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
+static int do_bnep_sock_ioctl(struct socket *sock, unsigned int cmd, void __user *argp)
 {
 	struct bnep_connlist_req cl;
 	struct bnep_connadd_req  ca;
 	struct bnep_conndel_req  cd;
 	struct bnep_conninfo ci;
 	struct socket *nsock;
-	void __user *argp = (void __user *)arg;
+	__u32 supp_feat = BIT(BNEP_SETUP_RESPONSE);
 	int err;
 
-	BT_DBG("cmd %x arg %lx", cmd, arg);
+	BT_DBG("cmd %x arg %p", cmd, argp);
 
 	switch (cmd) {
 	case BNEPCONNADD:
 		if (!capable(CAP_NET_ADMIN))
-			return -EACCES;
+			return -EPERM;
 
 		if (copy_from_user(&ca, argp, sizeof(ca)))
 			return -EFAULT;
@@ -101,7 +90,7 @@ static int bnep_sock_ioctl(struct socket *sock, unsigned int cmd, unsigned long 
 
 	case BNEPCONNDEL:
 		if (!capable(CAP_NET_ADMIN))
-			return -EACCES;
+			return -EPERM;
 
 		if (copy_from_user(&cd, argp, sizeof(cd)))
 			return -EFAULT;
@@ -131,6 +120,12 @@ static int bnep_sock_ioctl(struct socket *sock, unsigned int cmd, unsigned long 
 
 		return err;
 
+	case BNEPGETSUPPFEAT:
+		if (copy_to_user(argp, &supp_feat, sizeof(supp_feat)))
+			return -EFAULT;
+
+		return 0;
+
 	default:
 		return -EINVAL;
 	}
@@ -138,16 +133,22 @@ static int bnep_sock_ioctl(struct socket *sock, unsigned int cmd, unsigned long 
 	return 0;
 }
 
+static int bnep_sock_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
+{
+	return do_bnep_sock_ioctl(sock, cmd, (void __user *)arg);
+}
+
 #ifdef CONFIG_COMPAT
 static int bnep_sock_compat_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 {
+	void __user *argp = compat_ptr(arg);
 	if (cmd == BNEPGETCONNLIST) {
 		struct bnep_connlist_req cl;
-		uint32_t uci;
+		unsigned __user *p = argp;
+		u32 uci;
 		int err;
 
-		if (get_user(cl.cnum, (uint32_t __user *) arg) ||
-				get_user(uci, (u32 __user *) (arg + 4)))
+		if (get_user(cl.cnum, p) || get_user(uci, p + 1))
 			return -EFAULT;
 
 		cl.ci = compat_ptr(uci);
@@ -157,13 +158,13 @@ static int bnep_sock_compat_ioctl(struct socket *sock, unsigned int cmd, unsigne
 
 		err = bnep_get_connlist(&cl);
 
-		if (!err && put_user(cl.cnum, (uint32_t __user *) arg))
+		if (!err && put_user(cl.cnum, p))
 			err = -EFAULT;
 
 		return err;
 	}
 
-	return bnep_sock_ioctl(sock, cmd, arg);
+	return do_bnep_sock_ioctl(sock, cmd, argp);
 }
 #endif
 
@@ -179,11 +180,8 @@ static const struct proto_ops bnep_sock_ops = {
 	.getname	= sock_no_getname,
 	.sendmsg	= sock_no_sendmsg,
 	.recvmsg	= sock_no_recvmsg,
-	.poll		= sock_no_poll,
 	.listen		= sock_no_listen,
 	.shutdown	= sock_no_shutdown,
-	.setsockopt	= sock_no_setsockopt,
-	.getsockopt	= sock_no_getsockopt,
 	.connect	= sock_no_connect,
 	.socketpair	= sock_no_socketpair,
 	.accept		= sock_no_accept,
@@ -206,7 +204,7 @@ static int bnep_sock_create(struct net *net, struct socket *sock, int protocol,
 	if (sock->type != SOCK_RAW)
 		return -ESOCKTNOSUPPORT;
 
-	sk = sk_alloc(net, PF_BLUETOOTH, GFP_ATOMIC, &bnep_proto);
+	sk = sk_alloc(net, PF_BLUETOOTH, GFP_ATOMIC, &bnep_proto, kern);
 	if (!sk)
 		return -ENOMEM;
 
@@ -221,6 +219,7 @@ static int bnep_sock_create(struct net *net, struct socket *sock, int protocol,
 	sk->sk_protocol = protocol;
 	sk->sk_state	= BT_OPEN;
 
+	bt_sock_link(&bnep_sk_list, sk);
 	return 0;
 }
 
@@ -239,21 +238,30 @@ int __init bnep_sock_init(void)
 		return err;
 
 	err = bt_sock_register(BTPROTO_BNEP, &bnep_sock_family_ops);
-	if (err < 0)
+	if (err < 0) {
+		BT_ERR("Can't register BNEP socket");
 		goto error;
+	}
+
+	err = bt_procfs_init(&init_net, "bnep", &bnep_sk_list, NULL);
+	if (err < 0) {
+		BT_ERR("Failed to create BNEP proc file");
+		bt_sock_unregister(BTPROTO_BNEP);
+		goto error;
+	}
+
+	BT_INFO("BNEP socket layer initialized");
 
 	return 0;
 
 error:
-	BT_ERR("Can't register BNEP socket");
 	proto_unregister(&bnep_proto);
 	return err;
 }
 
 void __exit bnep_sock_cleanup(void)
 {
-	if (bt_sock_unregister(BTPROTO_BNEP) < 0)
-		BT_ERR("Can't unregister BNEP socket");
-
+	bt_procfs_cleanup(&init_net, "bnep");
+	bt_sock_unregister(BTPROTO_BNEP);
 	proto_unregister(&bnep_proto);
 }

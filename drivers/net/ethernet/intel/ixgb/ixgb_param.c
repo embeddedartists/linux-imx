@@ -1,30 +1,5 @@
-/*******************************************************************************
-
-  Intel PRO/10GbE Linux driver
-  Copyright(c) 1999 - 2008 Intel Corporation.
-
-  This program is free software; you can redistribute it and/or modify it
-  under the terms and conditions of the GNU General Public License,
-  version 2, as published by the Free Software Foundation.
-
-  This program is distributed in the hope it will be useful, but WITHOUT
-  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
-  more details.
-
-  You should have received a copy of the GNU General Public License along with
-  this program; if not, write to the Free Software Foundation, Inc.,
-  51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
-
-  The full GNU General Public License is included in this distribution in
-  the file called "COPYING".
-
-  Contact Information:
-  Linux NICS <linux.nics@intel.com>
-  e1000-devel Mailing List <e1000-devel@lists.sourceforge.net>
-  Intel Corporation, 5200 N.E. Elam Young Parkway, Hillsboro, OR 97124-6497
-
-*******************************************************************************/
+// SPDX-License-Identifier: GPL-2.0
+/* Copyright(c) 1999 - 2008 Intel Corporation. */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -47,7 +22,7 @@
 
 #define IXGB_PARAM_INIT { [0 ... IXGB_MAX_NIC] = OPTION_UNSET }
 #define IXGB_PARAM(X, desc)					\
-	static int __devinitdata X[IXGB_MAX_NIC+1]		\
+	static int X[IXGB_MAX_NIC+1]		\
 		= IXGB_PARAM_INIT;				\
 	static unsigned int num_##X = 0;			\
 	module_param_array_named(X, X, int, &num_##X, 0);	\
@@ -199,7 +174,7 @@ struct ixgb_option {
 	} arg;
 };
 
-static int __devinit
+static int
 ixgb_validate_option(unsigned int *value, const struct ixgb_option *opt)
 {
 	if (*value == OPTION_UNSET) {
@@ -257,7 +232,7 @@ ixgb_validate_option(unsigned int *value, const struct ixgb_option *opt)
  * in a variable in the adapter structure.
  **/
 
-void __devinit
+void
 ixgb_check_options(struct ixgb_adapter *adapter)
 {
 	int bd = adapter->bd_number;

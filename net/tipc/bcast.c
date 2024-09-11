@@ -1,7 +1,7 @@
 /*
  * net/tipc/bcast.c: TIPC broadcast code
  *
- * Copyright (c) 2004-2006, Ericsson AB
+ * Copyright (c) 2004-2006, 2014-2017, Ericsson AB
  * Copyright (c) 2004, Intel Corporation.
  * Copyright (c) 2005, 2010-2011, Wind River Systems
  * All rights reserved.
@@ -35,906 +35,830 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "core.h"
-#include "link.h"
-#include "port.h"
+#include <linux/tipc_config.h>
+#include "socket.h"
+#include "msg.h"
 #include "bcast.h"
-#include "name_distr.h"
+#include "link.h"
+#include "name_table.h"
 
-#define MAX_PKT_DEFAULT_MCAST 1500	/* bcast link max packet size (fixed) */
-
-#define BCLINK_WIN_DEFAULT 20		/* bcast link window size (default) */
-
-/**
- * struct tipc_bcbearer_pair - a pair of bearers used by broadcast link
- * @primary: pointer to primary bearer
- * @secondary: pointer to secondary bearer
- *
- * Bearers must have same priority and same set of reachable destinations
- * to be paired.
- */
-
-struct tipc_bcbearer_pair {
-	struct tipc_bearer *primary;
-	struct tipc_bearer *secondary;
-};
-
-/**
- * struct tipc_bcbearer - bearer used by broadcast link
- * @bearer: (non-standard) broadcast bearer structure
- * @media: (non-standard) broadcast media structure
- * @bpairs: array of bearer pairs
- * @bpairs_temp: temporary array of bearer pairs used by tipc_bcbearer_sort()
- * @remains: temporary node map used by tipc_bcbearer_send()
- * @remains_new: temporary node map used tipc_bcbearer_send()
- *
- * Note: The fields labelled "temporary" are incorporated into the bearer
- * to avoid consuming potentially limited stack space through the use of
- * large local variables within multicast routines.  Concurrent access is
- * prevented through use of the spinlock "bc_lock".
- */
-
-struct tipc_bcbearer {
-	struct tipc_bearer bearer;
-	struct tipc_media media;
-	struct tipc_bcbearer_pair bpairs[MAX_BEARERS];
-	struct tipc_bcbearer_pair bpairs_temp[TIPC_MAX_LINK_PRI + 1];
-	struct tipc_node_map remains;
-	struct tipc_node_map remains_new;
-};
-
-/**
- * struct tipc_bclink - link used for broadcast messages
- * @link: (non-standard) broadcast link structure
- * @node: (non-standard) node structure representing b'cast link's peer node
- * @bcast_nodes: map of broadcast-capable nodes
- * @retransmit_to: node that most recently requested a retransmit
- *
- * Handles sequence numbering, fragmentation, bundling, etc.
- */
-
-struct tipc_bclink {
-	struct tipc_link link;
-	struct tipc_node node;
-	struct tipc_node_map bcast_nodes;
-	struct tipc_node *retransmit_to;
-};
-
-static struct tipc_bcbearer bcast_bearer;
-static struct tipc_bclink bcast_link;
-
-static struct tipc_bcbearer *bcbearer = &bcast_bearer;
-static struct tipc_bclink *bclink = &bcast_link;
-static struct tipc_link *bcl = &bcast_link.link;
-
-static DEFINE_SPINLOCK(bc_lock);
+#define BCLINK_WIN_DEFAULT  50	/* bcast link window size (default) */
+#define BCLINK_WIN_MIN      32	/* bcast minimum link window size */
 
 const char tipc_bclink_name[] = "broadcast-link";
-
-static void tipc_nmap_diff(struct tipc_node_map *nm_a,
-			   struct tipc_node_map *nm_b,
-			   struct tipc_node_map *nm_diff);
-
-static u32 bcbuf_acks(struct sk_buff *buf)
-{
-	return (u32)(unsigned long)TIPC_SKB_CB(buf)->handle;
-}
-
-static void bcbuf_set_acks(struct sk_buff *buf, u32 acks)
-{
-	TIPC_SKB_CB(buf)->handle = (void *)(unsigned long)acks;
-}
-
-static void bcbuf_decr_acks(struct sk_buff *buf)
-{
-	bcbuf_set_acks(buf, bcbuf_acks(buf) - 1);
-}
-
-void tipc_bclink_add_node(u32 addr)
-{
-	spin_lock_bh(&bc_lock);
-	tipc_nmap_add(&bclink->bcast_nodes, addr);
-	spin_unlock_bh(&bc_lock);
-}
-
-void tipc_bclink_remove_node(u32 addr)
-{
-	spin_lock_bh(&bc_lock);
-	tipc_nmap_remove(&bclink->bcast_nodes, addr);
-	spin_unlock_bh(&bc_lock);
-}
-
-static void bclink_set_last_sent(void)
-{
-	if (bcl->next_out)
-		bcl->fsm_msg_cnt = mod(buf_seqno(bcl->next_out) - 1);
-	else
-		bcl->fsm_msg_cnt = mod(bcl->next_out_no - 1);
-}
-
-u32 tipc_bclink_get_last_sent(void)
-{
-	return bcl->fsm_msg_cnt;
-}
+unsigned long sysctl_tipc_bc_retruni __read_mostly;
 
 /**
- * bclink_set_gap - set gap according to contents of current deferred pkt queue
- *
- * Called with 'node' locked, bc_lock unlocked
+ * struct tipc_bc_base - base structure for keeping broadcast send state
+ * @link: broadcast send link structure
+ * @inputq: data input queue; will only carry SOCK_WAKEUP messages
+ * @dests: array keeping number of reachable destinations per bearer
+ * @primary_bearer: a bearer having links to all broadcast destinations, if any
+ * @bcast_support: indicates if primary bearer, if any, supports broadcast
+ * @force_bcast: forces broadcast for multicast traffic
+ * @rcast_support: indicates if all peer nodes support replicast
+ * @force_rcast: forces replicast for multicast traffic
+ * @rc_ratio: dest count as percentage of cluster size where send method changes
+ * @bc_threshold: calculated from rc_ratio; if dests > threshold use broadcast
  */
+struct tipc_bc_base {
+	struct tipc_link *link;
+	struct sk_buff_head inputq;
+	int dests[MAX_BEARERS];
+	int primary_bearer;
+	bool bcast_support;
+	bool force_bcast;
+	bool rcast_support;
+	bool force_rcast;
+	int rc_ratio;
+	int bc_threshold;
+};
 
-static void bclink_set_gap(struct tipc_node *n_ptr)
+static struct tipc_bc_base *tipc_bc_base(struct net *net)
 {
-	struct sk_buff *buf = n_ptr->bclink.deferred_head;
-
-	n_ptr->bclink.gap_after = n_ptr->bclink.gap_to =
-		mod(n_ptr->bclink.last_in);
-	if (unlikely(buf != NULL))
-		n_ptr->bclink.gap_to = mod(buf_seqno(buf) - 1);
+	return tipc_net(net)->bcbase;
 }
 
-/**
- * bclink_ack_allowed - test if ACK or NACK message can be sent at this moment
- *
- * This mechanism endeavours to prevent all nodes in network from trying
- * to ACK or NACK at the same time.
- *
- * Note: TIPC uses a different trigger to distribute ACKs than it does to
- *       distribute NACKs, but tries to use the same spacing (divide by 16).
+/* tipc_bcast_get_mtu(): -get the MTU currently used by broadcast link
+ * Note: the MTU is decremented to give room for a tunnel header, in
+ * case the message needs to be sent as replicast
  */
-
-static int bclink_ack_allowed(u32 n)
+int tipc_bcast_get_mtu(struct net *net)
 {
-	return (n % TIPC_MIN_LINK_WIN) == tipc_own_tag;
+	return tipc_link_mss(tipc_bc_sndlink(net));
 }
 
-
-/**
- * tipc_bclink_retransmit_to - get most recent node to request retransmission
- *
- * Called with bc_lock locked
- */
-
-struct tipc_node *tipc_bclink_retransmit_to(void)
+void tipc_bcast_toggle_rcast(struct net *net, bool supp)
 {
-	return bclink->retransmit_to;
+	tipc_bc_base(net)->rcast_support = supp;
 }
 
-/**
- * bclink_retransmit_pkt - retransmit broadcast packets
- * @after: sequence number of last packet to *not* retransmit
- * @to: sequence number of last packet to retransmit
- *
- * Called with bc_lock locked
- */
-
-static void bclink_retransmit_pkt(u32 after, u32 to)
+static void tipc_bcbase_calc_bc_threshold(struct net *net)
 {
-	struct sk_buff *buf;
+	struct tipc_bc_base *bb = tipc_bc_base(net);
+	int cluster_size = tipc_link_bc_peers(tipc_bc_sndlink(net));
 
-	buf = bcl->first_out;
-	while (buf && less_eq(buf_seqno(buf), after))
-		buf = buf->next;
-	tipc_link_retransmit(bcl, buf, mod(to - after));
+	bb->bc_threshold = 1 + (cluster_size * bb->rc_ratio / 100);
 }
 
-/**
- * tipc_bclink_acknowledge - handle acknowledgement of broadcast packets
- * @n_ptr: node that sent acknowledgement info
- * @acked: broadcast sequence # that has been acknowledged
- *
- * Node is locked, bc_lock unlocked.
+/* tipc_bcbase_select_primary(): find a bearer with links to all destinations,
+ *                               if any, and make it primary bearer
  */
-
-void tipc_bclink_acknowledge(struct tipc_node *n_ptr, u32 acked)
+static void tipc_bcbase_select_primary(struct net *net)
 {
-	struct sk_buff *crs;
-	struct sk_buff *next;
-	unsigned int released = 0;
+	struct tipc_bc_base *bb = tipc_bc_base(net);
+	int all_dests =  tipc_link_bc_peers(bb->link);
+	int max_win = tipc_link_max_win(bb->link);
+	int min_win = tipc_link_min_win(bb->link);
+	int i, mtu, prim;
 
-	spin_lock_bh(&bc_lock);
+	bb->primary_bearer = INVALID_BEARER_ID;
+	bb->bcast_support = true;
 
-	/* Bail out if tx queue is empty (no clean up is required) */
-	crs = bcl->first_out;
-	if (!crs)
-		goto exit;
+	if (!all_dests)
+		return;
 
-	/* Determine which messages need to be acknowledged */
-	if (acked == INVALID_LINK_SEQ) {
-		/*
-		 * Contact with specified node has been lost, so need to
-		 * acknowledge sent messages only (if other nodes still exist)
-		 * or both sent and unsent messages (otherwise)
-		 */
-		if (bclink->bcast_nodes.count)
-			acked = bcl->fsm_msg_cnt;
-		else
-			acked = bcl->next_out_no;
-	} else {
-		/*
-		 * Bail out if specified sequence number does not correspond
-		 * to a message that has been sent and not yet acknowledged
-		 */
-		if (less(acked, buf_seqno(crs)) ||
-		    less(bcl->fsm_msg_cnt, acked) ||
-		    less_eq(acked, n_ptr->bclink.acked))
-			goto exit;
-	}
+	for (i = 0; i < MAX_BEARERS; i++) {
+		if (!bb->dests[i])
+			continue;
 
-	/* Skip over packets that node has previously acknowledged */
-	while (crs && less_eq(buf_seqno(crs), n_ptr->bclink.acked))
-		crs = crs->next;
-
-	/* Update packets that node is now acknowledging */
-
-	while (crs && less_eq(buf_seqno(crs), acked)) {
-		next = crs->next;
-
-		if (crs != bcl->next_out)
-			bcbuf_decr_acks(crs);
-		else {
-			bcbuf_set_acks(crs, 0);
-			bcl->next_out = next;
-			bclink_set_last_sent();
+		mtu = tipc_bearer_mtu(net, i);
+		if (mtu < tipc_link_mtu(bb->link)) {
+			tipc_link_set_mtu(bb->link, mtu);
+			tipc_link_set_queue_limits(bb->link,
+						   min_win,
+						   max_win);
 		}
+		bb->bcast_support &= tipc_bearer_bcast_support(net, i);
+		if (bb->dests[i] < all_dests)
+			continue;
 
-		if (bcbuf_acks(crs) == 0) {
-			bcl->first_out = next;
-			bcl->out_queue_size--;
-			buf_discard(crs);
-			released = 1;
-		}
-		crs = next;
+		bb->primary_bearer = i;
+
+		/* Reduce risk that all nodes select same primary */
+		if ((i ^ tipc_own_addr(net)) & 1)
+			break;
 	}
-	n_ptr->bclink.acked = acked;
-
-	/* Try resolving broadcast link congestion, if necessary */
-
-	if (unlikely(bcl->next_out)) {
-		tipc_link_push_queue(bcl);
-		bclink_set_last_sent();
-	}
-	if (unlikely(released && !list_empty(&bcl->waiting_ports)))
-		tipc_link_wakeup_ports(bcl, 0);
-exit:
-	spin_unlock_bh(&bc_lock);
+	prim = bb->primary_bearer;
+	if (prim != INVALID_BEARER_ID)
+		bb->bcast_support = tipc_bearer_bcast_support(net, prim);
 }
 
-/**
- * bclink_send_ack - unicast an ACK msg
- *
- * tipc_net_lock and node lock set
- */
-
-static void bclink_send_ack(struct tipc_node *n_ptr)
+void tipc_bcast_inc_bearer_dst_cnt(struct net *net, int bearer_id)
 {
-	struct tipc_link *l_ptr = n_ptr->active_links[n_ptr->addr & 1];
+	struct tipc_bc_base *bb = tipc_bc_base(net);
 
-	if (l_ptr != NULL)
-		tipc_link_send_proto_msg(l_ptr, STATE_MSG, 0, 0, 0, 0, 0);
+	tipc_bcast_lock(net);
+	bb->dests[bearer_id]++;
+	tipc_bcbase_select_primary(net);
+	tipc_bcast_unlock(net);
 }
 
-/**
- * bclink_send_nack- broadcast a NACK msg
- *
- * tipc_net_lock and node lock set
- */
-
-static void bclink_send_nack(struct tipc_node *n_ptr)
+void tipc_bcast_dec_bearer_dst_cnt(struct net *net, int bearer_id)
 {
-	struct sk_buff *buf;
-	struct tipc_msg *msg;
+	struct tipc_bc_base *bb = tipc_bc_base(net);
 
-	if (!less(n_ptr->bclink.gap_after, n_ptr->bclink.gap_to))
+	tipc_bcast_lock(net);
+	bb->dests[bearer_id]--;
+	tipc_bcbase_select_primary(net);
+	tipc_bcast_unlock(net);
+}
+
+/* tipc_bcbase_xmit - broadcast a packet queue across one or more bearers
+ *
+ * Note that number of reachable destinations, as indicated in the dests[]
+ * array, may transitionally differ from the number of destinations indicated
+ * in each sent buffer. We can sustain this. Excess destination nodes will
+ * drop and never acknowledge the unexpected packets, and missing destinations
+ * will either require retransmission (if they are just about to be added to
+ * the bearer), or be removed from the buffer's 'ackers' counter (if they
+ * just went down)
+ */
+static void tipc_bcbase_xmit(struct net *net, struct sk_buff_head *xmitq)
+{
+	int bearer_id;
+	struct tipc_bc_base *bb = tipc_bc_base(net);
+	struct sk_buff *skb, *_skb;
+	struct sk_buff_head _xmitq;
+
+	if (skb_queue_empty(xmitq))
 		return;
 
-	buf = tipc_buf_acquire(INT_H_SIZE);
-	if (buf) {
-		msg = buf_msg(buf);
-		tipc_msg_init(msg, BCAST_PROTOCOL, STATE_MSG,
-			 INT_H_SIZE, n_ptr->addr);
-		msg_set_non_seq(msg, 1);
-		msg_set_mc_netid(msg, tipc_net_id);
-		msg_set_bcast_ack(msg, mod(n_ptr->bclink.last_in));
-		msg_set_bcgap_after(msg, n_ptr->bclink.gap_after);
-		msg_set_bcgap_to(msg, n_ptr->bclink.gap_to);
-		msg_set_bcast_tag(msg, tipc_own_tag);
-
-		tipc_bearer_send(&bcbearer->bearer, buf, NULL);
-		bcl->stats.sent_nacks++;
-		buf_discard(buf);
-
-		/*
-		 * Ensure we doesn't send another NACK msg to the node
-		 * until 16 more deferred messages arrive from it
-		 * (i.e. helps prevent all nodes from NACK'ing at same time)
-		 */
-
-		n_ptr->bclink.nack_sync = tipc_own_tag;
+	/* The typical case: at least one bearer has links to all nodes */
+	bearer_id = bb->primary_bearer;
+	if (bearer_id >= 0) {
+		tipc_bearer_bc_xmit(net, bearer_id, xmitq);
+		return;
 	}
-}
 
-/**
- * tipc_bclink_check_gap - send a NACK if a sequence gap exists
- *
- * tipc_net_lock and node lock set
- */
+	/* We have to transmit across all bearers */
+	__skb_queue_head_init(&_xmitq);
+	for (bearer_id = 0; bearer_id < MAX_BEARERS; bearer_id++) {
+		if (!bb->dests[bearer_id])
+			continue;
 
-void tipc_bclink_check_gap(struct tipc_node *n_ptr, u32 last_sent)
-{
-	if (!n_ptr->bclink.supported ||
-	    less_eq(last_sent, mod(n_ptr->bclink.last_in)))
-		return;
-
-	bclink_set_gap(n_ptr);
-	if (n_ptr->bclink.gap_after == n_ptr->bclink.gap_to)
-		n_ptr->bclink.gap_to = last_sent;
-	bclink_send_nack(n_ptr);
-}
-
-/**
- * tipc_bclink_peek_nack - process a NACK msg meant for another node
- *
- * Only tipc_net_lock set.
- */
-
-static void tipc_bclink_peek_nack(u32 dest, u32 sender_tag, u32 gap_after, u32 gap_to)
-{
-	struct tipc_node *n_ptr = tipc_node_find(dest);
-	u32 my_after, my_to;
-
-	if (unlikely(!n_ptr || !tipc_node_is_up(n_ptr)))
-		return;
-	tipc_node_lock(n_ptr);
-	/*
-	 * Modify gap to suppress unnecessary NACKs from this node
-	 */
-	my_after = n_ptr->bclink.gap_after;
-	my_to = n_ptr->bclink.gap_to;
-
-	if (less_eq(gap_after, my_after)) {
-		if (less(my_after, gap_to) && less(gap_to, my_to))
-			n_ptr->bclink.gap_after = gap_to;
-		else if (less_eq(my_to, gap_to))
-			n_ptr->bclink.gap_to = n_ptr->bclink.gap_after;
-	} else if (less_eq(gap_after, my_to)) {
-		if (less_eq(my_to, gap_to))
-			n_ptr->bclink.gap_to = gap_after;
-	} else {
-		/*
-		 * Expand gap if missing bufs not in deferred queue:
-		 */
-		struct sk_buff *buf = n_ptr->bclink.deferred_head;
-		u32 prev = n_ptr->bclink.gap_to;
-
-		for (; buf; buf = buf->next) {
-			u32 seqno = buf_seqno(buf);
-
-			if (mod(seqno - prev) != 1) {
-				buf = NULL;
+		skb_queue_walk(xmitq, skb) {
+			_skb = pskb_copy_for_clone(skb, GFP_ATOMIC);
+			if (!_skb)
 				break;
-			}
-			if (seqno == gap_after)
-				break;
-			prev = seqno;
+			__skb_queue_tail(&_xmitq, _skb);
 		}
-		if (buf == NULL)
-			n_ptr->bclink.gap_to = gap_after;
+		tipc_bearer_bc_xmit(net, bearer_id, &_xmitq);
 	}
-	/*
-	 * Some nodes may send a complementary NACK now:
-	 */
-	if (bclink_ack_allowed(sender_tag + 1)) {
-		if (n_ptr->bclink.gap_to != n_ptr->bclink.gap_after) {
-			bclink_send_nack(n_ptr);
-			bclink_set_gap(n_ptr);
-		}
-	}
-	tipc_node_unlock(n_ptr);
+	__skb_queue_purge(xmitq);
+	__skb_queue_purge(&_xmitq);
 }
 
-/**
- * tipc_bclink_send_msg - broadcast a packet to all nodes in cluster
+static void tipc_bcast_select_xmit_method(struct net *net, int dests,
+					  struct tipc_mc_method *method)
+{
+	struct tipc_bc_base *bb = tipc_bc_base(net);
+	unsigned long exp = method->expires;
+
+	/* Broadcast supported by used bearer/bearers? */
+	if (!bb->bcast_support) {
+		method->rcast = true;
+		return;
+	}
+	/* Any destinations which don't support replicast ? */
+	if (!bb->rcast_support) {
+		method->rcast = false;
+		return;
+	}
+	/* Can current method be changed ? */
+	method->expires = jiffies + TIPC_METHOD_EXPIRE;
+	if (method->mandatory)
+		return;
+
+	if (!(tipc_net(net)->capabilities & TIPC_MCAST_RBCTL) &&
+	    time_before(jiffies, exp))
+		return;
+
+	/* Configuration as force 'broadcast' method */
+	if (bb->force_bcast) {
+		method->rcast = false;
+		return;
+	}
+	/* Configuration as force 'replicast' method */
+	if (bb->force_rcast) {
+		method->rcast = true;
+		return;
+	}
+	/* Configuration as 'autoselect' or default method */
+	/* Determine method to use now */
+	method->rcast = dests <= bb->bc_threshold;
+}
+
+/* tipc_bcast_xmit - broadcast the buffer chain to all external nodes
+ * @net: the applicable net namespace
+ * @pkts: chain of buffers containing message
+ * @cong_link_cnt: set to 1 if broadcast link is congested, otherwise 0
+ * Consumes the buffer chain.
+ * Returns 0 if success, otherwise errno: -EHOSTUNREACH,-EMSGSIZE
  */
-
-int tipc_bclink_send_msg(struct sk_buff *buf)
+int tipc_bcast_xmit(struct net *net, struct sk_buff_head *pkts,
+		    u16 *cong_link_cnt)
 {
-	int res;
+	struct tipc_link *l = tipc_bc_sndlink(net);
+	struct sk_buff_head xmitq;
+	int rc = 0;
 
-	spin_lock_bh(&bc_lock);
-
-	if (!bclink->bcast_nodes.count) {
-		res = msg_data_sz(buf_msg(buf));
-		buf_discard(buf);
-		goto exit;
+	__skb_queue_head_init(&xmitq);
+	tipc_bcast_lock(net);
+	if (tipc_link_bc_peers(l))
+		rc = tipc_link_xmit(l, pkts, &xmitq);
+	tipc_bcast_unlock(net);
+	tipc_bcbase_xmit(net, &xmitq);
+	__skb_queue_purge(pkts);
+	if (rc == -ELINKCONG) {
+		*cong_link_cnt = 1;
+		rc = 0;
 	}
-
-	res = tipc_link_send_buf(bcl, buf);
-	if (likely(res >= 0)) {
-		bclink_set_last_sent();
-		bcl->stats.queue_sz_counts++;
-		bcl->stats.accu_queue_sz += bcl->out_queue_size;
-	}
-exit:
-	spin_unlock_bh(&bc_lock);
-	return res;
+	return rc;
 }
 
-/**
- * tipc_bclink_recv_pkt - receive a broadcast packet, and deliver upwards
- *
- * tipc_net_lock is read_locked, no other locks set
+/* tipc_rcast_xmit - replicate and send a message to given destination nodes
+ * @net: the applicable net namespace
+ * @pkts: chain of buffers containing message
+ * @dests: list of destination nodes
+ * @cong_link_cnt: returns number of congested links
+ * @cong_links: returns identities of congested links
+ * Returns 0 if success, otherwise errno
  */
-
-void tipc_bclink_recv_pkt(struct sk_buff *buf)
+static int tipc_rcast_xmit(struct net *net, struct sk_buff_head *pkts,
+			   struct tipc_nlist *dests, u16 *cong_link_cnt)
 {
-	struct tipc_msg *msg = buf_msg(buf);
-	struct tipc_node *node;
-	u32 next_in;
-	u32 seqno;
-	struct sk_buff *deferred;
+	struct tipc_dest *dst, *tmp;
+	struct sk_buff_head _pkts;
+	u32 dnode, selector;
 
-	/* Screen out unwanted broadcast messages */
+	selector = msg_link_selector(buf_msg(skb_peek(pkts)));
+	__skb_queue_head_init(&_pkts);
 
-	if (msg_mc_netid(msg) != tipc_net_id)
-		goto exit;
+	list_for_each_entry_safe(dst, tmp, &dests->list, list) {
+		dnode = dst->node;
+		if (!tipc_msg_pskb_copy(dnode, pkts, &_pkts))
+			return -ENOMEM;
 
-	node = tipc_node_find(msg_prevnode(msg));
-	if (unlikely(!node))
-		goto exit;
-
-	tipc_node_lock(node);
-	if (unlikely(!node->bclink.supported))
-		goto unlock;
-
-	if (unlikely(msg_user(msg) == BCAST_PROTOCOL)) {
-		if (msg_type(msg) != STATE_MSG)
-			goto unlock;
-		if (msg_destnode(msg) == tipc_own_addr) {
-			tipc_bclink_acknowledge(node, msg_bcast_ack(msg));
-			tipc_node_unlock(node);
-			spin_lock_bh(&bc_lock);
-			bcl->stats.recv_nacks++;
-			bclink->retransmit_to = node;
-			bclink_retransmit_pkt(msg_bcgap_after(msg),
-					      msg_bcgap_to(msg));
-			spin_unlock_bh(&bc_lock);
-		} else {
-			tipc_node_unlock(node);
-			tipc_bclink_peek_nack(msg_destnode(msg),
-					      msg_bcast_tag(msg),
-					      msg_bcgap_after(msg),
-					      msg_bcgap_to(msg));
-		}
-		goto exit;
+		/* Any other return value than -ELINKCONG is ignored */
+		if (tipc_node_xmit(net, &_pkts, dnode, selector) == -ELINKCONG)
+			(*cong_link_cnt)++;
 	}
-
-	/* Handle in-sequence broadcast message */
-
-receive:
-	next_in = mod(node->bclink.last_in + 1);
-	seqno = msg_seqno(msg);
-
-	if (likely(seqno == next_in)) {
-		bcl->stats.recv_info++;
-		node->bclink.last_in++;
-		bclink_set_gap(node);
-		if (unlikely(bclink_ack_allowed(seqno))) {
-			bclink_send_ack(node);
-			bcl->stats.sent_acks++;
-		}
-		if (likely(msg_isdata(msg))) {
-			tipc_node_unlock(node);
-			if (likely(msg_mcast(msg)))
-				tipc_port_recv_mcast(buf, NULL);
-			else
-				buf_discard(buf);
-		} else if (msg_user(msg) == MSG_BUNDLER) {
-			bcl->stats.recv_bundles++;
-			bcl->stats.recv_bundled += msg_msgcnt(msg);
-			tipc_node_unlock(node);
-			tipc_link_recv_bundle(buf);
-		} else if (msg_user(msg) == MSG_FRAGMENTER) {
-			bcl->stats.recv_fragments++;
-			if (tipc_link_recv_fragment(&node->bclink.defragm,
-						    &buf, &msg))
-				bcl->stats.recv_fragmented++;
-			tipc_node_unlock(node);
-			tipc_net_route_msg(buf);
-		} else if (msg_user(msg) == NAME_DISTRIBUTOR) {
-			tipc_node_unlock(node);
-			tipc_named_recv(buf);
-		} else {
-			tipc_node_unlock(node);
-			buf_discard(buf);
-		}
-		buf = NULL;
-		tipc_node_lock(node);
-		deferred = node->bclink.deferred_head;
-		if (deferred && (buf_seqno(deferred) == mod(next_in + 1))) {
-			buf = deferred;
-			msg = buf_msg(buf);
-			node->bclink.deferred_head = deferred->next;
-			goto receive;
-		}
-	} else if (less(next_in, seqno)) {
-		u32 gap_after = node->bclink.gap_after;
-		u32 gap_to = node->bclink.gap_to;
-
-		if (tipc_link_defer_pkt(&node->bclink.deferred_head,
-					&node->bclink.deferred_tail,
-					buf)) {
-			node->bclink.nack_sync++;
-			bcl->stats.deferred_recv++;
-			if (seqno == mod(gap_after + 1))
-				node->bclink.gap_after = seqno;
-			else if (less(gap_after, seqno) && less(seqno, gap_to))
-				node->bclink.gap_to = seqno;
-		}
-		buf = NULL;
-		if (bclink_ack_allowed(node->bclink.nack_sync)) {
-			if (gap_to != gap_after)
-				bclink_send_nack(node);
-			bclink_set_gap(node);
-		}
-	} else {
-		bcl->stats.duplicates++;
-	}
-unlock:
-	tipc_node_unlock(node);
-exit:
-	buf_discard(buf);
-}
-
-u32 tipc_bclink_acks_missing(struct tipc_node *n_ptr)
-{
-	return (n_ptr->bclink.supported &&
-		(tipc_bclink_get_last_sent() != n_ptr->bclink.acked));
-}
-
-
-/**
- * tipc_bcbearer_send - send a packet through the broadcast pseudo-bearer
- *
- * Send packet over as many bearers as necessary to reach all nodes
- * that have joined the broadcast link.
- *
- * Returns 0 (packet sent successfully) under all circumstances,
- * since the broadcast link's pseudo-bearer never blocks
- */
-
-static int tipc_bcbearer_send(struct sk_buff *buf,
-			      struct tipc_bearer *unused1,
-			      struct tipc_media_addr *unused2)
-{
-	int bp_index;
-
-	/*
-	 * Prepare broadcast link message for reliable transmission,
-	 * if first time trying to send it;
-	 * preparation is skipped for broadcast link protocol messages
-	 * since they are sent in an unreliable manner and don't need it
-	 */
-
-	if (likely(!msg_non_seq(buf_msg(buf)))) {
-		struct tipc_msg *msg;
-
-		bcbuf_set_acks(buf, bclink->bcast_nodes.count);
-		msg = buf_msg(buf);
-		msg_set_non_seq(msg, 1);
-		msg_set_mc_netid(msg, tipc_net_id);
-		bcl->stats.sent_info++;
-
-		if (WARN_ON(!bclink->bcast_nodes.count)) {
-			dump_stack();
-			return 0;
-		}
-	}
-
-	/* Send buffer over bearers until all targets reached */
-
-	bcbearer->remains = bclink->bcast_nodes;
-
-	for (bp_index = 0; bp_index < MAX_BEARERS; bp_index++) {
-		struct tipc_bearer *p = bcbearer->bpairs[bp_index].primary;
-		struct tipc_bearer *s = bcbearer->bpairs[bp_index].secondary;
-
-		if (!p)
-			break;	/* no more bearers to try */
-
-		tipc_nmap_diff(&bcbearer->remains, &p->nodes, &bcbearer->remains_new);
-		if (bcbearer->remains_new.count == bcbearer->remains.count)
-			continue;	/* bearer pair doesn't add anything */
-
-		if (p->blocked ||
-		    p->media->send_msg(buf, p, &p->media->bcast_addr)) {
-			/* unable to send on primary bearer */
-			if (!s || s->blocked ||
-			    s->media->send_msg(buf, s,
-					       &s->media->bcast_addr)) {
-				/* unable to send on either bearer */
-				continue;
-			}
-		}
-
-		if (s) {
-			bcbearer->bpairs[bp_index].primary = s;
-			bcbearer->bpairs[bp_index].secondary = p;
-		}
-
-		if (bcbearer->remains_new.count == 0)
-			break;	/* all targets reached */
-
-		bcbearer->remains = bcbearer->remains_new;
-	}
-
 	return 0;
 }
 
-/**
- * tipc_bcbearer_sort - create sets of bearer pairs used by broadcast bearer
+/* tipc_mcast_send_sync - deliver a dummy message with SYN bit
+ * @net: the applicable net namespace
+ * @skb: socket buffer to copy
+ * @method: send method to be used
+ * @dests: destination nodes for message.
+ * Returns 0 if success, otherwise errno
  */
-
-void tipc_bcbearer_sort(void)
+static int tipc_mcast_send_sync(struct net *net, struct sk_buff *skb,
+				struct tipc_mc_method *method,
+				struct tipc_nlist *dests)
 {
-	struct tipc_bcbearer_pair *bp_temp = bcbearer->bpairs_temp;
-	struct tipc_bcbearer_pair *bp_curr;
-	int b_index;
-	int pri;
+	struct tipc_msg *hdr, *_hdr;
+	struct sk_buff_head tmpq;
+	struct sk_buff *_skb;
+	u16 cong_link_cnt;
+	int rc = 0;
 
-	spin_lock_bh(&bc_lock);
-
-	/* Group bearers by priority (can assume max of two per priority) */
-
-	memset(bp_temp, 0, sizeof(bcbearer->bpairs_temp));
-
-	for (b_index = 0; b_index < MAX_BEARERS; b_index++) {
-		struct tipc_bearer *b = &tipc_bearers[b_index];
-
-		if (!b->active || !b->nodes.count)
-			continue;
-
-		if (!bp_temp[b->priority].primary)
-			bp_temp[b->priority].primary = b;
-		else
-			bp_temp[b->priority].secondary = b;
-	}
-
-	/* Create array of bearer pairs for broadcasting */
-
-	bp_curr = bcbearer->bpairs;
-	memset(bcbearer->bpairs, 0, sizeof(bcbearer->bpairs));
-
-	for (pri = TIPC_MAX_LINK_PRI; pri >= 0; pri--) {
-
-		if (!bp_temp[pri].primary)
-			continue;
-
-		bp_curr->primary = bp_temp[pri].primary;
-
-		if (bp_temp[pri].secondary) {
-			if (tipc_nmap_equal(&bp_temp[pri].primary->nodes,
-					    &bp_temp[pri].secondary->nodes)) {
-				bp_curr->secondary = bp_temp[pri].secondary;
-			} else {
-				bp_curr++;
-				bp_curr->primary = bp_temp[pri].secondary;
-			}
-		}
-
-		bp_curr++;
-	}
-
-	spin_unlock_bh(&bc_lock);
-}
-
-
-int tipc_bclink_stats(char *buf, const u32 buf_size)
-{
-	struct print_buf pb;
-
-	if (!bcl)
+	/* Is a cluster supporting with new capabilities ? */
+	if (!(tipc_net(net)->capabilities & TIPC_MCAST_RBCTL))
 		return 0;
 
-	tipc_printbuf_init(&pb, buf, buf_size);
+	hdr = buf_msg(skb);
+	if (msg_user(hdr) == MSG_FRAGMENTER)
+		hdr = msg_inner_hdr(hdr);
+	if (msg_type(hdr) != TIPC_MCAST_MSG)
+		return 0;
 
-	spin_lock_bh(&bc_lock);
+	/* Allocate dummy message */
+	_skb = tipc_buf_acquire(MCAST_H_SIZE, GFP_KERNEL);
+	if (!_skb)
+		return -ENOMEM;
 
-	tipc_printf(&pb, "Link <%s>\n"
-			 "  Window:%u packets\n",
-		    bcl->name, bcl->queue_limit[0]);
-	tipc_printf(&pb, "  RX packets:%u fragments:%u/%u bundles:%u/%u\n",
-		    bcl->stats.recv_info,
-		    bcl->stats.recv_fragments,
-		    bcl->stats.recv_fragmented,
-		    bcl->stats.recv_bundles,
-		    bcl->stats.recv_bundled);
-	tipc_printf(&pb, "  TX packets:%u fragments:%u/%u bundles:%u/%u\n",
-		    bcl->stats.sent_info,
-		    bcl->stats.sent_fragments,
-		    bcl->stats.sent_fragmented,
-		    bcl->stats.sent_bundles,
-		    bcl->stats.sent_bundled);
-	tipc_printf(&pb, "  RX naks:%u defs:%u dups:%u\n",
-		    bcl->stats.recv_nacks,
-		    bcl->stats.deferred_recv,
-		    bcl->stats.duplicates);
-	tipc_printf(&pb, "  TX naks:%u acks:%u dups:%u\n",
-		    bcl->stats.sent_nacks,
-		    bcl->stats.sent_acks,
-		    bcl->stats.retransmitted);
-	tipc_printf(&pb, "  Congestion bearer:%u link:%u  Send queue max:%u avg:%u\n",
-		    bcl->stats.bearer_congs,
-		    bcl->stats.link_congs,
-		    bcl->stats.max_queue_sz,
-		    bcl->stats.queue_sz_counts
-		    ? (bcl->stats.accu_queue_sz / bcl->stats.queue_sz_counts)
-		    : 0);
+	/* Preparing for 'synching' header */
+	msg_set_syn(hdr, 1);
 
-	spin_unlock_bh(&bc_lock);
-	return tipc_printbuf_validate(&pb);
+	/* Copy skb's header into a dummy header */
+	skb_copy_to_linear_data(_skb, hdr, MCAST_H_SIZE);
+	skb_orphan(_skb);
+
+	/* Reverse method for dummy message */
+	_hdr = buf_msg(_skb);
+	msg_set_size(_hdr, MCAST_H_SIZE);
+	msg_set_is_rcast(_hdr, !msg_is_rcast(hdr));
+	msg_set_errcode(_hdr, TIPC_ERR_NO_PORT);
+
+	__skb_queue_head_init(&tmpq);
+	__skb_queue_tail(&tmpq, _skb);
+	if (method->rcast)
+		rc = tipc_bcast_xmit(net, &tmpq, &cong_link_cnt);
+	else
+		rc = tipc_rcast_xmit(net, &tmpq, dests, &cong_link_cnt);
+
+	/* This queue should normally be empty by now */
+	__skb_queue_purge(&tmpq);
+
+	return rc;
 }
 
-int tipc_bclink_reset_stats(void)
+/* tipc_mcast_xmit - deliver message to indicated destination nodes
+ *                   and to identified node local sockets
+ * @net: the applicable net namespace
+ * @pkts: chain of buffers containing message
+ * @method: send method to be used
+ * @dests: destination nodes for message.
+ * @cong_link_cnt: returns number of encountered congested destination links
+ * Consumes buffer chain.
+ * Returns 0 if success, otherwise errno
+ */
+int tipc_mcast_xmit(struct net *net, struct sk_buff_head *pkts,
+		    struct tipc_mc_method *method, struct tipc_nlist *dests,
+		    u16 *cong_link_cnt)
 {
-	if (!bcl)
+	struct sk_buff_head inputq, localq;
+	bool rcast = method->rcast;
+	struct tipc_msg *hdr;
+	struct sk_buff *skb;
+	int rc = 0;
+
+	skb_queue_head_init(&inputq);
+	__skb_queue_head_init(&localq);
+
+	/* Clone packets before they are consumed by next call */
+	if (dests->local && !tipc_msg_reassemble(pkts, &localq)) {
+		rc = -ENOMEM;
+		goto exit;
+	}
+	/* Send according to determined transmit method */
+	if (dests->remote) {
+		tipc_bcast_select_xmit_method(net, dests->remote, method);
+
+		skb = skb_peek(pkts);
+		hdr = buf_msg(skb);
+		if (msg_user(hdr) == MSG_FRAGMENTER)
+			hdr = msg_inner_hdr(hdr);
+		msg_set_is_rcast(hdr, method->rcast);
+
+		/* Switch method ? */
+		if (rcast != method->rcast) {
+			rc = tipc_mcast_send_sync(net, skb, method, dests);
+			if (unlikely(rc)) {
+				pr_err("Unable to send SYN: method %d, rc %d\n",
+				       rcast, rc);
+				goto exit;
+			}
+		}
+
+		if (method->rcast)
+			rc = tipc_rcast_xmit(net, pkts, dests, cong_link_cnt);
+		else
+			rc = tipc_bcast_xmit(net, pkts, cong_link_cnt);
+	}
+
+	if (dests->local) {
+		tipc_loopback_trace(net, &localq);
+		tipc_sk_mcast_rcv(net, &localq, &inputq);
+	}
+exit:
+	/* This queue should normally be empty by now */
+	__skb_queue_purge(pkts);
+	return rc;
+}
+
+/* tipc_bcast_rcv - receive a broadcast packet, and deliver to rcv link
+ *
+ * RCU is locked, no other locks set
+ */
+int tipc_bcast_rcv(struct net *net, struct tipc_link *l, struct sk_buff *skb)
+{
+	struct tipc_msg *hdr = buf_msg(skb);
+	struct sk_buff_head *inputq = &tipc_bc_base(net)->inputq;
+	struct sk_buff_head xmitq;
+	int rc;
+
+	__skb_queue_head_init(&xmitq);
+
+	if (msg_mc_netid(hdr) != tipc_netid(net) || !tipc_link_is_up(l)) {
+		kfree_skb(skb);
+		return 0;
+	}
+
+	tipc_bcast_lock(net);
+	if (msg_user(hdr) == BCAST_PROTOCOL)
+		rc = tipc_link_bc_nack_rcv(l, skb, &xmitq);
+	else
+		rc = tipc_link_rcv(l, skb, NULL);
+	tipc_bcast_unlock(net);
+
+	tipc_bcbase_xmit(net, &xmitq);
+
+	/* Any socket wakeup messages ? */
+	if (!skb_queue_empty(inputq))
+		tipc_sk_rcv(net, inputq);
+
+	return rc;
+}
+
+/* tipc_bcast_ack_rcv - receive and handle a broadcast acknowledge
+ *
+ * RCU is locked, no other locks set
+ */
+void tipc_bcast_ack_rcv(struct net *net, struct tipc_link *l,
+			struct tipc_msg *hdr)
+{
+	struct sk_buff_head *inputq = &tipc_bc_base(net)->inputq;
+	u16 acked = msg_bcast_ack(hdr);
+	struct sk_buff_head xmitq;
+
+	/* Ignore bc acks sent by peer before bcast synch point was received */
+	if (msg_bc_ack_invalid(hdr))
+		return;
+
+	__skb_queue_head_init(&xmitq);
+
+	tipc_bcast_lock(net);
+	tipc_link_bc_ack_rcv(l, acked, 0, NULL, &xmitq, NULL);
+	tipc_bcast_unlock(net);
+
+	tipc_bcbase_xmit(net, &xmitq);
+
+	/* Any socket wakeup messages ? */
+	if (!skb_queue_empty(inputq))
+		tipc_sk_rcv(net, inputq);
+}
+
+/* tipc_bcast_synch_rcv -  check and update rcv link with peer's send state
+ *
+ * RCU is locked, no other locks set
+ */
+int tipc_bcast_sync_rcv(struct net *net, struct tipc_link *l,
+			struct tipc_msg *hdr,
+			struct sk_buff_head *retrq)
+{
+	struct sk_buff_head *inputq = &tipc_bc_base(net)->inputq;
+	struct tipc_gap_ack_blks *ga;
+	struct sk_buff_head xmitq;
+	int rc = 0;
+
+	__skb_queue_head_init(&xmitq);
+
+	tipc_bcast_lock(net);
+	if (msg_type(hdr) != STATE_MSG) {
+		tipc_link_bc_init_rcv(l, hdr);
+	} else if (!msg_bc_ack_invalid(hdr)) {
+		tipc_get_gap_ack_blks(&ga, l, hdr, false);
+		if (!sysctl_tipc_bc_retruni)
+			retrq = &xmitq;
+		rc = tipc_link_bc_ack_rcv(l, msg_bcast_ack(hdr),
+					  msg_bc_gap(hdr), ga, &xmitq,
+					  retrq);
+		rc |= tipc_link_bc_sync_rcv(l, hdr, &xmitq);
+	}
+	tipc_bcast_unlock(net);
+
+	tipc_bcbase_xmit(net, &xmitq);
+
+	/* Any socket wakeup messages ? */
+	if (!skb_queue_empty(inputq))
+		tipc_sk_rcv(net, inputq);
+	return rc;
+}
+
+/* tipc_bcast_add_peer - add a peer node to broadcast link and bearer
+ *
+ * RCU is locked, node lock is set
+ */
+void tipc_bcast_add_peer(struct net *net, struct tipc_link *uc_l,
+			 struct sk_buff_head *xmitq)
+{
+	struct tipc_link *snd_l = tipc_bc_sndlink(net);
+
+	tipc_bcast_lock(net);
+	tipc_link_add_bc_peer(snd_l, uc_l, xmitq);
+	tipc_bcbase_select_primary(net);
+	tipc_bcbase_calc_bc_threshold(net);
+	tipc_bcast_unlock(net);
+}
+
+/* tipc_bcast_remove_peer - remove a peer node from broadcast link and bearer
+ *
+ * RCU is locked, node lock is set
+ */
+void tipc_bcast_remove_peer(struct net *net, struct tipc_link *rcv_l)
+{
+	struct tipc_link *snd_l = tipc_bc_sndlink(net);
+	struct sk_buff_head *inputq = &tipc_bc_base(net)->inputq;
+	struct sk_buff_head xmitq;
+
+	__skb_queue_head_init(&xmitq);
+
+	tipc_bcast_lock(net);
+	tipc_link_remove_bc_peer(snd_l, rcv_l, &xmitq);
+	tipc_bcbase_select_primary(net);
+	tipc_bcbase_calc_bc_threshold(net);
+	tipc_bcast_unlock(net);
+
+	tipc_bcbase_xmit(net, &xmitq);
+
+	/* Any socket wakeup messages ? */
+	if (!skb_queue_empty(inputq))
+		tipc_sk_rcv(net, inputq);
+}
+
+int tipc_bclink_reset_stats(struct net *net, struct tipc_link *l)
+{
+	if (!l)
 		return -ENOPROTOOPT;
 
-	spin_lock_bh(&bc_lock);
-	memset(&bcl->stats, 0, sizeof(bcl->stats));
-	spin_unlock_bh(&bc_lock);
+	tipc_bcast_lock(net);
+	tipc_link_reset_stats(l);
+	tipc_bcast_unlock(net);
 	return 0;
 }
 
-int tipc_bclink_set_queue_limits(u32 limit)
+static int tipc_bc_link_set_queue_limits(struct net *net, u32 max_win)
 {
-	if (!bcl)
+	struct tipc_link *l = tipc_bc_sndlink(net);
+
+	if (!l)
 		return -ENOPROTOOPT;
-	if ((limit < TIPC_MIN_LINK_WIN) || (limit > TIPC_MAX_LINK_WIN))
+	if (max_win < BCLINK_WIN_MIN)
+		max_win = BCLINK_WIN_MIN;
+	if (max_win > TIPC_MAX_LINK_WIN)
+		return -EINVAL;
+	tipc_bcast_lock(net);
+	tipc_link_set_queue_limits(l, tipc_link_min_win(l), max_win);
+	tipc_bcast_unlock(net);
+	return 0;
+}
+
+static int tipc_bc_link_set_broadcast_mode(struct net *net, u32 bc_mode)
+{
+	struct tipc_bc_base *bb = tipc_bc_base(net);
+
+	switch (bc_mode) {
+	case BCLINK_MODE_BCAST:
+		if (!bb->bcast_support)
+			return -ENOPROTOOPT;
+
+		bb->force_bcast = true;
+		bb->force_rcast = false;
+		break;
+	case BCLINK_MODE_RCAST:
+		if (!bb->rcast_support)
+			return -ENOPROTOOPT;
+
+		bb->force_bcast = false;
+		bb->force_rcast = true;
+		break;
+	case BCLINK_MODE_SEL:
+		if (!bb->bcast_support || !bb->rcast_support)
+			return -ENOPROTOOPT;
+
+		bb->force_bcast = false;
+		bb->force_rcast = false;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int tipc_bc_link_set_broadcast_ratio(struct net *net, u32 bc_ratio)
+{
+	struct tipc_bc_base *bb = tipc_bc_base(net);
+
+	if (!bb->bcast_support || !bb->rcast_support)
+		return -ENOPROTOOPT;
+
+	if (bc_ratio > 100 || bc_ratio <= 0)
 		return -EINVAL;
 
-	spin_lock_bh(&bc_lock);
-	tipc_link_set_queue_limits(bcl, limit);
-	spin_unlock_bh(&bc_lock);
+	bb->rc_ratio = bc_ratio;
+	tipc_bcast_lock(net);
+	tipc_bcbase_calc_bc_threshold(net);
+	tipc_bcast_unlock(net);
+
 	return 0;
 }
 
-void tipc_bclink_init(void)
+int tipc_nl_bc_link_set(struct net *net, struct nlattr *attrs[])
 {
-	INIT_LIST_HEAD(&bcbearer->bearer.cong_links);
-	bcbearer->bearer.media = &bcbearer->media;
-	bcbearer->media.send_msg = tipc_bcbearer_send;
-	sprintf(bcbearer->media.name, "tipc-broadcast");
+	int err;
+	u32 win;
+	u32 bc_mode;
+	u32 bc_ratio;
+	struct nlattr *props[TIPC_NLA_PROP_MAX + 1];
 
-	INIT_LIST_HEAD(&bcl->waiting_ports);
-	bcl->next_out_no = 1;
-	spin_lock_init(&bclink->node.lock);
-	bcl->owner = &bclink->node;
-	bcl->max_pkt = MAX_PKT_DEFAULT_MCAST;
-	tipc_link_set_queue_limits(bcl, BCLINK_WIN_DEFAULT);
-	bcl->b_ptr = &bcbearer->bearer;
-	bcl->state = WORKING_WORKING;
-	strlcpy(bcl->name, tipc_bclink_name, TIPC_MAX_LINK_NAME);
-}
+	if (!attrs[TIPC_NLA_LINK_PROP])
+		return -EINVAL;
 
-void tipc_bclink_stop(void)
-{
-	spin_lock_bh(&bc_lock);
-	tipc_link_stop(bcl);
-	spin_unlock_bh(&bc_lock);
+	err = tipc_nl_parse_link_prop(attrs[TIPC_NLA_LINK_PROP], props);
+	if (err)
+		return err;
 
-	memset(bclink, 0, sizeof(*bclink));
-	memset(bcbearer, 0, sizeof(*bcbearer));
-}
-
-
-/**
- * tipc_nmap_add - add a node to a node map
- */
-
-void tipc_nmap_add(struct tipc_node_map *nm_ptr, u32 node)
-{
-	int n = tipc_node(node);
-	int w = n / WSIZE;
-	u32 mask = (1 << (n % WSIZE));
-
-	if ((nm_ptr->map[w] & mask) == 0) {
-		nm_ptr->count++;
-		nm_ptr->map[w] |= mask;
+	if (!props[TIPC_NLA_PROP_WIN] &&
+	    !props[TIPC_NLA_PROP_BROADCAST] &&
+	    !props[TIPC_NLA_PROP_BROADCAST_RATIO]) {
+		return -EOPNOTSUPP;
 	}
-}
 
-/**
- * tipc_nmap_remove - remove a node from a node map
- */
-
-void tipc_nmap_remove(struct tipc_node_map *nm_ptr, u32 node)
-{
-	int n = tipc_node(node);
-	int w = n / WSIZE;
-	u32 mask = (1 << (n % WSIZE));
-
-	if ((nm_ptr->map[w] & mask) != 0) {
-		nm_ptr->map[w] &= ~mask;
-		nm_ptr->count--;
+	if (props[TIPC_NLA_PROP_BROADCAST]) {
+		bc_mode = nla_get_u32(props[TIPC_NLA_PROP_BROADCAST]);
+		err = tipc_bc_link_set_broadcast_mode(net, bc_mode);
 	}
-}
 
-/**
- * tipc_nmap_diff - find differences between node maps
- * @nm_a: input node map A
- * @nm_b: input node map B
- * @nm_diff: output node map A-B (i.e. nodes of A that are not in B)
- */
-
-static void tipc_nmap_diff(struct tipc_node_map *nm_a,
-			   struct tipc_node_map *nm_b,
-			   struct tipc_node_map *nm_diff)
-{
-	int stop = ARRAY_SIZE(nm_a->map);
-	int w;
-	int b;
-	u32 map;
-
-	memset(nm_diff, 0, sizeof(*nm_diff));
-	for (w = 0; w < stop; w++) {
-		map = nm_a->map[w] ^ (nm_a->map[w] & nm_b->map[w]);
-		nm_diff->map[w] = map;
-		if (map != 0) {
-			for (b = 0 ; b < WSIZE; b++) {
-				if (map & (1 << b))
-					nm_diff->count++;
-			}
-		}
+	if (!err && props[TIPC_NLA_PROP_BROADCAST_RATIO]) {
+		bc_ratio = nla_get_u32(props[TIPC_NLA_PROP_BROADCAST_RATIO]);
+		err = tipc_bc_link_set_broadcast_ratio(net, bc_ratio);
 	}
+
+	if (!err && props[TIPC_NLA_PROP_WIN]) {
+		win = nla_get_u32(props[TIPC_NLA_PROP_WIN]);
+		err = tipc_bc_link_set_queue_limits(net, win);
+	}
+
+	return err;
 }
 
-/**
- * tipc_port_list_add - add a port to a port list, ensuring no duplicates
- */
-
-void tipc_port_list_add(struct tipc_port_list *pl_ptr, u32 port)
+int tipc_bcast_init(struct net *net)
 {
-	struct tipc_port_list *item = pl_ptr;
-	int i;
-	int item_sz = PLSIZE;
-	int cnt = pl_ptr->count;
+	struct tipc_net *tn = tipc_net(net);
+	struct tipc_bc_base *bb = NULL;
+	struct tipc_link *l = NULL;
 
-	for (; ; cnt -= item_sz, item = item->next) {
-		if (cnt < PLSIZE)
-			item_sz = cnt;
-		for (i = 0; i < item_sz; i++)
-			if (item->ports[i] == port)
-				return;
-		if (i < PLSIZE) {
-			item->ports[i] = port;
-			pl_ptr->count++;
+	bb = kzalloc(sizeof(*bb), GFP_KERNEL);
+	if (!bb)
+		goto enomem;
+	tn->bcbase = bb;
+	spin_lock_init(&tipc_net(net)->bclock);
+
+	if (!tipc_link_bc_create(net, 0, 0, NULL,
+				 one_page_mtu,
+				 BCLINK_WIN_DEFAULT,
+				 BCLINK_WIN_DEFAULT,
+				 0,
+				 &bb->inputq,
+				 NULL,
+				 NULL,
+				 &l))
+		goto enomem;
+	bb->link = l;
+	tn->bcl = l;
+	bb->rc_ratio = 10;
+	bb->rcast_support = true;
+	return 0;
+enomem:
+	kfree(bb);
+	kfree(l);
+	return -ENOMEM;
+}
+
+void tipc_bcast_stop(struct net *net)
+{
+	struct tipc_net *tn = net_generic(net, tipc_net_id);
+
+	synchronize_net();
+	kfree(tn->bcbase);
+	kfree(tn->bcl);
+}
+
+void tipc_nlist_init(struct tipc_nlist *nl, u32 self)
+{
+	memset(nl, 0, sizeof(*nl));
+	INIT_LIST_HEAD(&nl->list);
+	nl->self = self;
+}
+
+void tipc_nlist_add(struct tipc_nlist *nl, u32 node)
+{
+	if (node == nl->self)
+		nl->local = true;
+	else if (tipc_dest_push(&nl->list, node, 0))
+		nl->remote++;
+}
+
+void tipc_nlist_del(struct tipc_nlist *nl, u32 node)
+{
+	if (node == nl->self)
+		nl->local = false;
+	else if (tipc_dest_del(&nl->list, node, 0))
+		nl->remote--;
+}
+
+void tipc_nlist_purge(struct tipc_nlist *nl)
+{
+	tipc_dest_list_purge(&nl->list);
+	nl->remote = 0;
+	nl->local = false;
+}
+
+u32 tipc_bcast_get_mode(struct net *net)
+{
+	struct tipc_bc_base *bb = tipc_bc_base(net);
+
+	if (bb->force_bcast)
+		return BCLINK_MODE_BCAST;
+
+	if (bb->force_rcast)
+		return BCLINK_MODE_RCAST;
+
+	if (bb->bcast_support && bb->rcast_support)
+		return BCLINK_MODE_SEL;
+
+	return 0;
+}
+
+u32 tipc_bcast_get_broadcast_ratio(struct net *net)
+{
+	struct tipc_bc_base *bb = tipc_bc_base(net);
+
+	return bb->rc_ratio;
+}
+
+void tipc_mcast_filter_msg(struct net *net, struct sk_buff_head *defq,
+			   struct sk_buff_head *inputq)
+{
+	struct sk_buff *skb, *_skb, *tmp;
+	struct tipc_msg *hdr, *_hdr;
+	bool match = false;
+	u32 node, port;
+
+	skb = skb_peek(inputq);
+	if (!skb)
+		return;
+
+	hdr = buf_msg(skb);
+
+	if (likely(!msg_is_syn(hdr) && skb_queue_empty(defq)))
+		return;
+
+	node = msg_orignode(hdr);
+	if (node == tipc_own_addr(net))
+		return;
+
+	port = msg_origport(hdr);
+
+	/* Has the twin SYN message already arrived ? */
+	skb_queue_walk(defq, _skb) {
+		_hdr = buf_msg(_skb);
+		if (msg_orignode(_hdr) != node)
+			continue;
+		if (msg_origport(_hdr) != port)
+			continue;
+		match = true;
+		break;
+	}
+
+	if (!match) {
+		if (!msg_is_syn(hdr))
 			return;
-		}
-		if (!item->next) {
-			item->next = kmalloc(sizeof(*item), GFP_ATOMIC);
-			if (!item->next) {
-				warn("Incomplete multicast delivery, no memory\n");
-				return;
-			}
-			item->next->next = NULL;
-		}
+		__skb_dequeue(inputq);
+		__skb_queue_tail(defq, skb);
+		return;
+	}
+
+	/* Deliver non-SYN message from other link, otherwise queue it */
+	if (!msg_is_syn(hdr)) {
+		if (msg_is_rcast(hdr) != msg_is_rcast(_hdr))
+			return;
+		__skb_dequeue(inputq);
+		__skb_queue_tail(defq, skb);
+		return;
+	}
+
+	/* Queue non-SYN/SYN message from same link */
+	if (msg_is_rcast(hdr) == msg_is_rcast(_hdr)) {
+		__skb_dequeue(inputq);
+		__skb_queue_tail(defq, skb);
+		return;
+	}
+
+	/* Matching SYN messages => return the one with data, if any */
+	__skb_unlink(_skb, defq);
+	if (msg_data_sz(hdr)) {
+		kfree_skb(_skb);
+	} else {
+		__skb_dequeue(inputq);
+		kfree_skb(skb);
+		__skb_queue_tail(inputq, _skb);
+	}
+
+	/* Deliver subsequent non-SYN messages from same peer */
+	skb_queue_walk_safe(defq, _skb, tmp) {
+		_hdr = buf_msg(_skb);
+		if (msg_orignode(_hdr) != node)
+			continue;
+		if (msg_origport(_hdr) != port)
+			continue;
+		if (msg_is_syn(_hdr))
+			break;
+		__skb_unlink(_skb, defq);
+		__skb_queue_tail(inputq, _skb);
 	}
 }
-
-/**
- * tipc_port_list_free - free dynamically created entries in port_list chain
- *
- */
-
-void tipc_port_list_free(struct tipc_port_list *pl_ptr)
-{
-	struct tipc_port_list *item;
-	struct tipc_port_list *next;
-
-	for (item = pl_ptr->next; item; item = next) {
-		next = item->next;
-		kfree(item);
-	}
-}
-

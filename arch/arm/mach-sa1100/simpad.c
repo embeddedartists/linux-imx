@@ -1,39 +1,42 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * linux/arch/arm/mach-sa1100/simpad.c
  */
 
 #include <linux/module.h>
+#include <linux/gpio/machine.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/tty.h>
 #include <linux/proc_fs.h>
-#include <linux/string.h> 
+#include <linux/string.h>
 #include <linux/pm.h>
+#include <linux/platform_data/sa11x0-serial.h>
 #include <linux/platform_device.h>
+#include <linux/mfd/ucb1x00.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/partitions.h>
 #include <linux/io.h>
-#include <linux/gpio.h>
-#include <linux/mfd/ucb1x00.h>
+#include <linux/gpio/driver.h>
 
-#include <asm/irq.h>
 #include <mach/hardware.h>
 #include <asm/setup.h>
+#include <asm/irq.h>
 
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/flash.h>
 #include <asm/mach/map.h>
-#include <asm/mach/serial_sa1100.h>
-#include <mach/mcp.h>
+#include <linux/platform_data/mfd-mcp-sa11x0.h>
 #include <mach/simpad.h>
+#include <mach/irqs.h>
 
 #include <linux/serial_core.h>
 #include <linux/ioport.h>
 #include <linux/input.h>
 #include <linux/gpio_keys.h>
 #include <linux/leds.h>
-#include <linux/i2c-gpio.h>
+#include <linux/platform_data/i2c-gpio.h>
 
 #include "generic.h"
 
@@ -97,8 +100,8 @@ static void cs3_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
 static int cs3_gpio_get(struct gpio_chip *chip, unsigned offset)
 {
 	if (offset > 15)
-		return simpad_get_cs3_ro() & (1 << (offset - 16));
-	return simpad_get_cs3_shadow() & (1 << offset);
+		return !!(simpad_get_cs3_ro() & (1 << (offset - 16)));
+	return !!(simpad_get_cs3_shadow() & (1 << offset));
 };
 
 static int cs3_gpio_direction_input(struct gpio_chip *chip, unsigned offset)
@@ -124,7 +127,7 @@ static struct map_desc simpad_io_desc[] __initdata = {
 		.length		= 0x00800000,
 		.type		= MT_DEVICE
 	}, {	/* Simpad CS3 */
-		.virtual	= CS3_BASE,
+		.virtual	= (unsigned long)CS3_BASE,
 		.pfn		= __phys_to_pfn(SA1100_CS3_PHYS),
 		.length		= 0x00100000,
 		.type		= MT_DEVICE
@@ -177,15 +180,8 @@ static struct flash_platform_data simpad_flash_data = {
 
 
 static struct resource simpad_flash_resources [] = {
-	{
-		.start     = SA1100_CS0_PHYS,
-		.end       = SA1100_CS0_PHYS + SZ_16M -1,
-		.flags     = IORESOURCE_MEM,
-	}, {
-		.start     = SA1100_CS1_PHYS,
-		.end       = SA1100_CS1_PHYS + SZ_16M -1,
-		.flags     = IORESOURCE_MEM,
-	}
+	DEFINE_RES_MEM(SA1100_CS0_PHYS, SZ_16M),
+	DEFINE_RES_MEM(SA1100_CS1_PHYS, SZ_16M),
 };
 
 static struct ucb1x00_plat_data simpad_ucb1x00_data = {
@@ -195,7 +191,6 @@ static struct ucb1x00_plat_data simpad_ucb1x00_data = {
 static struct mcp_plat_data simpad_mcp_data = {
 	.mccr0		= MCCR0_ADM,
 	.sclk_rate	= 11981000,
-	.codec		= "ucb1300",
 	.codec_pdata	= &simpad_ucb1x00_data,
 };
 
@@ -330,9 +325,17 @@ static struct platform_device simpad_gpio_leds = {
 /*
  * i2c
  */
+static struct gpiod_lookup_table simpad_i2c_gpiod_table = {
+	.dev_id = "i2c-gpio.0",
+	.table = {
+		GPIO_LOOKUP_IDX("gpio", 21, NULL, 0,
+				GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN),
+		GPIO_LOOKUP_IDX("gpio", 25, NULL, 1,
+				GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN),
+	},
+};
+
 static struct i2c_gpio_platform_data simpad_i2c_data = {
-	.sda_pin = GPIO_GPIO21,
-	.scl_pin = GPIO_GPIO25,
 	.udelay = 10,
 	.timeout = HZ,
 };
@@ -361,6 +364,15 @@ static struct platform_device *devices[] __initdata = {
 	&simpad_i2c,
 };
 
+/* Compact Flash */
+static struct gpiod_lookup_table simpad_cf_gpio_table = {
+	.dev_id = "sa11x0-pcmcia",
+	.table = {
+		GPIO_LOOKUP("gpio", GPIO_CF_IRQ, "cf-ready", GPIO_ACTIVE_HIGH),
+		GPIO_LOOKUP("gpio", GPIO_CF_CD, "cf-detect", GPIO_ACTIVE_HIGH),
+		{ },
+	},
+};
 
 
 static int __init simpad_init(void)
@@ -376,26 +388,19 @@ static int __init simpad_init(void)
 	cs3_gpio.get = cs3_gpio_get;
 	cs3_gpio.direction_input = cs3_gpio_direction_input;
 	cs3_gpio.direction_output = cs3_gpio_direction_output;
-	ret = gpiochip_add(&cs3_gpio);
+	ret = gpiochip_add_data(&cs3_gpio, NULL);
 	if (ret)
 		printk(KERN_WARNING "simpad: Unable to register cs3 GPIO device");
 
 	pm_power_off = simpad_power_off;
 
+	sa11x0_register_pcmcia(-1, &simpad_cf_gpio_table);
+	sa11x0_ppc_configure_mcp();
 	sa11x0_register_mtd(&simpad_flash_data, simpad_flash_resources,
 			      ARRAY_SIZE(simpad_flash_resources));
-
-	/*
-	 * Setup the PPC unit correctly.
-	 */
-	PPDR &= ~PPC_RXD4;
-	PPDR |= PPC_TXD4 | PPC_SCLK | PPC_SFRM;
-	PSDR |= PPC_RXD4;
-	PSDR &= ~(PPC_TXD4 | PPC_SCLK | PPC_SFRM);
-	PPSR &= ~(PPC_TXD4 | PPC_SCLK | PPC_SFRM);
-
 	sa11x0_register_mcp(&simpad_mcp_data);
 
+	gpiod_add_lookup_table(&simpad_i2c_gpiod_table);
 	ret = platform_add_devices(devices, ARRAY_SIZE(devices));
 	if(ret)
 		printk(KERN_WARNING "simpad: Unable to register mq200 framebuffer device");
@@ -410,7 +415,9 @@ MACHINE_START(SIMPAD, "Simpad")
 	/* Maintainer: Holger Freyther */
 	.atag_offset	= 0x100,
 	.map_io		= simpad_map_io,
+	.nr_irqs	= SA1100_NR_IRQS,
 	.init_irq	= sa1100_init_irq,
-	.timer		= &sa1100_timer,
+	.init_late	= sa11x0_init_late,
+	.init_time	= sa1100_timer_init,
 	.restart	= sa11x0_restart,
 MACHINE_END

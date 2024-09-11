@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Force feedback support for ACRUX game controllers
  *
@@ -12,31 +13,16 @@
  */
 
 /*
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
 #include <linux/input.h>
 #include <linux/slab.h>
-#include <linux/usb.h>
 #include <linux/hid.h>
 #include <linux/module.h>
 
 #include "hid-ids.h"
 
 #ifdef CONFIG_HID_ACRUX_FF
-#include "usbhid/usbhid.h"
 
 struct axff_device {
 	struct hid_report *report;
@@ -68,7 +54,7 @@ static int axff_play(struct input_dev *dev, void *data, struct ff_effect *effect
 	}
 
 	dbg_hid("running with 0x%02x 0x%02x", left, right);
-	usbhid_submit_report(hid, axff->report, USB_DIR_OUT);
+	hid_hw_request(hid, axff->report, HID_REQ_SET_REPORT);
 
 	return 0;
 }
@@ -77,12 +63,19 @@ static int axff_init(struct hid_device *hid)
 {
 	struct axff_device *axff;
 	struct hid_report *report;
-	struct hid_input *hidinput = list_first_entry(&hid->inputs, struct hid_input, list);
+	struct hid_input *hidinput;
 	struct list_head *report_list =&hid->report_enum[HID_OUTPUT_REPORT].report_list;
-	struct input_dev *dev = hidinput->input;
+	struct input_dev *dev;
 	int field_count = 0;
 	int i, j;
 	int error;
+
+	if (list_empty(&hid->inputs)) {
+		hid_err(hid, "no inputs found\n");
+		return -ENODEV;
+	}
+	hidinput = list_first_entry(&hid->inputs, struct hid_input, list);
+	dev = hidinput->input;
 
 	if (list_empty(report_list)) {
 		hid_err(hid, "no output reports found\n");
@@ -97,7 +90,7 @@ static int axff_init(struct hid_device *hid)
 		}
 	}
 
-	if (field_count < 4) {
+	if (field_count < 4 && hid->product != 0xf705) {
 		hid_err(hid, "not enough fields in the report: %d\n",
 			field_count);
 		return -ENODEV;
@@ -114,7 +107,7 @@ static int axff_init(struct hid_device *hid)
 		goto err_free_mem;
 
 	axff->report = report;
-	usbhid_submit_report(hid, axff->report, USB_DIR_OUT);
+	hid_hw_request(hid, axff->report, HID_REQ_SET_REPORT);
 
 	hid_info(hid, "Force Feedback for ACRUX game controllers by Sergei Kolzun <x0r@dv-life.ru>\n");
 
@@ -182,6 +175,7 @@ static void ax_remove(struct hid_device *hdev)
 
 static const struct hid_device_id ax_devices[] = {
 	{ HID_USB_DEVICE(USB_VENDOR_ID_ACRUX, 0x0802), },
+	{ HID_USB_DEVICE(USB_VENDOR_ID_ACRUX, 0xf705), },
 	{ }
 };
 MODULE_DEVICE_TABLE(hid, ax_devices);
@@ -192,19 +186,7 @@ static struct hid_driver ax_driver = {
 	.probe		= ax_probe,
 	.remove		= ax_remove,
 };
-
-static int __init ax_init(void)
-{
-	return hid_register_driver(&ax_driver);
-}
-
-static void __exit ax_exit(void)
-{
-	hid_unregister_driver(&ax_driver);
-}
-
-module_init(ax_init);
-module_exit(ax_exit);
+module_hid_driver(ax_driver);
 
 MODULE_AUTHOR("Sergei Kolzun");
 MODULE_DESCRIPTION("Force feedback support for ACRUX game controllers");

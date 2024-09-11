@@ -1,19 +1,18 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  linux/arch/arm/mach-mmp/brownstone.c
  *
  *  Support for the Marvell Brownstone Development Platform.
  *
  *  Copyright (C) 2009-2010 Marvell International Ltd.
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License version 2 as
- *  publishhed by the Free Software Foundation.
  */
 
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
+#include <linux/gpio-pxa.h>
+#include <linux/gpio/machine.h>
 #include <linux/regulator/machine.h>
 #include <linux/regulator/max8649.h>
 #include <linux/regulator/fixed.h>
@@ -21,14 +20,14 @@
 
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
-#include <mach/addr-map.h>
-#include <mach/mfp-mmp2.h>
-#include <mach/mmp2.h>
-#include <mach/irqs.h>
+#include "addr-map.h"
+#include "mfp-mmp2.h"
+#include "mmp2.h"
+#include "irqs.h"
 
 #include "common.h"
 
-#define BROWNSTONE_NR_IRQS	(IRQ_BOARD_START + 40)
+#define BROWNSTONE_NR_IRQS	(MMP_NR_IRQS + 40)
 
 #define GPIO_5V_ENABLE		(89)
 
@@ -104,6 +103,10 @@ static unsigned long brownstone_pin_config[] __initdata = {
 	GPIO89_GPIO,
 };
 
+static struct pxa_gpio_platform_data mmp2_gpio_pdata = {
+	.irq_base	= MMP_GPIO_TO_IRQ(0),
+};
+
 static struct regulator_consumer_supply max8649_supply[] = {
 	REGULATOR_SUPPLY("vcc_core", NULL),
 };
@@ -143,8 +146,6 @@ static struct regulator_init_data brownstone_v_5vp_data = {
 static struct fixed_voltage_config brownstone_v_5vp = {
 	.supply_name		= "v_5vp",
 	.microvolts		= 5000000,
-	.gpio			= GPIO_5V_ENABLE,
-	.enable_high		= 1,
 	.enabled_at_boot	= 1,
 	.init_data		= &brownstone_v_5vp_data,
 };
@@ -157,8 +158,17 @@ static struct platform_device brownstone_v_5vp_device = {
 	},
 };
 
+static struct gpiod_lookup_table brownstone_v_5vp_gpiod_table = {
+	.dev_id = "reg-fixed-voltage.1", /* .id set to 1 above */
+	.table = {
+		GPIO_LOOKUP("gpio-pxa", GPIO_5V_ENABLE,
+			    NULL, GPIO_ACTIVE_HIGH),
+		{ },
+	},
+};
+
 static struct max8925_platform_data brownstone_max8925_info = {
-	.irq_base		= IRQ_BOARD_START,
+	.irq_base		= MMP_NR_IRQS,
 };
 
 static struct i2c_board_info brownstone_twsi1_info[] = {
@@ -202,6 +212,8 @@ static void __init brownstone_init(void)
 	/* on-chip devices */
 	mmp2_add_uart(1);
 	mmp2_add_uart(3);
+	platform_device_add_data(&mmp2_device_gpio, &mmp2_gpio_pdata,
+				 sizeof(struct pxa_gpio_platform_data));
 	platform_device_register(&mmp2_device_gpio);
 	mmp2_add_twsi(1, NULL, ARRAY_AND_SIZE(brownstone_twsi1_info));
 	mmp2_add_sdhost(0, &mmp2_sdh_platdata_mmc0); /* SD/MMC */
@@ -210,6 +222,7 @@ static void __init brownstone_init(void)
 	mmp2_add_isram(&mmp2_isram_platdata);
 
 	/* enable 5v regulator */
+	gpiod_add_lookup_table(&brownstone_v_5vp_gpiod_table);
 	platform_device_register(&brownstone_v_5vp_device);
 }
 
@@ -218,7 +231,7 @@ MACHINE_START(BROWNSTONE, "Brownstone Development Platform")
 	.map_io		= mmp_map_io,
 	.nr_irqs	= BROWNSTONE_NR_IRQS,
 	.init_irq	= mmp2_init_irq,
-	.timer		= &mmp2_timer,
+	.init_time	= mmp2_timer_init,
 	.init_machine	= brownstone_init,
 	.restart	= mmp_restart,
 MACHINE_END

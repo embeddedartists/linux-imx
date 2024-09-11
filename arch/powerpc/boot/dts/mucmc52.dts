@@ -1,59 +1,31 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Manroland mucmc52 board Device Tree Source
  *
  * Copyright (C) 2009 DENX Software Engineering GmbH
  * Heiko Schocher <hs@denx.de>
  * Copyright 2006-2007 Secret Lab Technologies Ltd.
- *
- * This program is free software; you can redistribute  it and/or modify it
- * under  the terms of  the GNU General  Public License as published by the
- * Free Software Foundation;  either version 2 of the  License, or (at your
- * option) any later version.
  */
 
 /include/ "mpc5200b.dtsi"
+
+/* Timer pins that need to be in GPIO mode */
+&gpt0 { gpio-controller; };
+&gpt1 { gpio-controller; };
+&gpt2 { gpio-controller; };
+&gpt3 { gpio-controller; };
+
+/* Disabled timers */
+&gpt4 { status = "disabled"; };
+&gpt5 { status = "disabled"; };
+&gpt6 { status = "disabled"; };
+&gpt7 { status = "disabled"; };
 
 / {
 	model = "manroland,mucmc52";
 	compatible = "manroland,mucmc52";
 
 	soc5200@f0000000 {
-		gpt0: timer@600 {	// GPT 0 in GPIO mode
-			gpio-controller;
-			#gpio-cells = <2>;
-		};
-
-		gpt1: timer@610 {	// General Purpose Timer in GPIO mode
-			gpio-controller;
-			#gpio-cells = <2>;
-		};
-
-		gpt2: timer@620 {	// General Purpose Timer in GPIO mode
-			gpio-controller;
-			#gpio-cells = <2>;
-		};
-
-		gpt3: timer@630 {	// General Purpose Timer in GPIO mode
-			gpio-controller;
-			#gpio-cells = <2>;
-		};
-
-		timer@640 {
-			status = "disabled";
-		};
-
-		timer@650 {
-			status = "disabled";
-		};
-
-		timer@660 {
-			status = "disabled";
-		};
-
-		timer@670 {
-			status = "disabled";
-		};
-
 		rtc@800 {
 			status = "disabled";
 		};

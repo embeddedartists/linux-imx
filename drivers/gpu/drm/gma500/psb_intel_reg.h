@@ -1,18 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2009, Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #ifndef __PSB_INTEL_REG_H__
 #define __PSB_INTEL_REG_H__
@@ -91,6 +79,9 @@
 
 #define BLC_PWM_CTL		0x61254
 #define BLC_PWM_CTL2		0x61250
+#define  PWM_ENABLE		(1 << 31)
+#define  PWM_LEGACY_MODE	(1 << 30)
+#define  PWM_PIPE_B		(1 << 29)
 #define BLC_PWM_CTL_C		0x62254
 #define BLC_PWM_CTL2_C		0x62250
 #define BACKLIGHT_MODULATION_FREQ_SHIFT		(17)
@@ -170,12 +161,46 @@
 #define PP_SEQUENCE_ON			(1 << 28)
 #define PP_SEQUENCE_OFF			(2 << 28)
 #define PP_SEQUENCE_MASK		0x30000000
+#define	PP_CYCLE_DELAY_ACTIVE		(1 << 27)
+#define	PP_SEQUENCE_STATE_ON_IDLE	(1 << 3)
+#define	PP_SEQUENCE_STATE_MASK		0x0000000f
+
 #define PP_CONTROL		0x61204
 #define POWER_TARGET_ON			(1 << 0)
+#define	PANEL_UNLOCK_REGS		(0xabcd << 16)
+#define	PANEL_UNLOCK_MASK		(0xffff << 16)
+#define	EDP_FORCE_VDD			(1 << 3)
+#define	EDP_BLC_ENABLE			(1 << 2)
+#define	PANEL_POWER_RESET		(1 << 1)
+#define	PANEL_POWER_OFF			(0 << 0)
+#define	PANEL_POWER_ON			(1 << 0)
 
+/* Poulsbo/Oaktrail */
 #define LVDSPP_ON		0x61208
 #define LVDSPP_OFF		0x6120c
 #define PP_CYCLE		0x61210
+
+/* Cedartrail */
+#define PP_ON_DELAYS		0x61208		/* Cedartrail */
+#define PANEL_PORT_SELECT_MASK 		(3 << 30)
+#define PANEL_PORT_SELECT_LVDS 		(0 << 30)
+#define PANEL_PORT_SELECT_EDP		(1 << 30)
+#define PANEL_POWER_UP_DELAY_MASK	(0x1fff0000)
+#define PANEL_POWER_UP_DELAY_SHIFT	16
+#define PANEL_LIGHT_ON_DELAY_MASK	(0x1fff)
+#define PANEL_LIGHT_ON_DELAY_SHIFT	0
+
+#define PP_OFF_DELAYS		0x6120c		/* Cedartrail */
+#define PANEL_POWER_DOWN_DELAY_MASK	(0x1fff0000)
+#define PANEL_POWER_DOWN_DELAY_SHIFT	16
+#define PANEL_LIGHT_OFF_DELAY_MASK	(0x1fff)
+#define PANEL_LIGHT_OFF_DELAY_SHIFT	0
+
+#define PP_DIVISOR		0x61210		/* Cedartrail */
+#define  PP_REFERENCE_DIVIDER_MASK	(0xffffff00)
+#define  PP_REFERENCE_DIVIDER_SHIFT	8
+#define  PANEL_POWER_CYCLE_DELAY_MASK	(0x1f)
+#define  PANEL_POWER_CYCLE_DELAY_SHIFT	0
 
 #define PFIT_CONTROL		0x61230
 #define PFIT_ENABLE			(1 << 31)
@@ -213,7 +238,7 @@
 #define DPLLB_LVDS_P2_CLOCK_DIV_14	(0 << 24)	/* i915 */
 #define DPLLB_LVDS_P2_CLOCK_DIV_7	(1 << 24)	/* i915 */
 #define DPLL_P2_CLOCK_DIV_MASK		0x03000000	/* i915 */
-#define DPLL_FPA01_P1_POST_DIV_MASK	0x00ff0000	/* i915 */
+#define DPLL_FPA0h1_P1_POST_DIV_MASK	0x00ff0000	/* i915 */
 #define DPLL_LOCK			(1 << 15)	/* CDV */
 
 /*
@@ -340,6 +365,9 @@
 #define FP_M2_DIV_SHIFT			0
 
 #define PORT_HOTPLUG_EN		0x61110
+#define HDMIB_HOTPLUG_INT_EN		(1 << 29)
+#define HDMIC_HOTPLUG_INT_EN		(1 << 28)
+#define HDMID_HOTPLUG_INT_EN		(1 << 27)
 #define SDVOB_HOTPLUG_INT_EN		(1 << 26)
 #define SDVOC_HOTPLUG_INT_EN		(1 << 25)
 #define TV_HOTPLUG_INT_EN		(1 << 18)
@@ -453,7 +481,6 @@
 #define PIPEACONF_DISABLE		0
 #define PIPEACONF_DOUBLE_WIDE		(1 << 30)
 #define PIPECONF_ACTIVE			(1 << 30)
-#define I965_PIPECONF_ACTIVE		(1 << 30)
 #define PIPECONF_DSIPLL_LOCK		(1 << 29)
 #define PIPEACONF_SINGLE_WIDE		0
 #define PIPEACONF_PIPE_UNLOCKED		0
@@ -498,10 +525,12 @@
 #define PIPE_VBLANK_INTERRUPT_ENABLE		(1UL << 17)
 #define PIPE_START_VBLANK_INTERRUPT_ENABLE	(1UL << 18)
 #define PIPE_TE_ENABLE				(1UL << 22)
+#define PIPE_LEGACY_BLC_EVENT_ENABLE		(1UL << 22)
 #define PIPE_DPST_EVENT_ENABLE			(1UL << 23)
 #define PIPE_VSYNC_ENABL			(1UL << 25)
 #define PIPE_HDMI_AUDIO_UNDERRUN		(1UL << 26)
 #define PIPE_HDMI_AUDIO_BUFFER_DONE		(1UL << 27)
+#define PIPE_FIFO_UNDERRUN			(1UL << 31)
 #define PIPE_HDMI_AUDIO_INT_MASK		(PIPE_HDMI_AUDIO_UNDERRUN | \
 						PIPE_HDMI_AUDIO_BUFFER_DONE)
 #define PIPE_EVENT_MASK ((1 << 29)|(1 << 28)|(1 << 27)|(1 << 26)|(1 << 24)|(1 << 23)|(1 << 22)|(1 << 21)|(1 << 20)|(1 << 16))
@@ -521,38 +550,6 @@
 #define HISTOGRAM_INT_CTRL_CLEAR		(1UL << 30)
 #define DPST_YUV_LUMA_MODE			0
 
-struct dpst_ie_histogram_control {
-	union {
-		uint32_t data;
-		struct {
-			uint32_t bin_reg_index:7;
-			uint32_t reserved:4;
-			uint32_t bin_reg_func_select:1;
-			uint32_t sync_to_phase_in:1;
-			uint32_t alt_enhancement_mode:2;
-			uint32_t reserved1:1;
-			uint32_t sync_to_phase_in_count:8;
-			uint32_t histogram_mode_select:1;
-			uint32_t reserved2:4;
-			uint32_t ie_pipe_assignment:1;
-			uint32_t ie_mode_table_enabled:1;
-			uint32_t ie_histogram_enable:1;
-		};
-	};
-};
-
-struct dpst_guardband {
-	union {
-		uint32_t data;
-		struct {
-			uint32_t guardband:22;
-			uint32_t guardband_interrupt_delay:8;
-			uint32_t interrupt_status:1;
-			uint32_t interrupt_enable:1;
-		};
-	};
-};
-
 #define PIPEAFRAMEHIGH		0x70040
 #define PIPEAFRAMEPIXEL		0x70044
 #define PIPEBFRAMEHIGH		0x71040
@@ -566,12 +563,27 @@ struct dpst_guardband {
 #define PIPE_PIXEL_MASK		0x00ffffff
 #define PIPE_PIXEL_SHIFT	0
 
+#define FW_BLC_SELF		0x20e0
+#define FW_BLC_SELF_EN          (1<<15)
+
 #define DSPARB			0x70030
 #define DSPFW1			0x70034
+#define DSP_FIFO_SR_WM_MASK		0xFF800000
+#define DSP_FIFO_SR_WM_SHIFT		23
+#define CURSOR_B_FIFO_WM_MASK		0x003F0000
+#define CURSOR_B_FIFO_WM_SHIFT		16
 #define DSPFW2			0x70038
+#define CURSOR_A_FIFO_WM_MASK		0x3F00
+#define CURSOR_A_FIFO_WM_SHIFT		8
+#define DSP_PLANE_C_FIFO_WM_MASK	0x7F
+#define DSP_PLANE_C_FIFO_WM_SHIFT	0
 #define DSPFW3			0x7003c
 #define DSPFW4			0x70050
 #define DSPFW5			0x70054
+#define DSP_PLANE_B_FIFO_WM1_SHIFT	24
+#define DSP_PLANE_A_FIFO_WM1_SHIFT	16
+#define CURSOR_B_FIFO_WM1_SHIFT		8
+#define CURSOR_FIFO_SR_WM1_SHIFT	0
 #define DSPFW6			0x70058
 #define DSPCHICKENBIT		0x70400
 #define DSPACNTR		0x70180
@@ -745,17 +757,9 @@ struct dpst_guardband {
  * MOORESTOWN delta registers
  */
 #define MRST_DPLL_A		0x0f014
-#define MDFLD_DPLL_B		0x0f018
-#define MDFLD_INPUT_REF_SEL		(1 << 14)
-#define MDFLD_VCO_SEL			(1 << 16)
 #define DPLLA_MODE_LVDS			(2 << 26)	/* mrst */
-#define MDFLD_PLL_LATCHEN		(1 << 28)
-#define MDFLD_PWR_GATE_EN		(1 << 30)
-#define MDFLD_P1_MASK			(0x1FF << 17)
 #define MRST_FPA0		0x0f040
 #define MRST_FPA1		0x0f044
-#define MDFLD_DPLL_DIV0		0x0f048
-#define MDFLD_DPLL_DIV1		0x0f04c
 #define MRST_PERF_MODE		0x020f4
 
 /*
@@ -804,7 +808,6 @@ struct dpst_guardband {
 
 #define MRST_DSPABASE		0x7019c
 #define MRST_DSPBBASE		0x7119c
-#define MDFLD_DSPCBASE		0x7219c
 
 /*
  * Moorestown registers.
@@ -886,7 +889,6 @@ struct dpst_guardband {
 #define DEVICE_RESET_REG		0xb01C
 #define DPI_RESOLUTION_REG		0xb020
 #define RES_V_POS				0x10
-#define DBI_RESOLUTION_REG		0xb024 /* Reserved for MDFLD */
 #define HORIZ_SYNC_PAD_COUNT_REG	0xb028
 #define HORIZ_BACK_PORCH_COUNT_REG	0xb02C
 #define HORIZ_FRONT_PORCH_COUNT_REG	0xb030
@@ -1252,6 +1254,16 @@ No status bits are changed.
 # define SB_BYTE_ENABLE_SHIFT                   4
 # define SB_BUSY                                (1 << 0)
 
+#define DSPCLK_GATE_D		0x6200
+# define VRHUNIT_CLOCK_GATE_DISABLE		(1 << 28) /* Fixed value on CDV */
+# define DPOUNIT_CLOCK_GATE_DISABLE		(1 << 11)
+# define DPIOUNIT_CLOCK_GATE_DISABLE		(1 << 6)
+# define DPUNIT_PIPEB_GATE_DISABLE		(1 << 30)
+# define DPUNIT_PIPEA_GATE_DISABLE		(1 << 25)
+# define DPCUNIT_CLOCK_GATE_DISABLE		(1 << 24)
+# define DPLSUNIT_CLOCK_GATE_DISABLE		(1 << 13)
+
+#define RAMCLK_GATE_D		0x6210
 
 /* 32-bit value read/written from the DPIO reg. */
 #define SB_DATA		0x02104 /* cedarview */
@@ -1281,6 +1293,15 @@ No status bits are changed.
 #define SB_N_CB_TUNE_MASK			PSB_MASK(25, 24)
 #define SB_N_CB_TUNE_SHIFT			24
 
+/* the bit 14:13 is used to select between the different reference clock for Pipe A/B */
+#define SB_REF_DPLLA		0x8010
+#define SB_REF_DPLLB		0x8030
+#define	REF_CLK_MASK		(0x3 << 13)
+#define REF_CLK_CORE		(0 << 13)
+#define REF_CLK_DPLL		(1 << 13)
+#define REF_CLK_DPLLA		(2 << 13)
+/* For the DPLL B, it will use the reference clk from DPLL A when using (2 << 13) */
+
 #define _SB_REF_A		0x8018
 #define _SB_REF_B		0x8038
 #define SB_REF_SFR(pipe)	_PIPE(pipe, _SB_REF_A, _SB_REF_B)
@@ -1304,6 +1325,167 @@ No status bits are changed.
 
 #define LANE_PLL_MASK		(0x7 << 20)
 #define LANE_PLL_ENABLE		(0x3 << 20)
+#define LANE_PLL_PIPE(p)	(((p) == 0) ? (1 << 21) : (0 << 21))
 
+#define DP_B				0x64100
+#define DP_C				0x64200
+
+#define   DP_PORT_EN			(1 << 31)
+#define   DP_PIPEB_SELECT		(1 << 30)
+#define   DP_PIPE_MASK			(1 << 30)
+
+/* Link training mode - select a suitable mode for each stage */
+#define   DP_LINK_TRAIN_PAT_1		(0 << 28)
+#define   DP_LINK_TRAIN_PAT_2		(1 << 28)
+#define   DP_LINK_TRAIN_PAT_IDLE	(2 << 28)
+#define   DP_LINK_TRAIN_OFF		(3 << 28)
+#define   DP_LINK_TRAIN_MASK		(3 << 28)
+#define   DP_LINK_TRAIN_SHIFT		28
+
+/* Signal voltages. These are mostly controlled by the other end */
+#define   DP_VOLTAGE_0_4		(0 << 25)
+#define   DP_VOLTAGE_0_6		(1 << 25)
+#define   DP_VOLTAGE_0_8		(2 << 25)
+#define   DP_VOLTAGE_1_2		(3 << 25)
+#define   DP_VOLTAGE_MASK		(7 << 25)
+#define   DP_VOLTAGE_SHIFT		25
+
+/* Signal pre-emphasis levels, like voltages, the other end tells us what
+ * they want
+ */
+#define   DP_PRE_EMPHASIS_0		(0 << 22)
+#define   DP_PRE_EMPHASIS_3_5		(1 << 22)
+#define   DP_PRE_EMPHASIS_6		(2 << 22)
+#define   DP_PRE_EMPHASIS_9_5		(3 << 22)
+#define   DP_PRE_EMPHASIS_MASK		(7 << 22)
+#define   DP_PRE_EMPHASIS_SHIFT		22
+
+/* How many wires to use. I guess 3 was too hard */
+#define   DP_PORT_WIDTH_1		(0 << 19)
+#define   DP_PORT_WIDTH_2		(1 << 19)
+#define   DP_PORT_WIDTH_4		(3 << 19)
+#define   DP_PORT_WIDTH_MASK		(7 << 19)
+
+/* Mystic DPCD version 1.1 special mode */
+#define   DP_ENHANCED_FRAMING		(1 << 18)
+
+/** locked once port is enabled */
+#define   DP_PORT_REVERSAL		(1 << 15)
+
+/** sends the clock on lane 15 of the PEG for debug */
+#define   DP_CLOCK_OUTPUT_ENABLE	(1 << 13)
+
+#define   DP_SCRAMBLING_DISABLE		(1 << 12)
+#define   DP_SCRAMBLING_DISABLE_IRONLAKE	(1 << 7)
+
+/** limit RGB values to avoid confusing TVs */
+#define   DP_COLOR_RANGE_16_235		(1 << 8)
+
+/** Turn on the audio link */
+#define   DP_AUDIO_OUTPUT_ENABLE	(1 << 6)
+
+/** vs and hs sync polarity */
+#define   DP_SYNC_VS_HIGH		(1 << 4)
+#define   DP_SYNC_HS_HIGH		(1 << 3)
+
+/** A fantasy */
+#define   DP_DETECTED			(1 << 2)
+
+/** The aux channel provides a way to talk to the
+ * signal sink for DDC etc. Max packet size supported
+ * is 20 bytes in each direction, hence the 5 fixed
+ * data registers
+ */
+#define DPB_AUX_CH_CTL			0x64110
+#define DPB_AUX_CH_DATA1		0x64114
+#define DPB_AUX_CH_DATA2		0x64118
+#define DPB_AUX_CH_DATA3		0x6411c
+#define DPB_AUX_CH_DATA4		0x64120
+#define DPB_AUX_CH_DATA5		0x64124
+
+#define DPC_AUX_CH_CTL			0x64210
+#define DPC_AUX_CH_DATA1		0x64214
+#define DPC_AUX_CH_DATA2		0x64218
+#define DPC_AUX_CH_DATA3		0x6421c
+#define DPC_AUX_CH_DATA4		0x64220
+#define DPC_AUX_CH_DATA5		0x64224
+
+#define   DP_AUX_CH_CTL_SEND_BUSY	    (1 << 31)
+#define   DP_AUX_CH_CTL_DONE		    (1 << 30)
+#define   DP_AUX_CH_CTL_INTERRUPT	    (1 << 29)
+#define   DP_AUX_CH_CTL_TIME_OUT_ERROR	    (1 << 28)
+#define   DP_AUX_CH_CTL_TIME_OUT_400us	    (0 << 26)
+#define   DP_AUX_CH_CTL_TIME_OUT_600us	    (1 << 26)
+#define   DP_AUX_CH_CTL_TIME_OUT_800us	    (2 << 26)
+#define   DP_AUX_CH_CTL_TIME_OUT_1600us	    (3 << 26)
+#define   DP_AUX_CH_CTL_TIME_OUT_MASK	    (3 << 26)
+#define   DP_AUX_CH_CTL_RECEIVE_ERROR	    (1 << 25)
+#define   DP_AUX_CH_CTL_MESSAGE_SIZE_MASK    (0x1f << 20)
+#define   DP_AUX_CH_CTL_MESSAGE_SIZE_SHIFT   20
+#define   DP_AUX_CH_CTL_PRECHARGE_2US_MASK   (0xf << 16)
+#define   DP_AUX_CH_CTL_PRECHARGE_2US_SHIFT  16
+#define   DP_AUX_CH_CTL_AUX_AKSV_SELECT	    (1 << 15)
+#define   DP_AUX_CH_CTL_MANCHESTER_TEST	    (1 << 14)
+#define   DP_AUX_CH_CTL_SYNC_TEST	    (1 << 13)
+#define   DP_AUX_CH_CTL_DEGLITCH_TEST	    (1 << 12)
+#define   DP_AUX_CH_CTL_PRECHARGE_TEST	    (1 << 11)
+#define   DP_AUX_CH_CTL_BIT_CLOCK_2X_MASK    (0x7ff)
+#define   DP_AUX_CH_CTL_BIT_CLOCK_2X_SHIFT   0
+
+/*
+ * Computing GMCH M and N values for the Display Port link
+ *
+ * GMCH M/N = dot clock * bytes per pixel / ls_clk * # of lanes
+ *
+ * ls_clk (we assume) is the DP link clock (1.62 or 2.7 GHz)
+ *
+ * The GMCH value is used internally
+ *
+ * bytes_per_pixel is the number of bytes coming out of the plane,
+ * which is after the LUTs, so we want the bytes for our color format.
+ * For our current usage, this is always 3, one byte for R, G and B.
+ */
+
+#define _PIPEA_GMCH_DATA_M			0x70050
+#define _PIPEB_GMCH_DATA_M			0x71050
+
+/* Transfer unit size for display port - 1, default is 0x3f (for TU size 64) */
+#define   PIPE_GMCH_DATA_M_TU_SIZE_MASK		(0x3f << 25)
+#define   PIPE_GMCH_DATA_M_TU_SIZE_SHIFT	25
+
+#define   PIPE_GMCH_DATA_M_MASK			(0xffffff)
+
+#define _PIPEA_GMCH_DATA_N			0x70054
+#define _PIPEB_GMCH_DATA_N			0x71054
+#define   PIPE_GMCH_DATA_N_MASK			(0xffffff)
+
+/*
+ * Computing Link M and N values for the Display Port link
+ *
+ * Link M / N = pixel_clock / ls_clk
+ *
+ * (the DP spec calls pixel_clock the 'strm_clk')
+ *
+ * The Link value is transmitted in the Main Stream
+ * Attributes and VB-ID.
+ */
+
+#define _PIPEA_DP_LINK_M				0x70060
+#define _PIPEB_DP_LINK_M				0x71060
+#define   PIPEA_DP_LINK_M_MASK			(0xffffff)
+
+#define _PIPEA_DP_LINK_N				0x70064
+#define _PIPEB_DP_LINK_N				0x71064
+#define   PIPEA_DP_LINK_N_MASK			(0xffffff)
+
+#define PIPE_GMCH_DATA_M(pipe) _PIPE(pipe, _PIPEA_GMCH_DATA_M, _PIPEB_GMCH_DATA_M)
+#define PIPE_GMCH_DATA_N(pipe) _PIPE(pipe, _PIPEA_GMCH_DATA_N, _PIPEB_GMCH_DATA_N)
+#define PIPE_DP_LINK_M(pipe) _PIPE(pipe, _PIPEA_DP_LINK_M, _PIPEB_DP_LINK_M)
+#define PIPE_DP_LINK_N(pipe) _PIPE(pipe, _PIPEA_DP_LINK_N, _PIPEB_DP_LINK_N)
+
+#define   PIPE_BPC_MASK				(7 << 5)
+#define   PIPE_8BPC				(0 << 5)
+#define   PIPE_10BPC				(1 << 5)
+#define   PIPE_6BPC				(2 << 5)
 
 #endif

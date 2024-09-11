@@ -1,9 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
- *  drivers/s390/char/tape_char.c
  *    character device frontend for tape device driver
  *
  *  S390 and zSeries version
- *    Copyright IBM Corp. 2001,2006
+ *    Copyright IBM Corp. 2001, 2006
  *    Author(s): Carsten Otte <cotte@de.ibm.com>
  *		 Michael Holzheu <holzheu@de.ibm.com>
  *		 Tuan Ngo-Anh <ngoanh@de.ibm.com>
@@ -19,7 +19,7 @@
 #include <linux/mtio.h>
 #include <linux/compat.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #define TAPE_DBF_AREA	tape_core_dbf
 
@@ -161,11 +161,6 @@ tapechar_read(struct file *filp, char __user *data, size_t count, loff_t *ppos)
 	if (rc)
 		return rc;
 
-#ifdef CONFIG_S390_TAPE_BLOCK
-	/* Changes position. */
-	device->blk_data.medium_changed = 1;
-#endif
-
 	DBF_EVENT(6, "TCHAR:nbytes: %lx\n", block_size);
 	/* Let the discipline build the ccw chain. */
 	request = device->discipline->read_block(device, block_size);
@@ -217,11 +212,6 @@ tapechar_write(struct file *filp, const char __user *data, size_t count, loff_t 
 	rc = tapechar_check_idalbuffer(device, block_size);
 	if (rc)
 		return rc;
-
-#ifdef CONFIG_S390_TAPE_BLOCK
-	/* Changes position. */
-	device->blk_data.medium_changed = 1;
-#endif
 
 	DBF_EVENT(6,"TCHAR:nbytes: %lx\n", block_size);
 	DBF_EVENT(6, "TCHAR:nblocks: %x\n", nblocks);
@@ -284,13 +274,13 @@ tapechar_open (struct inode *inode, struct file *filp)
 	int minor, rc;
 
 	DBF_EVENT(6, "TCHAR:open: %i:%i\n",
-		imajor(filp->f_path.dentry->d_inode),
-		iminor(filp->f_path.dentry->d_inode));
+		imajor(file_inode(filp)),
+		iminor(file_inode(filp)));
 
-	if (imajor(filp->f_path.dentry->d_inode) != tapechar_major)
+	if (imajor(file_inode(filp)) != tapechar_major)
 		return -ENODEV;
 
-	minor = iminor(filp->f_path.dentry->d_inode);
+	minor = iminor(file_inode(filp));
 	device = tape_find_device(minor / TAPE_MINORS_PER_DEV);
 	if (IS_ERR(device)) {
 		DBF_EVENT(3, "TCHAR:open: tape_find_device() failed\n");
@@ -300,7 +290,7 @@ tapechar_open (struct inode *inode, struct file *filp)
 	rc = tape_open(device);
 	if (rc == 0) {
 		filp->private_data = device;
-		nonseekable_open(inode, filp);
+		stream_open(inode, filp);
 	} else
 		tape_put_device(device);
 
@@ -351,14 +341,14 @@ tapechar_release(struct inode *inode, struct file *filp)
  */
 static int
 __tapechar_ioctl(struct tape_device *device,
-		 unsigned int no, unsigned long data)
+		 unsigned int no, void __user *data)
 {
 	int rc;
 
 	if (no == MTIOCTOP) {
 		struct mtop op;
 
-		if (copy_from_user(&op, (char __user *) data, sizeof(op)) != 0)
+		if (copy_from_user(&op, data, sizeof(op)) != 0)
 			return -EFAULT;
 		if (op.mt_count < 0)
 			return -EINVAL;
@@ -379,13 +369,8 @@ __tapechar_ioctl(struct tape_device *device,
 			case MTBSFM:
 			case MTFSFM:
 			case MTSEEK:
-#ifdef CONFIG_S390_TAPE_BLOCK
-				device->blk_data.medium_changed = 1;
-#endif
 				if (device->required_tapemarks)
 					tape_std_terminate_write(device);
-			default:
-				;
 		}
 		rc = tape_mtop(device, op.mt_op, op.mt_count);
 
@@ -405,9 +390,7 @@ __tapechar_ioctl(struct tape_device *device,
 		if (rc < 0)
 			return rc;
 		pos.mt_blkno = rc;
-		if (copy_to_user((char __user *) data, &pos, sizeof(pos)) != 0)
-			return -EFAULT;
-		return 0;
+		return put_user_mtpos(data, &pos);
 	}
 	if (no == MTIOCGET) {
 		/* MTIOCGET: query the tape drive status. */
@@ -416,7 +399,9 @@ __tapechar_ioctl(struct tape_device *device,
 		memset(&get, 0, sizeof(get));
 		get.mt_type = MT_ISUNKNOWN;
 		get.mt_resid = 0 /* device->devstat.rescnt */;
-		get.mt_dsreg = device->tape_state;
+		get.mt_dsreg =
+			((device->char_data.block_size << MT_ST_BLKSIZE_SHIFT)
+			 & MT_ST_BLKSIZE_MASK);
 		/* FIXME: mt_gstat, mt_erreg, mt_fileno */
 		get.mt_gstat = 0;
 		get.mt_erreg = 0;
@@ -435,15 +420,12 @@ __tapechar_ioctl(struct tape_device *device,
 			get.mt_blkno = rc;
 		}
 
-		if (copy_to_user((char __user *) data, &get, sizeof(get)) != 0)
-			return -EFAULT;
-
-		return 0;
+		return put_user_mtget(data, &get);
 	}
 	/* Try the discipline ioctl function. */
 	if (device->discipline->ioctl_fn == NULL)
 		return -EINVAL;
-	return device->discipline->ioctl_fn(device, no, data);
+	return device->discipline->ioctl_fn(device, no, (unsigned long)data);
 }
 
 static long
@@ -456,7 +438,7 @@ tapechar_ioctl(struct file *filp, unsigned int no, unsigned long data)
 
 	device = (struct tape_device *) filp->private_data;
 	mutex_lock(&device->mutex);
-	rc = __tapechar_ioctl(device, no, data);
+	rc = __tapechar_ioctl(device, no, (void __user *)data);
 	mutex_unlock(&device->mutex);
 	return rc;
 }
@@ -466,23 +448,17 @@ static long
 tapechar_compat_ioctl(struct file *filp, unsigned int no, unsigned long data)
 {
 	struct tape_device *device = filp->private_data;
-	int rval = -ENOIOCTLCMD;
-	unsigned long argp;
+	long rc;
 
-	/* The 'arg' argument of any ioctl function may only be used for
-	 * pointers because of the compat pointer conversion.
-	 * Consider this when adding new ioctls.
-	 */
-	argp = (unsigned long) compat_ptr(data);
-	if (device->discipline->ioctl_fn) {
-		mutex_lock(&device->mutex);
-		rval = device->discipline->ioctl_fn(device, no, argp);
-		mutex_unlock(&device->mutex);
-		if (rval == -EINVAL)
-			rval = -ENOIOCTLCMD;
-	}
+	if (no == MTIOCPOS32)
+		no = MTIOCPOS;
+	else if (no == MTIOCGET32)
+		no = MTIOCGET;
 
-	return rval;
+	mutex_lock(&device->mutex);
+	rc = __tapechar_ioctl(device, no, compat_ptr(data));
+	mutex_unlock(&device->mutex);
+	return rc;
 }
 #endif /* CONFIG_COMPAT */
 

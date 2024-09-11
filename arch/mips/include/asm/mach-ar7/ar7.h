@@ -1,20 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Copyright (C) 2006,2007 Felix Fietkau <nbd@openwrt.org>
  * Copyright (C) 2006,2007 Eugene Konev <ejka@openwrt.org>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
 #ifndef __AR7_H__
@@ -40,9 +27,9 @@
 #define AR7_REGS_USB	(AR7_REGS_BASE + 0x1200)
 #define AR7_REGS_RESET	(AR7_REGS_BASE + 0x1600)
 #define AR7_REGS_PINSEL (AR7_REGS_BASE + 0x160C)
-#define AR7_REGS_VLYNQ0	(AR7_REGS_BASE + 0x1800)
+#define AR7_REGS_VLYNQ0 (AR7_REGS_BASE + 0x1800)
 #define AR7_REGS_DCL	(AR7_REGS_BASE + 0x1a00)
-#define AR7_REGS_VLYNQ1	(AR7_REGS_BASE + 0x1c00)
+#define AR7_REGS_VLYNQ1 (AR7_REGS_BASE + 0x1c00)
 #define AR7_REGS_MDIO	(AR7_REGS_BASE + 0x1e00)
 #define AR7_REGS_IRQ	(AR7_REGS_BASE + 0x2400)
 #define AR7_REGS_MAC1	(AR7_REGS_BASE + 0x2800)
@@ -52,7 +39,7 @@
 #define UR8_REGS_UART1	(AR7_REGS_BASE + 0x0f00)
 
 /* Titan registers */
-#define TITAN_REGS_ESWITCH_BASE	(0x08640000)
+#define TITAN_REGS_ESWITCH_BASE (0x08640000)
 #define TITAN_REGS_MAC0		(TITAN_REGS_ESWITCH_BASE)
 #define TITAN_REGS_MAC1		(TITAN_REGS_ESWITCH_BASE + 0x0800)
 #define TITAN_REGS_MDIO		(TITAN_REGS_ESWITCH_BASE + 0x02000)
@@ -72,9 +59,9 @@
 
 /* GPIO control registers */
 #define AR7_GPIO_INPUT	0x0
-#define AR7_GPIO_OUTPUT	0x4
+#define AR7_GPIO_OUTPUT 0x4
 #define AR7_GPIO_DIR	0x8
-#define AR7_GPIO_ENABLE	0xc
+#define AR7_GPIO_ENABLE 0xc
 #define TITAN_GPIO_INPUT_0	0x0
 #define TITAN_GPIO_INPUT_1	0x4
 #define TITAN_GPIO_OUTPUT_0	0x8
@@ -88,10 +75,10 @@
 #define AR7_CHIP_7200	0x2b
 #define AR7_CHIP_7300	0x05
 #define AR7_CHIP_TITAN	0x07
-#define TITAN_CHIP_1050	0x0f
-#define TITAN_CHIP_1055	0x0e
-#define TITAN_CHIP_1056	0x0d
-#define TITAN_CHIP_1060	0x07
+#define TITAN_CHIP_1050 0x0f
+#define TITAN_CHIP_1055 0x0e
+#define TITAN_CHIP_1056 0x0d
+#define TITAN_CHIP_1060 0x07
 
 /* Interrupts */
 #define AR7_IRQ_UART0	15
@@ -143,10 +130,6 @@ static inline u8 ar7_chip_rev(void)
 	return (readl((void *)KSEG1ADDR(AR7_REGS_GPIO + (ar7_is_titan() ? 0x24 :
 		0x14))) >> 16) & 0xff;
 }
-
-struct clk {
-	unsigned int	rate;
-};
 
 static inline int ar7_has_high_cpmac(void)
 {
@@ -202,5 +185,9 @@ static inline void ar7_device_off(u32 bit)
 
 int __init ar7_gpio_init(void);
 void __init ar7_init_clocks(void);
+
+/* Board specific GPIO functions */
+int ar7_gpio_enable(unsigned gpio);
+int ar7_gpio_disable(unsigned gpio);
 
 #endif /* __AR7_H__ */

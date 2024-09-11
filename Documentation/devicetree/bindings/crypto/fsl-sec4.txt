@@ -9,6 +9,7 @@ Copyright (C) 2008-2011 Freescale Semiconductor Inc.
    -Run Time Integrity Check (RTIC) Node
    -Run Time Integrity Check (RTIC) Memory Node
    -Secure Non-Volatile Storage (SNVS) Node
+   -Secure Non-Volatile Storage (SNVS) Low Power (LP) RTC Node
    -Full Example
 
 NOTE: the SEC 4 is also known as Freescale's Cryptographic Accelerator
@@ -55,6 +56,18 @@ PROPERTIES
       Value type: <string>
       Definition: Must include "fsl,sec-v4.0"
 
+   - fsl,sec-era
+      Usage: optional
+      Value type: <u32>
+      Definition: A standard property. Define the 'ERA' of the SEC
+          device.
+
+   - entropy-delay
+      Usage: optional
+      Value type: <u32>
+      Definition: A property which specifies the length (in system clocks)
+          of each Entropy sample taken.
+
    - #address-cells
        Usage: required
        Value type: <u32>
@@ -92,26 +105,57 @@ PROPERTIES
            of the specifier is defined by the binding document
            describing the node's interrupt parent.
 
-   - interrupt-parent
-      Usage: (required if interrupt property is defined)
-      Value type: <phandle>
-      Definition: A single <phandle> value that points
-          to the interrupt parent to which the child domain
-          is being mapped.
+   - clocks
+      Usage: required if SEC 4.0 requires explicit enablement of clocks
+      Value type: <prop_encoded-array>
+      Definition:  A list of phandle and clock specifier pairs describing
+          the clocks required for enabling and disabling SEC 4.0.
 
-   Note: All other standard properties (see the ePAPR) are allowed
-   but are optional.
+   - clock-names
+      Usage: required if SEC 4.0 requires explicit enablement of clocks
+      Value type: <string>
+      Definition: A list of clock name strings in the same order as the
+          clocks property.
+
+   Note: All other standard properties (see the Devicetree Specification)
+   are allowed but are optional.
 
 
 EXAMPLE
+
+iMX6QDL/SX requires four clocks
+
 	crypto@300000 {
 		compatible = "fsl,sec-v4.0";
+		fsl,sec-era = <2>;
 		#address-cells = <1>;
 		#size-cells = <1>;
 		reg = <0x300000 0x10000>;
 		ranges = <0 0x300000 0x10000>;
 		interrupt-parent = <&mpic>;
 		interrupts = <92 2>;
+		clocks = <&clks IMX6QDL_CLK_CAAM_MEM>,
+			 <&clks IMX6QDL_CLK_CAAM_ACLK>,
+			 <&clks IMX6QDL_CLK_CAAM_IPG>,
+			 <&clks IMX6QDL_CLK_EIM_SLOW>;
+		clock-names = "mem", "aclk", "ipg", "emi_slow";
+	};
+
+
+iMX6UL does only require three clocks
+
+	crypto: crypto@2140000 {
+		compatible = "fsl,sec-v4.0";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		reg = <0x2140000 0x3c000>;
+		ranges = <0 0x2140000 0x3c000>;
+		interrupts = <GIC_SPI 48 IRQ_TYPE_LEVEL_HIGH>;
+
+		clocks = <&clks IMX6UL_CLK_CAAM_MEM>,
+			 <&clks IMX6UL_CLK_CAAM_ACLK>,
+			 <&clks IMX6UL_CLK_CAAM_IPG>;
+		clock-names = "mem", "aclk", "ipg";
 	};
 
 =====================================================================
@@ -154,13 +198,6 @@ Job Ring (JR) Node
            of the specifier is defined by the binding document
            describing the node's interrupt parent.
 
-   - interrupt-parent
-      Usage: (required if interrupt property is defined)
-      Value type: <phandle>
-      Definition: A single <phandle> value that points
-          to the interrupt parent to which the child domain
-          is being mapped.
-
 EXAMPLE
 	jr@1000 {
 		compatible = "fsl,sec-v4.0-job-ring";
@@ -170,6 +207,26 @@ EXAMPLE
 		interrupts = <88 2>;
 	};
 
+
+=====================================================================
+Secure memory (SM) Node
+
+  - compatible
+      Usage: required
+      Value type: <string>
+      Definition: Must include "fsl,imx6q-caam-sm"
+
+  - reg
+      Usage: required
+      Value type: <prop-encoded-array>
+      Definition: Specifies a two SM parameters:  an offset from
+          the parent physical address and the length the SM registers.
+
+EXAMPLE
+  caam_sm: caam-sm@100000 {
+    compatible = "fsl,imx6q-caam-sm";
+    reg = <0x100000 0x4000>;
+  };
 
 =====================================================================
 Run Time Integrity Check (RTIC) Node
@@ -280,12 +337,13 @@ Secure Non-Volatile Storage (SNVS) Node
     Node defines address range and the associated
     interrupt for the SNVS function.  This function
     monitors security state information & reports
-    security violations.
+    security violations. This also included rtc,
+    system power off and ON/OFF key.
 
   - compatible
       Usage: required
       Value type: <string>
-      Definition: Must include "fsl,sec-v4.0-mon".
+      Definition: Must include "fsl,sec-v4.0-mon" and "syscon".
 
   - reg
       Usage: required
@@ -293,6 +351,82 @@ Secure Non-Volatile Storage (SNVS) Node
       Definition: A standard property.  Specifies the physical
           address and length of the SEC4 configuration
           registers.
+
+   - #address-cells
+       Usage: required
+       Value type: <u32>
+       Definition: A standard property.  Defines the number of cells
+           for representing physical addresses in child nodes.  Must
+           have a value of 1.
+
+   - #size-cells
+       Usage: required
+       Value type: <u32>
+       Definition: A standard property.  Defines the number of cells
+           for representing the size of physical addresses in
+           child nodes.  Must have a value of 1.
+
+   - ranges
+       Usage: required
+       Value type: <prop-encoded-array>
+       Definition: A standard property.  Specifies the physical address
+           range of the SNVS register space.  A triplet that includes
+           the child address, parent address, & length.
+
+   - interrupts
+      Usage: optional
+      Value type: <prop_encoded-array>
+      Definition:  Specifies the interrupts generated by this
+           device.  The value of the interrupts property
+           consists of one interrupt specifier. The format
+           of the specifier is defined by the binding document
+           describing the node's interrupt parent.
+
+EXAMPLE
+	sec_mon@314000 {
+		compatible = "fsl,sec-v4.0-mon", "syscon";
+		reg = <0x314000 0x1000>;
+		ranges = <0 0x314000 0x1000>;
+		interrupt-parent = <&mpic>;
+		interrupts = <93 2>;
+	};
+
+=====================================================================
+CAAM SNVS Node
+  Load the CAAM SNVS node.
+
+  - compatible
+      Usage: required
+      Value type: <string>
+      Definition: Must include "fsl,imx6q-caam-snvs".
+
+  - reg
+      Usage: required
+      Value type: <prop-encoded-array>
+      Definition: A standard property.  Specifies the physical
+          address and length of the SEC4 configuration
+          registers.
+
+   - clocks
+      Usage: required if i.MX clk driver defines an SNVS clock
+      Value type: <prop_encoded-array>
+      Definition:  Phandle and clock specifier pair describing
+          the clock required for enabling and disabling SNVS.
+
+   - clock-names
+      Usage: required if i.MX clk driver defines an SNVS clock
+      Value type: <string>
+      Definition: Clock name string corresponding to the clock
+          in the clocks property.
+
+=====================================================================
+Security Violation (SECVIO) Node
+  Reports security violations.
+
+  - compatible
+      Usage: required
+      Value type: <string>
+      Definition: Must include "fsl,imx6q-caam-secvio".
 
    - interrupts
       Usage: required
@@ -303,19 +437,139 @@ Secure Non-Volatile Storage (SNVS) Node
            of the specifier is defined by the binding document
            describing the node's interrupt parent.
 
-   - interrupt-parent
-      Usage: (required if interrupt property is defined)
-      Value type: <phandle>
-      Definition: A single <phandle> value that points
-          to the interrupt parent to which the child domain
-          is being mapped.
+  - jtag-tamper
+       Usage: optional-but-recommended
+       Value type: <string>
+       Definition:
+           Security tamper on the JTAG
+           Must include "enabled" to enable.
+
+  - watchdog-tamper
+       Usage: optional-but-recommended
+       Value type: <string>
+       Definition:
+           Security tamper on the watchdog
+           Must include "enabled" to enable.
+
+  - internal-boot-tamper
+       Usage: optional-but-recommended
+       Value type: <string>
+       Definition:
+           Security tamper on the internal boot
+           Must include "enabled" to enable.
+
+  - external-pin-tamper
+       Usage: optional-but-recommended
+       Value type: <string>
+       Definition:
+           Security tamper on the external pin
+           Must include "enabled" to enable.
 
 EXAMPLE
-	sec_mon@314000 {
-		compatible = "fsl,sec-v4.0-mon";
-		reg = <0x314000 0x1000>;
-		interrupt-parent = <&mpic>;
+	irq_sec_vio: caam_secvio {
+		compatible = "fsl,imx6q-caam-secvio";
+		interrupts = <GIC_SPI 20 IRQ_TYPE_LEVEL_HIGH>;
+		jtag-tamper = "disabled";
+		watchdog-tamper = "enabled";
+		internal-boot-tamper = "enabled";
+		external-pin-tamper = "disabled";
+	};
+
+
+=====================================================================
+Secure Non-Volatile Storage (SNVS) Low Power (LP) RTC Node
+
+  A SNVS child node that defines SNVS LP RTC.
+
+  - compatible
+      Usage: required
+      Value type: <string>
+      Definition: Must include "fsl,sec-v4.0-mon-rtc-lp".
+
+  - interrupts
+      Usage: required
+      Value type: <prop_encoded-array>
+      Definition: Specifies the interrupts generated by this
+	   device.  The value of the interrupts property
+	   consists of one interrupt specifier. The format
+	   of the specifier is defined by the binding document
+	   describing the node's interrupt parent.
+
+ - regmap
+	Usage: required
+	Value type: <phandle>
+	Definition: this is phandle to the register map node.
+
+ - offset
+	Usage: option
+	value type: <u32>
+	Definition: LP register offset. default it is 0x34.
+
+  - clocks
+      Usage: optional
+      Value type: <prop-encoded-array>
+      Definition: A standard property.  Specifies the source clock for
+	  snvs register access. If i.MX clk driver defines the clock node,
+	  it needs user to specify the clocks in device tree for all modules
+	  with snvs LP/HP registers access. The modules involved snvs LP/HP
+	  registers access are snvs-power key, snvs-rtc, and caam.
+
+EXAMPLE
+	sec_mon_rtc_lp@1 {
+		compatible = "fsl,sec-v4.0-mon-rtc-lp";
 		interrupts = <93 2>;
+		regmap = <&snvs>;
+		offset = <0x34>;
+		clocks = <&clks IMX7D_SNVS_CLK>;
+		clock-names = "snvs-rtc";
+	};
+
+=====================================================================
+System ON/OFF key driver
+
+  The snvs-pwrkey is designed to enable POWER key function which controlled
+  by SNVS ONOFF, the driver can report the status of POWER key and wakeup
+  system if pressed after system suspend.
+
+  - compatible:
+      Usage: required
+      Value type: <string>
+      Definition: Mush include "fsl,sec-v4.0-pwrkey".
+
+  - interrupts:
+      Usage: required
+      Value type: <prop_encoded-array>
+      Definition: The SNVS ON/OFF interrupt number to the CPU(s).
+
+  - linux,keycode:
+      Usage: option
+      Value type: <int>
+      Definition: Keycode to emit, KEY_POWER by default.
+
+  - wakeup-source:
+      Usage: option
+      Value type: <boo>
+      Definition: Button can wake-up the system.
+
+  - emulate-press:
+     Usage: option
+     Value type: <bool>
+     Definition: For ONOFF key only trigger interrupt after release but
+                 not press like i.mx6q/dl/sl, emulate press event before
+		 release.
+
+ - regmap:
+      Usage: required:
+      Value type: <phandle>
+      Definition: this is phandle to the register map node.
+
+EXAMPLE:
+	snvs-pwrkey@020cc000 {
+		compatible = "fsl,sec-v4.0-pwrkey";
+		regmap = <&snvs>;
+		interrupts = <0 4 0x4>
+	        linux,keycode = <116>; /* KEY_POWER */
+		wakeup-source;
 	};
 
 =====================================================================
@@ -390,8 +644,38 @@ FULL EXAMPLE
 	sec_mon: sec_mon@314000 {
 		compatible = "fsl,sec-v4.0-mon";
 		reg = <0x314000 0x1000>;
-		interrupt-parent = <&mpic>;
-		interrupts = <93 2>;
+		ranges = <0 0x314000 0x1000>;
+
+		sec_mon_rtc_lp@34 {
+			compatible = "fsl,sec-v4.0-mon-rtc-lp";
+			regmap = <&sec_mon>;
+			offset = <0x34>;
+			interrupts = <93 2>;
+			clocks = <&clks IMX7D_SNVS_CLK>;
+			clock-names = "snvs-rtc";
+		};
+
+		snvs-pwrkey@020cc000 {
+			compatible = "fsl,sec-v4.0-pwrkey";
+			regmap = <&sec_mon>;
+			interrupts = <0 4 0x4>;
+			linux,keycode = <116>; /* KEY_POWER */
+			wakeup-source;
+		};
+	};
+
+	caam_snvs: caam-snvs@30370000 {
+		compatible = "fsl,imx6q-caam-snvs";
+		reg = <0x30370000 0x10000>;
+	};
+
+	irq_sec_vio: caam_secvio {
+		compatible = "fsl,imx6q-caam-secvio";
+		interrupts = <GIC_SPI 20 IRQ_TYPE_LEVEL_HIGH>;
+		jtag-tamper = "disabled";
+		watchdog-tamper = "enabled";
+		internal-boot-tamper = "enabled";
+		external-pin-tamper = "disabled";
 	};
 
 =====================================================================

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  net/dccp/feat.c
  *
@@ -7,7 +8,6 @@
  *  Rewrote from scratch, some bits from earlier code by
  *  Copyright (c) 2005 Andrea Bittau <a.bittau@cs.ucl.ac.uk>
  *
- *
  *  ASSUMPTIONS
  *  -----------
  *  o Feature negotiation is coordinated with connection setup (as in TCP), wild
@@ -16,11 +16,6 @@
  *  o All currently known SP features have 1-byte quantities. If in the future
  *    extensions of RFCs 4340..42 define features with item lengths larger than
  *    one byte, a feature-specific extension of the code will be required.
- *
- *  This program is free software; you can redistribute it and/or
- *  modify it under the terms of the GNU General Public License
- *  as published by the Free Software Foundation; either version
- *  2 of the License, or (at your option) any later version.
  */
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -170,6 +165,8 @@ static const struct {
 
 /**
  * dccp_feat_index  -  Hash function to map feature number into array position
+ * @feat_num: feature to hash, one of %dccp_feature_numbers
+ *
  * Returns consecutive array index or -1 if the feature is not understood.
  */
 static int dccp_feat_index(u8 feat_num)
@@ -350,6 +347,7 @@ static int __dccp_feat_activate(struct sock *sk, const int idx,
  * @feat_num: feature to activate, one of %dccp_feature_numbers
  * @local: whether local (1) or remote (0) @feat_num is meant
  * @fval: the value (SP or NN) to activate, or NULL to use the default value
+ *
  * For general use this function is preferable over __dccp_feat_activate().
  */
 static int dccp_feat_activate(struct sock *sk, u8 feat_num, bool local,
@@ -373,7 +371,7 @@ static int dccp_feat_clone_sp_val(dccp_feat_val *fval, u8 const *val, u8 len)
 		fval->sp.vec = kmemdup(val, len, gfp_any());
 		if (fval->sp.vec == NULL) {
 			fval->sp.len = 0;
-			return -ENOBUFS;
+			return -ENOMEM;
 		}
 	}
 	return 0;
@@ -446,6 +444,7 @@ static struct dccp_feat_entry *dccp_feat_list_lookup(struct list_head *fn_list,
  * @head:  list to add to
  * @feat:  feature number
  * @local: whether the local (1) or remote feature with number @feat is meant
+ *
  * This is the only constructor and serves to ensure the above invariants.
  */
 static struct dccp_feat_entry *
@@ -476,7 +475,7 @@ static struct dccp_feat_entry *
  * @fn_list: feature-negotiation list to update
  * @feat: one of %dccp_feature_numbers
  * @local: whether local (1) or remote (0) @feat_num is meant
- * @needs_mandatory: whether to use Mandatory feature negotiation options
+ * @mandatory: whether to use Mandatory feature negotiation options
  * @fval: pointer to NN/SP value to be inserted (will be copied)
  */
 static int dccp_feat_push_change(struct list_head *fn_list, u8 feat, u8 local,
@@ -504,6 +503,7 @@ static int dccp_feat_push_change(struct list_head *fn_list, u8 feat, u8 local,
  * @feat: one of %dccp_feature_numbers
  * @local: whether local (1) or remote (0) @feat_num is being confirmed
  * @fval: pointer to NN/SP value to be inserted or NULL
+ *
  * Returns 0 on success, a Reset code for further processing otherwise.
  */
 static int dccp_feat_push_confirm(struct list_head *fn_list, u8 feat, u8 local,
@@ -569,6 +569,8 @@ cloning_failed:
 
 /**
  * dccp_feat_valid_nn_length  -  Enforce length constraints on NN options
+ * @feat_num: feature to return length of, one of %dccp_feature_numbers
+ *
  * Length is between 0 and %DCCP_OPTVAL_MAXLEN. Used for outgoing packets only,
  * incoming options are accepted as long as their values are valid.
  */
@@ -691,6 +693,7 @@ int dccp_feat_insert_opts(struct dccp_sock *dp, struct dccp_request_sock *dreq,
  * @feat: an NN feature from %dccp_feature_numbers
  * @mandatory: use Mandatory option if 1
  * @nn_val: value to register (restricted to 4 bytes)
+ *
  * Note that NN features are local by definition (RFC 4340, 6.3.2).
  */
 static int __feat_register_nn(struct list_head *fn, u8 feat,
@@ -734,7 +737,12 @@ static int __feat_register_sp(struct list_head *fn, u8 feat, u8 is_local,
 	if (dccp_feat_clone_sp_val(&fval, sp_val, sp_len))
 		return -ENOMEM;
 
-	return dccp_feat_push_change(fn, feat, is_local, mandatory, &fval);
+	if (dccp_feat_push_change(fn, feat, is_local, mandatory, &fval)) {
+		kfree(fval.sp.vec);
+		return -ENOMEM;
+	}
+
+	return 0;
 }
 
 /**
@@ -760,6 +768,7 @@ int dccp_feat_register_sp(struct sock *sk, u8 feat, u8 is_local,
  * dccp_feat_nn_get  -  Query current/pending value of NN feature
  * @sk: DCCP socket of an established connection
  * @feat: NN feature number from %dccp_feature_numbers
+ *
  * For a known NN feature, returns value currently being negotiated, or
  * current (confirmed) value if no negotiation is going on.
  */
@@ -790,6 +799,7 @@ EXPORT_SYMBOL_GPL(dccp_feat_nn_get);
  * @sk: DCCP socket of an established connection
  * @feat: NN feature number from %dccp_feature_numbers
  * @nn_val: the new value to use
+ *
  * This function is used to communicate NN updates out-of-band.
  */
 int dccp_feat_signal_nn_change(struct sock *sk, u8 feat, u64 nn_val)
@@ -930,6 +940,7 @@ static const struct ccid_dependency *dccp_feat_ccid_deps(u8 ccid, bool is_local)
  * @fn: feature-negotiation list to update
  * @id: CCID number to track
  * @is_local: whether TX CCID (1) or RX CCID (0) is meant
+ *
  * This function needs to be called after registering all other features.
  */
 static int dccp_feat_propagate_ccid(struct list_head *fn, u8 id, bool is_local)
@@ -953,6 +964,7 @@ static int dccp_feat_propagate_ccid(struct list_head *fn, u8 id, bool is_local)
 /**
  * dccp_feat_finalise_settings  -  Finalise settings before starting negotiation
  * @dp: client or listening socket (settings will be inherited)
+ *
  * This is called after all registrations (socket initialisation, sysctls, and
  * sockopt calls), and before sending the first packet containing Change options
  * (ie. client-Request or server-Response), to ensure internal consistency.
@@ -984,6 +996,8 @@ int dccp_feat_finalise_settings(struct dccp_sock *dp)
 
 /**
  * dccp_feat_server_ccid_dependencies  -  Resolve CCID-dependent features
+ * @dreq: server socket to resolve
+ *
  * It is the server which resolves the dependencies once the CCID has been
  * fully negotiated. If no CCID has been negotiated, it uses the default CCID.
  */
@@ -1021,6 +1035,10 @@ static int dccp_feat_preflist_match(u8 *servlist, u8 slen, u8 *clilist, u8 clen)
 
 /**
  * dccp_feat_prefer  -  Move preferred entry to the start of array
+ * @preferred_value: entry to move to start of array
+ * @array: array of preferred entries
+ * @array_len: size of the array
+ *
  * Reorder the @array_len elements in @array so that @preferred_value comes
  * first. Returns >0 to indicate that @preferred_value does occur in @array.
  */
@@ -1042,7 +1060,7 @@ static u8 dccp_feat_prefer(u8 preferred_value, u8 *array, u8 array_len)
 
 /**
  * dccp_feat_reconcile  -  Reconcile SP preference lists
- *  @fval: SP list to reconcile into
+ *  @fv: SP list to reconcile into
  *  @arr: received SP preference list
  *  @len: length of @arr in bytes
  *  @is_server: whether this side is the server (and @fv is the server's list)
@@ -1284,6 +1302,7 @@ confirmation_failed:
  * @feat:	NN number, one of %dccp_feature_numbers
  * @val:	NN value
  * @len:	length of @val in bytes
+ *
  * This function combines the functionality of change_recv/confirm_recv, with
  * the following differences (reset codes are the same):
  *    - cleanup after receiving the Confirm;
@@ -1379,6 +1398,7 @@ fast_path_failed:
  * @feat: one of %dccp_feature_numbers
  * @val: value contents of @opt
  * @len: length of @val in bytes
+ *
  * Returns 0 on success, a Reset code for ending the connection otherwise.
  */
 int dccp_feat_parse_options(struct sock *sk, struct dccp_request_sock *dreq,
@@ -1393,7 +1413,8 @@ int dccp_feat_parse_options(struct sock *sk, struct dccp_request_sock *dreq,
 	 *	Negotiation during connection setup
 	 */
 	case DCCP_LISTEN:
-		server = true;			/* fall through */
+		server = true;
+		fallthrough;
 	case DCCP_REQUESTING:
 		switch (opt) {
 		case DCCPO_CHANGE_L:
@@ -1419,6 +1440,8 @@ int dccp_feat_parse_options(struct sock *sk, struct dccp_request_sock *dreq,
 
 /**
  * dccp_feat_init  -  Seed feature negotiation with host-specific defaults
+ * @sk: Socket to initialize.
+ *
  * This initialises global defaults, depending on the value of the sysctls.
  * These can later be overridden by registering changes via setsockopt calls.
  * The last link in the chain is finalise_settings, to make sure that between
@@ -1461,9 +1484,12 @@ int dccp_feat_init(struct sock *sk)
 	 * singleton values (which always leads to failure).
 	 * These settings can still (later) be overridden via sockopts.
 	 */
-	if (ccid_get_builtin_ccids(&tx.val, &tx.len) ||
-	    ccid_get_builtin_ccids(&rx.val, &rx.len))
+	if (ccid_get_builtin_ccids(&tx.val, &tx.len))
 		return -ENOBUFS;
+	if (ccid_get_builtin_ccids(&rx.val, &rx.len)) {
+		kfree(tx.val);
+		return -ENOBUFS;
+	}
 
 	if (!dccp_feat_prefer(sysctl_dccp_tx_ccid, tx.val, tx.len) ||
 	    !dccp_feat_prefer(sysctl_dccp_rx_ccid, rx.val, rx.len))

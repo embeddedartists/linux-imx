@@ -1,45 +1,11 @@
+// SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0
 /******************************************************************************
  *
  * Module Name: dswstate - Dispatcher parse tree walk management routines
  *
+ * Copyright (C) 2000 - 2021, Intel Corp.
+ *
  *****************************************************************************/
-
-/*
- * Copyright (C) 2000 - 2011, Intel Corp.
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions, and the following disclaimer,
- *    without modification.
- * 2. Redistributions in binary form must reproduce at minimum a disclaimer
- *    substantially similar to the "NO WARRANTY" disclaimer below
- *    ("Disclaimer") and any redistribution must be conditioned upon
- *    including a substantially similar Disclaimer requirement for further
- *    binary redistribution.
- * 3. Neither the names of the above-listed copyright holders nor the names
- *    of any contributors may be used to endorse or promote products derived
- *    from this software without specific prior written permission.
- *
- * Alternatively, this software may be distributed under the terms of the
- * GNU General Public License ("GPL") version 2 as published by the Free
- * Software Foundation.
- *
- * NO WARRANTY
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * HOLDERS OR CONTRIBUTORS BE LIABLE FOR SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
- * IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGES.
- */
 
 #include <acpi/acpi.h>
 #include "accommon.h"
@@ -51,14 +17,15 @@
 ACPI_MODULE_NAME("dswstate")
 
   /* Local prototypes */
-static acpi_status acpi_ds_result_stack_push(struct acpi_walk_state *ws);
-static acpi_status acpi_ds_result_stack_pop(struct acpi_walk_state *ws);
+static acpi_status
+acpi_ds_result_stack_push(struct acpi_walk_state *walk_state);
+static acpi_status acpi_ds_result_stack_pop(struct acpi_walk_state *walk_state);
 
 /*******************************************************************************
  *
  * FUNCTION:    acpi_ds_result_pop
  *
- * PARAMETERS:  Object              - Where to return the popped object
+ * PARAMETERS:  object              - Where to return the popped object
  *              walk_state          - Current Walk state
  *
  * RETURN:      Status
@@ -132,7 +99,7 @@ acpi_ds_result_pop(union acpi_operand_object **object,
  *
  * FUNCTION:    acpi_ds_result_push
  *
- * PARAMETERS:  Object              - Where to return the popped object
+ * PARAMETERS:  object              - Where to return the popped object
  *              walk_state          - Current Walk state
  *
  * RETURN:      Status
@@ -142,8 +109,8 @@ acpi_ds_result_pop(union acpi_operand_object **object,
  ******************************************************************************/
 
 acpi_status
-acpi_ds_result_push(union acpi_operand_object * object,
-		    struct acpi_walk_state * walk_state)
+acpi_ds_result_push(union acpi_operand_object *object,
+		    struct acpi_walk_state *walk_state)
 {
 	union acpi_generic_state *state;
 	acpi_status status;
@@ -296,7 +263,7 @@ static acpi_status acpi_ds_result_stack_pop(struct acpi_walk_state *walk_state)
  *
  * FUNCTION:    acpi_ds_obj_stack_push
  *
- * PARAMETERS:  Object              - Object to push
+ * PARAMETERS:  object              - Object to push
  *              walk_state          - Current Walk state
  *
  * RETURN:      Status
@@ -306,7 +273,7 @@ static acpi_status acpi_ds_result_stack_pop(struct acpi_walk_state *walk_state)
  ******************************************************************************/
 
 acpi_status
-acpi_ds_obj_stack_push(void *object, struct acpi_walk_state * walk_state)
+acpi_ds_obj_stack_push(void *object, struct acpi_walk_state *walk_state)
 {
 	ACPI_FUNCTION_NAME(ds_obj_stack_push);
 
@@ -347,13 +314,13 @@ acpi_ds_obj_stack_push(void *object, struct acpi_walk_state * walk_state)
  *
  * RETURN:      Status
  *
- * DESCRIPTION: Pop this walk's object stack.  Objects on the stack are NOT
+ * DESCRIPTION: Pop this walk's object stack. Objects on the stack are NOT
  *              deleted by this routine.
  *
  ******************************************************************************/
 
 acpi_status
-acpi_ds_obj_stack_pop(u32 pop_count, struct acpi_walk_state * walk_state)
+acpi_ds_obj_stack_pop(u32 pop_count, struct acpi_walk_state *walk_state)
 {
 	u32 i;
 
@@ -410,7 +377,7 @@ acpi_ds_obj_stack_pop_and_delete(u32 pop_count,
 		return;
 	}
 
-	for (i = (s32) pop_count - 1; i >= 0; i--) {
+	for (i = (s32)pop_count - 1; i >= 0; i--) {
 		if (walk_state->num_operands == 0) {
 			return;
 		}
@@ -433,7 +400,7 @@ acpi_ds_obj_stack_pop_and_delete(u32 pop_count,
  *
  * FUNCTION:    acpi_ds_get_current_walk_state
  *
- * PARAMETERS:  Thread          - Get current active state for this Thread
+ * PARAMETERS:  thread          - Get current active state for this Thread
  *
  * RETURN:      Pointer to the current walk state
  *
@@ -462,7 +429,7 @@ struct acpi_walk_state *acpi_ds_get_current_walk_state(struct acpi_thread_state
  * FUNCTION:    acpi_ds_push_walk_state
  *
  * PARAMETERS:  walk_state      - State to push
- *              Thread          - Thread state object
+ *              thread          - Thread state object
  *
  * RETURN:      None
  *
@@ -486,12 +453,12 @@ acpi_ds_push_walk_state(struct acpi_walk_state *walk_state,
  *
  * FUNCTION:    acpi_ds_pop_walk_state
  *
- * PARAMETERS:  Thread      - Current thread state
+ * PARAMETERS:  thread      - Current thread state
  *
  * RETURN:      A walk_state object popped from the thread's stack
  *
  * DESCRIPTION: Remove and return the walkstate object that is at the head of
- *              the walk stack for the given walk list.  NULL indicates that
+ *              the walk stack for the given walk list. NULL indicates that
  *              the list is empty.
  *
  ******************************************************************************/
@@ -525,20 +492,23 @@ struct acpi_walk_state *acpi_ds_pop_walk_state(struct acpi_thread_state *thread)
  * FUNCTION:    acpi_ds_create_walk_state
  *
  * PARAMETERS:  owner_id        - ID for object creation
- *              Origin          - Starting point for this walk
+ *              origin          - Starting point for this walk
  *              method_desc     - Method object
- *              Thread          - Current thread state
+ *              thread          - Current thread state
  *
  * RETURN:      Pointer to the new walk state.
  *
- * DESCRIPTION: Allocate and initialize a new walk state.  The current walk
+ * DESCRIPTION: Allocate and initialize a new walk state. The current walk
  *              state is set to this new state.
  *
  ******************************************************************************/
 
-struct acpi_walk_state *acpi_ds_create_walk_state(acpi_owner_id owner_id, union acpi_parse_object
-						  *origin, union acpi_operand_object
-						  *method_desc, struct acpi_thread_state
+struct acpi_walk_state *acpi_ds_create_walk_state(acpi_owner_id owner_id,
+						  union acpi_parse_object
+						  *origin,
+						  union acpi_operand_object
+						  *method_desc,
+						  struct acpi_thread_state
 						  *thread)
 {
 	struct acpi_walk_state *walk_state;
@@ -560,7 +530,7 @@ struct acpi_walk_state *acpi_ds_create_walk_state(acpi_owner_id owner_id, union 
 
 	/* Init the method args/local */
 
-#if (!defined (ACPI_NO_METHOD_EXECUTION) && !defined (ACPI_CONSTANT_EVAL_ONLY))
+#ifndef ACPI_CONSTANT_EVAL_ONLY
 	acpi_ds_method_data_init(walk_state);
 #endif
 
@@ -578,11 +548,11 @@ struct acpi_walk_state *acpi_ds_create_walk_state(acpi_owner_id owner_id, union 
  * FUNCTION:    acpi_ds_init_aml_walk
  *
  * PARAMETERS:  walk_state      - New state to be initialized
- *              Op              - Current parse op
+ *              op              - Current parse op
  *              method_node     - Control method NS node, if any
  *              aml_start       - Start of AML
  *              aml_length      - Length of AML
- *              Info            - Method info block (params, etc.)
+ *              info            - Method info block (params, etc.)
  *              pass_number     - 1, 2, or 3
  *
  * RETURN:      Status
@@ -653,7 +623,7 @@ acpi_ds_init_aml_walk(struct acpi_walk_state *walk_state,
 		/*
 		 * Setup the current scope.
 		 * Find a Named Op that has a namespace node associated with it.
-		 * search upwards from this Op.  Current scope is the first
+		 * search upwards from this Op. Current scope is the first
 		 * Op with a namespace node.
 		 */
 		extra_op = parser_state->start_op;
@@ -704,13 +674,13 @@ void acpi_ds_delete_walk_state(struct acpi_walk_state *walk_state)
 	ACPI_FUNCTION_TRACE_PTR(ds_delete_walk_state, walk_state);
 
 	if (!walk_state) {
-		return;
+		return_VOID;
 	}
 
 	if (walk_state->descriptor_type != ACPI_DESC_TYPE_WALK) {
 		ACPI_ERROR((AE_INFO, "%p is not a valid walk state",
 			    walk_state));
-		return;
+		return_VOID;
 	}
 
 	/* There should not be any open scopes */

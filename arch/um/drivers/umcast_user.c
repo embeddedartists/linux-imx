@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * user-mode-linux networking multicast transport
  * Copyright (C) 2001 - 2007 Jeff Dike (jdike@{addtoit,linux.intel}.com)
@@ -8,7 +9,6 @@
  * James Leu (jleu@mindspring.net).
  * Copyright (C) 2001 by various other people who didn't put their name here.
  *
- * Licensed under the GPL.
  *
  */
 
@@ -16,8 +16,8 @@
 #include <errno.h>
 #include <netinet/in.h>
 #include "umcast.h"
-#include "net_user.h"
-#include "um_malloc.h"
+#include <net_user.h>
+#include <um_malloc.h>
 
 static struct sockaddr_in *new_addr(char *addr, unsigned short port)
 {

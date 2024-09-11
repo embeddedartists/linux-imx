@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  linux/arch/arm/mach-mmp/sram.c
  *
@@ -7,14 +8,10 @@
  *  All Rights Reserved
  *
  *  Add for mmp sram support - Leo Yan <leoy@marvell.com>
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License version 2 as
- *  published by the Free Software Foundation.
- *
  */
 
 #include <linux/module.h>
+#include <linux/mod_devicetable.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
@@ -22,7 +19,7 @@
 #include <linux/slab.h>
 #include <linux/genalloc.h>
 
-#include <mach/sram.h>
+#include <linux/platform_data/dma-mmp_tdma.h>
 
 struct sram_bank_info {
 	char *pool_name;
@@ -61,14 +58,14 @@ struct gen_pool *sram_get_gpool(char *pool_name)
 }
 EXPORT_SYMBOL(sram_get_gpool);
 
-static int __devinit sram_probe(struct platform_device *pdev)
+static int sram_probe(struct platform_device *pdev)
 {
 	struct sram_platdata *pdata = pdev->dev.platform_data;
 	struct sram_bank_info *info;
 	struct resource *res;
 	int ret = 0;
 
-	if (!pdata && !pdata->pool_name)
+	if (!pdata || !pdata->pool_name)
 		return -ENODEV;
 
 	info = kzalloc(sizeof(*info), GFP_KERNEL);
@@ -125,7 +122,7 @@ out:
 	return ret;
 }
 
-static int __devexit sram_remove(struct platform_device *pdev)
+static int sram_remove(struct platform_device *pdev)
 {
 	struct sram_bank_info *info;
 

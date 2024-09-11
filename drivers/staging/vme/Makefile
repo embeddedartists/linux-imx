@@ -1,8 +1,2 @@
-#
-# Makefile for the VME bridge device drivers.
-#
-obj-$(CONFIG_VME_BUS)		+= vme.o
-
-obj-y				+= bridges/
+# SPDX-License-Identifier: GPL-2.0
 obj-y				+= devices/
-obj-y				+= boards/

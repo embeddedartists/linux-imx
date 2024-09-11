@@ -115,9 +115,9 @@ static int agp_find_max(void)
 	long memory, index, result;
 
 #if PAGE_SHIFT < 20
-	memory = totalram_pages >> (20 - PAGE_SHIFT);
+	memory = totalram_pages() >> (20 - PAGE_SHIFT);
 #else
-	memory = totalram_pages << (PAGE_SHIFT - 20);
+	memory = totalram_pages() << (PAGE_SHIFT - 20);
 #endif
 	index = 1;
 
@@ -194,10 +194,10 @@ static int agp_backend_initialize(struct agp_bridge_data *bridge)
 
 err_out:
 	if (bridge->driver->needs_scratch_page) {
-		void *va = page_address(bridge->scratch_page_page);
+		struct page *page = bridge->scratch_page_page;
 
-		bridge->driver->agp_destroy_page(va, AGP_PAGE_DESTROY_UNMAP);
-		bridge->driver->agp_destroy_page(va, AGP_PAGE_DESTROY_FREE);
+		bridge->driver->agp_destroy_page(page, AGP_PAGE_DESTROY_UNMAP);
+		bridge->driver->agp_destroy_page(page, AGP_PAGE_DESTROY_FREE);
 	}
 	if (got_gatt)
 		bridge->driver->free_gatt_table(bridge);
@@ -221,10 +221,10 @@ static void agp_backend_cleanup(struct agp_bridge_data *bridge)
 
 	if (bridge->driver->agp_destroy_page &&
 	    bridge->driver->needs_scratch_page) {
-		void *va = page_address(bridge->scratch_page_page);
+		struct page *page = bridge->scratch_page_page;
 
-		bridge->driver->agp_destroy_page(va, AGP_PAGE_DESTROY_UNMAP);
-		bridge->driver->agp_destroy_page(va, AGP_PAGE_DESTROY_FREE);
+		bridge->driver->agp_destroy_page(page, AGP_PAGE_DESTROY_UNMAP);
+		bridge->driver->agp_destroy_page(page, AGP_PAGE_DESTROY_FREE);
 	}
 }
 
@@ -356,7 +356,7 @@ static __init int agp_setup(char *s)
 __setup("agp=", agp_setup);
 #endif
 
-MODULE_AUTHOR("Dave Jones <davej@redhat.com>");
+MODULE_AUTHOR("Dave Jones, Jeff Hartmann");
 MODULE_DESCRIPTION("AGP GART driver");
 MODULE_LICENSE("GPL and additional rights");
 MODULE_ALIAS_MISCDEV(AGPGART_MINOR);

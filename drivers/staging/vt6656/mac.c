@@ -1,23 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright (c) 1996, 2003 VIA Networking Technologies, Inc.
  * All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- *
- *
- * File: mac.c
  *
  * Purpose:  MAC routines
  *
@@ -30,449 +14,170 @@
  * Revision History:
  */
 
-#include "tmacro.h"
-#include "tether.h"
+#include <linux/etherdevice.h>
+
 #include "desc.h"
 #include "mac.h"
-#include "80211hdr.h"
-#include "rndis.h"
-#include "control.h"
+#include "usbpipe.h"
 
-/*---------------------  Static Definitions -------------------------*/
-//static int          msglevel                =MSG_LEVEL_DEBUG;
-static int          msglevel                =MSG_LEVEL_INFO;
-/*---------------------  Static Classes  ----------------------------*/
-
-/*---------------------  Static Variables  --------------------------*/
-
-/*---------------------  Static Functions  --------------------------*/
-
-/*---------------------  Export Variables  --------------------------*/
-
-/*---------------------  Export Functions  --------------------------*/
-
-
-
-
-
-/*
- * Description:
- *      Set this hash index into multicast address register bit
- *
- * Parameters:
- *  In:
- *      byHashIdx   - Hash index to set
- *  Out:
- *      none
- *
- * Return Value: none
- *
- */
-void MACvSetMultiAddrByHash (PSDevice pDevice, BYTE byHashIdx)
+int vnt_mac_set_filter(struct vnt_private *priv, u64 mc_filter)
 {
-    unsigned int            uByteIdx;
-    BYTE            byBitMask;
-    BYTE            pbyData[2];
+	__le64 le_mc = cpu_to_le64(mc_filter);
 
-
-    // calculate byte position
-    uByteIdx = byHashIdx / 8;
-
-    // calculate bit position
-    byBitMask = 1;
-    byBitMask <<= (byHashIdx % 8);
-    // turn on the bit
-
-    pbyData[0] = byBitMask;
-    pbyData[1] = byBitMask;
-
-    CONTROLnsRequestOut(pDevice,
-                        MESSAGE_TYPE_WRITE_MASK,
-                        (WORD) (MAC_REG_MAR0 + uByteIdx),
-                        MESSAGE_REQUEST_MACREG,
-                        2,
-                        pbyData);
+	return vnt_control_out(priv, MESSAGE_TYPE_WRITE, MAC_REG_MAR0,
+			       MESSAGE_REQUEST_MACREG, sizeof(le_mc),
+			       (u8 *)&le_mc);
 }
 
-
-
-/*
- * Description:
- *      Write MAC Multicast Address Mask
- *
- * Parameters:
- *  In:
- *      uByteidx    - Index of Mask
- *      byData      - Mask Value to write
- *  Out:
- *      none
- *
- * Return Value: none
- *
- */
-void MACvWriteMultiAddr(PSDevice pDevice, unsigned int uByteIdx, BYTE byData)
+int vnt_mac_shutdown(struct vnt_private *priv)
 {
-    BYTE            byData1;
-
-    byData1 = byData;
-    CONTROLnsRequestOut(pDevice,
-                        MESSAGE_TYPE_WRITE,
-                        (WORD) (MAC_REG_MAR0 + uByteIdx),
-                        MESSAGE_REQUEST_MACREG,
-                        1,
-                        &byData1);
+	return vnt_control_out(priv, MESSAGE_TYPE_MACSHUTDOWN, 0, 0, 0, NULL);
 }
 
-
-/*
- * Description:
- *      Shut Down MAC
- *
- * Parameters:
- *  In:
- *  Out:
- *      none
- *
- *
- */
-void MACbShutdown(PSDevice pDevice)
+int vnt_mac_set_bb_type(struct vnt_private *priv, u8 type)
 {
-    CONTROLnsRequestOutAsyn(pDevice,
-                        MESSAGE_TYPE_MACSHUTDOWN,
-                        0,
-                        0,
-                        0,
-                        NULL
-                        );
+	u8 data[2];
+
+	data[0] = type;
+	data[1] = EnCFG_BBType_MASK;
+
+	return vnt_control_out(priv, MESSAGE_TYPE_WRITE_MASK, MAC_REG_ENCFG0,
+			       MESSAGE_REQUEST_MACREG,	ARRAY_SIZE(data),
+			       data);
 }
 
-void MACvSetBBType(PSDevice pDevice,BYTE byType)
+int vnt_mac_disable_keyentry(struct vnt_private *priv, u8 entry_idx)
 {
-BYTE            pbyData[2];
-
-
-    pbyData[0] = byType;
-    pbyData[1] = EnCFG_BBType_MASK;
-
-    CONTROLnsRequestOut(pDevice,
-                        MESSAGE_TYPE_WRITE_MASK,
-                        MAC_REG_ENCFG0,
-                        MESSAGE_REQUEST_MACREG,
-                        2,
-                        pbyData
-                        );
+	return vnt_control_out(priv, MESSAGE_TYPE_CLRKEYENTRY, 0, 0,
+			       sizeof(entry_idx), &entry_idx);
 }
 
-void MACvSetMISCFifo (PSDevice pDevice, WORD wOffset, DWORD dwData)
+int vnt_mac_set_keyentry(struct vnt_private *priv, u16 key_ctl, u32 entry_idx,
+			 u32 key_idx, u8 *addr, u8 *key)
 {
-BYTE    pbyData[4];
+	struct vnt_mac_set_key set_key;
+	u16 offset;
 
-    if (wOffset > 273)
-        return;
-    pbyData[0] = (BYTE)dwData;
-    pbyData[1] = (BYTE)(dwData>>8);
-    pbyData[2] = (BYTE)(dwData>>16);
-    pbyData[3] = (BYTE)(dwData>>24);
+	offset = MISCFIFO_KEYETRY0;
+	offset += entry_idx * MISCFIFO_KEYENTRYSIZE;
 
-    CONTROLnsRequestOut(pDevice,
-                        MESSAGE_TYPE_WRITE_MISCFF,
-                        wOffset,
-                        0,
-                        4,
-                        pbyData
-                        );
+	set_key.u.write.key_ctl = cpu_to_le16(key_ctl);
+	ether_addr_copy(set_key.u.write.addr, addr);
+
+	/* swap over swap[0] and swap[1] to get correct write order */
+	swap(set_key.u.swap[0], set_key.u.swap[1]);
+
+	memcpy(set_key.key, key, WLAN_KEY_LEN_CCMP);
+
+	dev_dbg(&priv->usb->dev, "offset %d key ctl %d set key %24ph\n",
+		offset, key_ctl, (u8 *)&set_key);
+
+	return vnt_control_out(priv, MESSAGE_TYPE_SETKEY, offset,
+			       (u16)key_idx, sizeof(struct vnt_mac_set_key),
+			       (u8 *)&set_key);
 }
 
-/*
- * Description:
- *      Disable the Key Entry by MISCFIFO
- *
- * Parameters:
- *  In:
- *      dwIoBase        - Base Address for MAC
- *
- *  Out:
- *      none
- *
- * Return Value: none
- *
- */
-void MACvDisableKeyEntry(PSDevice pDevice, unsigned int uEntryIdx)
+int vnt_mac_reg_bits_off(struct vnt_private *priv, u8 reg_ofs, u8 bits)
 {
-WORD    wOffset;
-BYTE            byData;
+	u8 data[2];
 
+	data[0] = 0;
+	data[1] = bits;
 
-    byData = (BYTE) uEntryIdx;
-
-    wOffset = MISCFIFO_KEYETRY0;
-    wOffset += (uEntryIdx * MISCFIFO_KEYENTRYSIZE);
-
-    //VNSvOutPortW(dwIoBase + MAC_REG_MISCFFNDEX, wOffset);
-    //VNSvOutPortD(dwIoBase + MAC_REG_MISCFFDATA, 0);
-    //VNSvOutPortW(dwIoBase + MAC_REG_MISCFFCTL, MISCFFCTL_WRITE);
-
-    //issue write misc fifo command to device
-    CONTROLnsRequestOut(pDevice,
-                        MESSAGE_TYPE_CLRKEYENTRY,
-                        0,
-                        0,
-                        1,
-                        &byData
-                        );
+	return vnt_control_out(priv, MESSAGE_TYPE_WRITE_MASK, reg_ofs,
+			       MESSAGE_REQUEST_MACREG, ARRAY_SIZE(data), data);
 }
 
-
-/*
- * Description:
- *      Set the Key by MISCFIFO
- *
- * Parameters:
- *  In:
- *      dwIoBase        - Base Address for MAC
- *
- *  Out:
- *      none
- *
- * Return Value: none
- *
- */
-void MACvSetKeyEntry(PSDevice pDevice, WORD wKeyCtl,
-		     unsigned int uEntryIdx, unsigned int uKeyIdx,
-		     PBYTE pbyAddr, PDWORD pdwKey)
+int vnt_mac_reg_bits_on(struct vnt_private *priv, u8 reg_ofs, u8 bits)
 {
-PBYTE           pbyKey;
-WORD            wOffset;
-DWORD           dwData1,dwData2;
-int             ii;
-BYTE            pbyData[24];
+	u8 data[2];
 
-    if ( pDevice->byLocalID <= MAC_REVISION_A1 ) {
-        if ( pDevice->sMgmtObj.byCSSPK == KEY_CTL_CCMP )
-            return;
-    }
+	data[0] = bits;
+	data[1] = bits;
 
-    wOffset = MISCFIFO_KEYETRY0;
-    wOffset += (uEntryIdx * MISCFIFO_KEYENTRYSIZE);
-
-    dwData1 = 0;
-    dwData1 |= wKeyCtl;
-    dwData1 <<= 16;
-    dwData1 |= MAKEWORD(*(pbyAddr+4), *(pbyAddr+5));
-
-    DBG_PRT(MSG_LEVEL_DEBUG, KERN_INFO"1. wOffset: %d, Data: %lX, KeyCtl:%X\n", wOffset, dwData1, wKeyCtl);
-
-    //VNSvOutPortW(dwIoBase + MAC_REG_MISCFFNDEX, wOffset);
-    //VNSvOutPortD(dwIoBase + MAC_REG_MISCFFDATA, dwData);
-    //VNSvOutPortW(dwIoBase + MAC_REG_MISCFFCTL, MISCFFCTL_WRITE);
-
-    //wOffset++;
-
-    dwData2 = 0;
-    dwData2 |= *(pbyAddr+3);
-    dwData2 <<= 8;
-    dwData2 |= *(pbyAddr+2);
-    dwData2 <<= 8;
-    dwData2 |= *(pbyAddr+1);
-    dwData2 <<= 8;
-    dwData2 |= *(pbyAddr+0);
-
-    DBG_PRT(MSG_LEVEL_DEBUG, KERN_INFO"2. wOffset: %d, Data: %lX\n", wOffset, dwData2);
-
-    //VNSvOutPortW(dwIoBase + MAC_REG_MISCFFNDEX, wOffset);
-    //VNSvOutPortD(dwIoBase + MAC_REG_MISCFFDATA, dwData);
-    //VNSvOutPortW(dwIoBase + MAC_REG_MISCFFCTL, MISCFFCTL_WRITE);
-
-    //wOffset++;
-
-    //wOffset += (uKeyIdx * 4);
-/*    for (ii=0;ii<4;ii++) {
-        // alway push 128 bits
-        DBG_PRT(MSG_LEVEL_DEBUG, KERN_INFO"3.(%d) wOffset: %d, Data: %lX\n", ii, wOffset+ii, *pdwKey);
-        VNSvOutPortW(dwIoBase + MAC_REG_MISCFFNDEX, wOffset+ii);
-        VNSvOutPortD(dwIoBase + MAC_REG_MISCFFDATA, *pdwKey++);
-        VNSvOutPortW(dwIoBase + MAC_REG_MISCFFCTL, MISCFFCTL_WRITE);
-    }
-*/
-    pbyKey = (PBYTE)pdwKey;
-
-    pbyData[0] = (BYTE)dwData1;
-    pbyData[1] = (BYTE)(dwData1>>8);
-    pbyData[2] = (BYTE)(dwData1>>16);
-    pbyData[3] = (BYTE)(dwData1>>24);
-    pbyData[4] = (BYTE)dwData2;
-    pbyData[5] = (BYTE)(dwData2>>8);
-    pbyData[6] = (BYTE)(dwData2>>16);
-    pbyData[7] = (BYTE)(dwData2>>24);
-    for (ii = 8; ii < 24; ii++)
-	pbyData[ii] = *pbyKey++;
-
-    CONTROLnsRequestOut(pDevice,
-                        MESSAGE_TYPE_SETKEY,
-                        wOffset,
-                        (WORD)uKeyIdx,
-                        24,
-                        pbyData
-                        );
-
-
+	return vnt_control_out(priv, MESSAGE_TYPE_WRITE_MASK, reg_ofs,
+			       MESSAGE_REQUEST_MACREG, ARRAY_SIZE(data), data);
 }
 
-
-void MACvRegBitsOff(PSDevice pDevice, BYTE byRegOfs, BYTE byBits)
+int vnt_mac_write_word(struct vnt_private *priv, u8 reg_ofs, u16 word)
 {
-BYTE            pbyData[2];
+	u8 data[2];
 
-    pbyData[0] = 0;
-    pbyData[1] = byBits;
+	data[0] = (u8)(word & 0xff);
+	data[1] = (u8)(word >> 8);
 
-    CONTROLnsRequestOut(pDevice,
-                        MESSAGE_TYPE_WRITE_MASK,
-                        byRegOfs,
-                        MESSAGE_REQUEST_MACREG,
-                        2,
-                        pbyData
-                        );
+	return vnt_control_out(priv, MESSAGE_TYPE_WRITE, reg_ofs,
+			       MESSAGE_REQUEST_MACREG, ARRAY_SIZE(data), data);
 }
 
-
-void MACvRegBitsOn(PSDevice pDevice, BYTE byRegOfs, BYTE byBits)
+int vnt_mac_set_bssid_addr(struct vnt_private *priv, u8 *addr)
 {
-BYTE            pbyData[2];
-
-
-    pbyData[0] = byBits;
-    pbyData[1] = byBits;
-
-    CONTROLnsRequestOut(pDevice,
-                        MESSAGE_TYPE_WRITE_MASK,
-                        byRegOfs,
-                        MESSAGE_REQUEST_MACREG,
-                        2,
-                        pbyData
-                        );
+	return vnt_control_out(priv, MESSAGE_TYPE_WRITE, MAC_REG_BSSID0,
+			       MESSAGE_REQUEST_MACREG, ETH_ALEN, addr);
 }
 
-void MACvWriteWord(PSDevice pDevice, BYTE byRegOfs, WORD wData)
+int vnt_mac_enable_protect_mode(struct vnt_private *priv)
 {
-BYTE            pbyData[2];
+	u8 data[2];
 
+	data[0] = EnCFG_ProtectMd;
+	data[1] = EnCFG_ProtectMd;
 
-    pbyData[0] = (BYTE)(wData & 0xff);
-    pbyData[1] = (BYTE)(wData >> 8);
-
-    CONTROLnsRequestOut(pDevice,
-                        MESSAGE_TYPE_WRITE,
-                        byRegOfs,
-                        MESSAGE_REQUEST_MACREG,
-                        2,
-                        pbyData
-                        );
-
+	return vnt_control_out(priv, MESSAGE_TYPE_WRITE_MASK, MAC_REG_ENCFG0,
+			       MESSAGE_REQUEST_MACREG, ARRAY_SIZE(data), data);
 }
 
-void MACvWriteBSSIDAddress(PSDevice pDevice, PBYTE pbyEtherAddr)
+int vnt_mac_disable_protect_mode(struct vnt_private *priv)
 {
-BYTE            pbyData[6];
+	u8 data[2];
 
+	data[0] = 0;
+	data[1] = EnCFG_ProtectMd;
 
-    pbyData[0] = *((PBYTE)pbyEtherAddr);
-    pbyData[1] = *((PBYTE)pbyEtherAddr+1);
-    pbyData[2] = *((PBYTE)pbyEtherAddr+2);
-    pbyData[3] = *((PBYTE)pbyEtherAddr+3);
-    pbyData[4] = *((PBYTE)pbyEtherAddr+4);
-    pbyData[5] = *((PBYTE)pbyEtherAddr+5);
-
-    CONTROLnsRequestOut(pDevice,
-                        MESSAGE_TYPE_WRITE,
-                        MAC_REG_BSSID0,
-                        MESSAGE_REQUEST_MACREG,
-                        6,
-                        pbyData
-                        );
+	return vnt_control_out(priv, MESSAGE_TYPE_WRITE_MASK, MAC_REG_ENCFG0,
+			       MESSAGE_REQUEST_MACREG, ARRAY_SIZE(data), data);
 }
 
-void MACvEnableProtectMD(PSDevice pDevice)
+int vnt_mac_enable_barker_preamble_mode(struct vnt_private *priv)
 {
-BYTE            pbyData[2];
+	u8 data[2];
 
+	data[0] = EnCFG_BarkerPream;
+	data[1] = EnCFG_BarkerPream;
 
-    pbyData[0] = EnCFG_ProtectMd;
-    pbyData[1] = EnCFG_ProtectMd;
-
-    CONTROLnsRequestOut(pDevice,
-                        MESSAGE_TYPE_WRITE_MASK,
-                        MAC_REG_ENCFG0,
-                        MESSAGE_REQUEST_MACREG,
-                        2,
-                        pbyData
-                        );
+	return vnt_control_out(priv, MESSAGE_TYPE_WRITE_MASK, MAC_REG_ENCFG2,
+			       MESSAGE_REQUEST_MACREG, ARRAY_SIZE(data), data);
 }
 
-void MACvDisableProtectMD(PSDevice pDevice)
+int vnt_mac_disable_barker_preamble_mode(struct vnt_private *priv)
 {
-BYTE            pbyData[2];
+	u8 data[2];
 
+	data[0] = 0;
+	data[1] = EnCFG_BarkerPream;
 
-    pbyData[0] = 0;
-    pbyData[1] = EnCFG_ProtectMd;
-
-    CONTROLnsRequestOut(pDevice,
-                        MESSAGE_TYPE_WRITE_MASK,
-                        MAC_REG_ENCFG0,
-                        MESSAGE_REQUEST_MACREG,
-                        2,
-                        pbyData
-                        );
+	return vnt_control_out(priv, MESSAGE_TYPE_WRITE_MASK, MAC_REG_ENCFG2,
+			       MESSAGE_REQUEST_MACREG, ARRAY_SIZE(data), data);
 }
 
-void MACvEnableBarkerPreambleMd(PSDevice pDevice)
+int vnt_mac_set_beacon_interval(struct vnt_private *priv, u16 interval)
 {
-BYTE            pbyData[2];
+	u8 data[2];
 
+	data[0] = (u8)(interval & 0xff);
+	data[1] = (u8)(interval >> 8);
 
-    pbyData[0] = EnCFG_BarkerPream;
-    pbyData[1] = EnCFG_BarkerPream;
-
-    CONTROLnsRequestOut(pDevice,
-                        MESSAGE_TYPE_WRITE_MASK,
-                        MAC_REG_ENCFG2,
-                        MESSAGE_REQUEST_MACREG,
-                        2,
-                        pbyData
-                        );
+	return vnt_control_out(priv, MESSAGE_TYPE_WRITE, MAC_REG_BI,
+			       MESSAGE_REQUEST_MACREG, ARRAY_SIZE(data), data);
 }
 
-void MACvDisableBarkerPreambleMd(PSDevice pDevice)
+int vnt_mac_set_led(struct vnt_private *priv, u8 state, u8 led)
 {
-BYTE            pbyData[2];
+	u8 data[2];
 
+	data[0] = led;
+	data[1] = state;
 
-    pbyData[0] = 0;
-    pbyData[1] = EnCFG_BarkerPream;
-
-    CONTROLnsRequestOut(pDevice,
-                        MESSAGE_TYPE_WRITE_MASK,
-                        MAC_REG_ENCFG2,
-                        MESSAGE_REQUEST_MACREG,
-                        2,
-                        pbyData
-                        );
-}
-
-
-void MACvWriteBeaconInterval(PSDevice pDevice, WORD wInterval)
-{
-BYTE            pbyData[2];
-
-    pbyData[0] = (BYTE) (wInterval & 0xff);
-    pbyData[1] = (BYTE) (wInterval >> 8);
-
-    CONTROLnsRequestOut(pDevice,
-			MESSAGE_TYPE_WRITE,
-			MAC_REG_BI,
-			MESSAGE_REQUEST_MACREG,
-			2,
-			pbyData
-			);
+	return vnt_control_out(priv, MESSAGE_TYPE_WRITE_MASK, MAC_REG_PAPEDELAY,
+			       MESSAGE_REQUEST_MACREG, ARRAY_SIZE(data), data);
 }

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 #ifndef _ACKVEC_H
 #define _ACKVEC_H
 /*
@@ -6,9 +7,6 @@
  *  An implementation of Ack Vectors for the DCCP protocol
  *  Copyright (c) 2007 University of Aberdeen, Scotland, UK
  *  Copyright (c) 2005 Arnaldo Carvalho de Melo <acme@mandriva.com>
- *	This program is free software; you can redistribute it and/or modify it
- *	under the terms of the GNU General Public License version 2 as
- *	published by the Free Software Foundation.
  */
 
 #include <linux/dccp.h>
@@ -50,7 +48,8 @@ static inline u8 dccp_ackvec_state(const u8 *cell)
 	return *cell & ~DCCPAV_MAX_RUNLEN;
 }
 
-/** struct dccp_ackvec - Ack Vector main data structure
+/**
+ * struct dccp_ackvec - Ack Vector main data structure
  *
  * This implements a fixed-size circular buffer within an array and is largely
  * based on Appendix A of RFC 4340.
@@ -76,7 +75,8 @@ struct dccp_ackvec {
 	struct list_head	av_records;
 };
 
-/** struct dccp_ackvec_record - Records information about sent Ack Vectors
+/**
+ * struct dccp_ackvec_record - Records information about sent Ack Vectors
  *
  * These list entries define the additional information which the HC-Receiver
  * keeps about recently-sent Ack Vectors; again refer to RFC 4340, Appendix A.
@@ -99,16 +99,16 @@ struct dccp_ackvec_record {
 	u8		 avr_ack_nonce:1;
 };
 
-extern int dccp_ackvec_init(void);
-extern void dccp_ackvec_exit(void);
+int dccp_ackvec_init(void);
+void dccp_ackvec_exit(void);
 
-extern struct dccp_ackvec *dccp_ackvec_alloc(const gfp_t priority);
-extern void dccp_ackvec_free(struct dccp_ackvec *av);
+struct dccp_ackvec *dccp_ackvec_alloc(const gfp_t priority);
+void dccp_ackvec_free(struct dccp_ackvec *av);
 
-extern void dccp_ackvec_input(struct dccp_ackvec *av, struct sk_buff *skb);
-extern int  dccp_ackvec_update_records(struct dccp_ackvec *av, u64 seq, u8 sum);
-extern void dccp_ackvec_clear_state(struct dccp_ackvec *av, const u64 ackno);
-extern u16  dccp_ackvec_buflen(const struct dccp_ackvec *av);
+void dccp_ackvec_input(struct dccp_ackvec *av, struct sk_buff *skb);
+int dccp_ackvec_update_records(struct dccp_ackvec *av, u64 seq, u8 sum);
+void dccp_ackvec_clear_state(struct dccp_ackvec *av, const u64 ackno);
+u16 dccp_ackvec_buflen(const struct dccp_ackvec *av);
 
 static inline bool dccp_ackvec_is_empty(const struct dccp_ackvec *av)
 {
@@ -121,6 +121,7 @@ static inline bool dccp_ackvec_is_empty(const struct dccp_ackvec *av)
  * @len:	length of @vec
  * @nonce:	whether @vec had an ECN nonce of 0 or 1
  * @node:	FIFO - arranged in descending order of ack_ackno
+ *
  * This structure is used by CCIDs to access Ack Vectors in a received skb.
  */
 struct dccp_ackvec_parsed {
@@ -130,7 +131,6 @@ struct dccp_ackvec_parsed {
 	struct list_head node;
 };
 
-extern int dccp_ackvec_parsed_add(struct list_head *head,
-				  u8 *vec, u8 len, u8 nonce);
-extern void dccp_ackvec_parsed_cleanup(struct list_head *parsed_chunks);
+int dccp_ackvec_parsed_add(struct list_head *head, u8 *vec, u8 len, u8 nonce);
+void dccp_ackvec_parsed_cleanup(struct list_head *parsed_chunks);
 #endif /* _ACKVEC_H */

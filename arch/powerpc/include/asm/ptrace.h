@@ -1,6 +1,4 @@
-#ifndef _ASM_POWERPC_PTRACE_H
-#define _ASM_POWERPC_PTRACE_H
-
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Copyright (C) 2001 PPC64 Team, IBM Corp
  *
@@ -17,52 +15,116 @@
  *
  * Note that the offsets of the fields in this struct correspond with
  * the PT_* values below.  This simplifies arch/powerpc/kernel/ptrace.c.
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version
- * 2 of the License, or (at your option) any later version.
  */
+#ifndef _ASM_POWERPC_PTRACE_H
+#define _ASM_POWERPC_PTRACE_H
 
-#include <linux/types.h>
+#include <linux/err.h>
+#include <uapi/asm/ptrace.h>
+#include <asm/asm-const.h>
+#include <asm/reg.h>
 
 #ifndef __ASSEMBLY__
-
-struct pt_regs {
-	unsigned long gpr[32];
-	unsigned long nip;
-	unsigned long msr;
-	unsigned long orig_gpr3;	/* Used for restarting system calls */
-	unsigned long ctr;
-	unsigned long link;
-	unsigned long xer;
-	unsigned long ccr;
-#ifdef __powerpc64__
-	unsigned long softe;		/* Soft enabled/disabled */
+struct pt_regs
+{
+	union {
+		struct user_pt_regs user_regs;
+		struct {
+			unsigned long gpr[32];
+			unsigned long nip;
+			unsigned long msr;
+			unsigned long orig_gpr3;
+			unsigned long ctr;
+			unsigned long link;
+			unsigned long xer;
+			unsigned long ccr;
+#ifdef CONFIG_PPC64
+			unsigned long softe;
 #else
-	unsigned long mq;		/* 601 only (not used at present) */
-					/* Used on APUS to hold IPL value. */
+			unsigned long mq;
 #endif
-	unsigned long trap;		/* Reason for being here */
-	/* N.B. for critical exceptions on 4xx, the dar and dsisr
-	   fields are overloaded to hold srr0 and srr1. */
-	unsigned long dar;		/* Fault registers */
-	unsigned long dsisr;		/* on 4xx/Book-E used for ESR */
-	unsigned long result;		/* Result of a system call */
+			unsigned long trap;
+			union {
+				unsigned long dar;
+				unsigned long dear;
+			};
+			union {
+				unsigned long dsisr;
+				unsigned long esr;
+			};
+			unsigned long result;
+		};
+	};
+#if defined(CONFIG_PPC64) || defined(CONFIG_PPC_KUAP)
+	union {
+		struct {
+#ifdef CONFIG_PPC64
+			unsigned long ppr;
+			unsigned long exit_result;
+#endif
+			union {
+#ifdef CONFIG_PPC_KUAP
+				unsigned long kuap;
+#endif
+#ifdef CONFIG_PPC_PKEY
+				unsigned long amr;
+#endif
+			};
+#ifdef CONFIG_PPC_PKEY
+			unsigned long iamr;
+#endif
+		};
+		unsigned long __pad[4];	/* Maintain 16 byte interrupt stack alignment */
+	};
+#endif
+#if defined(CONFIG_PPC32) && defined(CONFIG_BOOKE)
+	struct { /* Must be a multiple of 16 bytes */
+		unsigned long mas0;
+		unsigned long mas1;
+		unsigned long mas2;
+		unsigned long mas3;
+		unsigned long mas6;
+		unsigned long mas7;
+		unsigned long srr0;
+		unsigned long srr1;
+		unsigned long csrr0;
+		unsigned long csrr1;
+		unsigned long dsrr0;
+		unsigned long dsrr1;
+	};
+#endif
 };
+#endif
 
-#endif /* __ASSEMBLY__ */
 
-#ifdef __KERNEL__
+#define STACK_FRAME_WITH_PT_REGS (STACK_FRAME_OVERHEAD + sizeof(struct pt_regs))
 
 #ifdef __powerpc64__
+
+/*
+ * Size of redzone that userspace is allowed to use below the stack
+ * pointer.  This is 288 in the 64-bit big-endian ELF ABI, and 512 in
+ * the new ELFv2 little-endian ABI, so we allow the larger amount.
+ *
+ * For kernel code we allow a 288-byte redzone, in order to conserve
+ * kernel stack space; gcc currently only uses 288 bytes, and will
+ * hopefully allow explicit control of the redzone size in future.
+ */
+#define USER_REDZONE_SIZE	512
+#define KERNEL_REDZONE_SIZE	288
 
 #define STACK_FRAME_OVERHEAD	112	/* size of minimum stack frame */
 #define STACK_FRAME_LR_SAVE	2	/* Location of LR in stack frame */
 #define STACK_FRAME_REGS_MARKER	ASM_CONST(0x7265677368657265)
 #define STACK_INT_FRAME_SIZE	(sizeof(struct pt_regs) + \
-					STACK_FRAME_OVERHEAD + 288)
+				 STACK_FRAME_OVERHEAD + KERNEL_REDZONE_SIZE)
 #define STACK_FRAME_MARKER	12
+
+#ifdef PPC64_ELF_ABI_v2
+#define STACK_FRAME_MIN_SIZE	32
+#else
+#define STACK_FRAME_MIN_SIZE	STACK_FRAME_OVERHEAD
+#endif
 
 /* Size of dummy stack frame allocated when calling signal handler. */
 #define __SIGNAL_FRAMESIZE	128
@@ -70,11 +132,14 @@ struct pt_regs {
 
 #else /* __powerpc64__ */
 
+#define USER_REDZONE_SIZE	0
+#define KERNEL_REDZONE_SIZE	0
 #define STACK_FRAME_OVERHEAD	16	/* size of minimum stack frame */
 #define STACK_FRAME_LR_SAVE	1	/* Location of LR in stack frame */
 #define STACK_FRAME_REGS_MARKER	ASM_CONST(0x72656773)
 #define STACK_INT_FRAME_SIZE	(sizeof(struct pt_regs) + STACK_FRAME_OVERHEAD)
 #define STACK_FRAME_MARKER	2
+#define STACK_FRAME_MIN_SIZE	STACK_FRAME_OVERHEAD
 
 /* Size of stack frame allocated when calling signal handler. */
 #define __SIGNAL_FRAMESIZE	64
@@ -82,11 +147,7 @@ struct pt_regs {
 #endif /* __powerpc64__ */
 
 #ifndef __ASSEMBLY__
-
-#define instruction_pointer(regs) ((regs)->nip)
-#define user_stack_pointer(regs) ((regs)->gpr[1])
-#define kernel_stack_pointer(regs) ((regs)->gpr[1])
-#define regs_return_value(regs) ((regs)->gpr[3])
+#include <asm/paca.h>
 
 #ifdef CONFIG_SMP
 extern unsigned long profile_pc(struct pt_regs *regs);
@@ -94,51 +155,165 @@ extern unsigned long profile_pc(struct pt_regs *regs);
 #define profile_pc(regs) instruction_pointer(regs)
 #endif
 
-#ifdef __powerpc64__
-#define user_mode(regs) ((((regs)->msr) >> MSR_PR_LG) & 0x1)
-#else
-#define user_mode(regs) (((regs)->msr & MSR_PR) != 0)
+long do_syscall_trace_enter(struct pt_regs *regs);
+void do_syscall_trace_leave(struct pt_regs *regs);
+
+static inline void set_return_regs_changed(void)
+{
+#ifdef CONFIG_PPC_BOOK3S_64
+	local_paca->hsrr_valid = 0;
+	local_paca->srr_valid = 0;
 #endif
+}
+
+static inline void regs_set_return_ip(struct pt_regs *regs, unsigned long ip)
+{
+	regs->nip = ip;
+	set_return_regs_changed();
+}
+
+static inline void regs_set_return_msr(struct pt_regs *regs, unsigned long msr)
+{
+	regs->msr = msr;
+	set_return_regs_changed();
+}
+
+static inline void regs_add_return_ip(struct pt_regs *regs, long offset)
+{
+	regs_set_return_ip(regs, regs->nip + offset);
+}
+
+static inline unsigned long instruction_pointer(struct pt_regs *regs)
+{
+	return regs->nip;
+}
+
+static inline void instruction_pointer_set(struct pt_regs *regs,
+		unsigned long val)
+{
+	regs_set_return_ip(regs, val);
+}
+
+static inline unsigned long user_stack_pointer(struct pt_regs *regs)
+{
+	return regs->gpr[1];
+}
+
+static inline unsigned long frame_pointer(struct pt_regs *regs)
+{
+	return 0;
+}
+
+#define user_mode(regs) (((regs)->msr & MSR_PR) != 0)
 
 #define force_successful_syscall_return()   \
 	do { \
 		set_thread_flag(TIF_NOERROR); \
 	} while(0)
 
-struct task_struct;
-extern unsigned long ptrace_get_reg(struct task_struct *task, int regno);
-extern int ptrace_put_reg(struct task_struct *task, int regno,
-			  unsigned long data);
+#define current_pt_regs() \
+	((struct pt_regs *)((unsigned long)task_stack_page(current) + THREAD_SIZE) - 1)
 
 /*
- * We use the least-significant bit of the trap field to indicate
- * whether we have saved the full set of registers, or only a
- * partial set.  A 1 there means the partial set.
- * On 4xx we use the next bit to indicate whether the exception
+ * The 4 low bits (0xf) are available as flags to overload the trap word,
+ * because interrupt vectors have minimum alignment of 0x10. TRAP_FLAGS_MASK
+ * must cover the bits used as flags, including bit 0 which is used as the
+ * "norestart" bit.
+ */
+#ifdef __powerpc64__
+#define TRAP_FLAGS_MASK		0x1
+#else
+/*
+ * On 4xx we use bit 1 in the trap word to indicate whether the exception
  * is a critical exception (1 means it is).
  */
-#define FULL_REGS(regs)		(((regs)->trap & 1) == 0)
-#ifndef __powerpc64__
+#define TRAP_FLAGS_MASK		0xf
 #define IS_CRITICAL_EXC(regs)	(((regs)->trap & 2) != 0)
 #define IS_MCHECK_EXC(regs)	(((regs)->trap & 4) != 0)
 #define IS_DEBUG_EXC(regs)	(((regs)->trap & 8) != 0)
-#endif /* ! __powerpc64__ */
-#define TRAP(regs)		((regs)->trap & ~0xF)
-#ifdef __powerpc64__
-#define NV_REG_POISON		0xdeadbeefdeadbeefUL
-#define CHECK_FULL_REGS(regs)	BUG_ON(regs->trap & 1)
-#else
-#define NV_REG_POISON		0xdeadbeef
-#define CHECK_FULL_REGS(regs)						      \
-do {									      \
-	if ((regs)->trap & 1)						      \
-		printk(KERN_CRIT "%s: partial register set\n", __func__); \
-} while (0)
 #endif /* __powerpc64__ */
+#define TRAP(regs)		((regs)->trap & ~TRAP_FLAGS_MASK)
+
+static __always_inline void set_trap(struct pt_regs *regs, unsigned long val)
+{
+	regs->trap = (regs->trap & TRAP_FLAGS_MASK) | (val & ~TRAP_FLAGS_MASK);
+}
+
+static inline bool trap_is_scv(struct pt_regs *regs)
+{
+	return (IS_ENABLED(CONFIG_PPC_BOOK3S_64) && TRAP(regs) == 0x3000);
+}
+
+static inline bool trap_is_unsupported_scv(struct pt_regs *regs)
+{
+	return IS_ENABLED(CONFIG_PPC_BOOK3S_64) && TRAP(regs) == 0x7ff0;
+}
+
+static inline bool trap_is_syscall(struct pt_regs *regs)
+{
+	return (trap_is_scv(regs) || TRAP(regs) == 0xc00);
+}
+
+static inline bool trap_norestart(struct pt_regs *regs)
+{
+	return regs->trap & 0x1;
+}
+
+static __always_inline void set_trap_norestart(struct pt_regs *regs)
+{
+	regs->trap |= 0x1;
+}
+
+#define kernel_stack_pointer(regs) ((regs)->gpr[1])
+static inline int is_syscall_success(struct pt_regs *regs)
+{
+	if (trap_is_scv(regs))
+		return !IS_ERR_VALUE((unsigned long)regs->gpr[3]);
+	else
+		return !(regs->ccr & 0x10000000);
+}
+
+static inline long regs_return_value(struct pt_regs *regs)
+{
+	if (trap_is_scv(regs))
+		return regs->gpr[3];
+
+	if (is_syscall_success(regs))
+		return regs->gpr[3];
+	else
+		return -regs->gpr[3];
+}
+
+static inline void regs_set_return_value(struct pt_regs *regs, unsigned long rc)
+{
+	regs->gpr[3] = rc;
+}
+
+static inline bool cpu_has_msr_ri(void)
+{
+	return !IS_ENABLED(CONFIG_BOOKE) && !IS_ENABLED(CONFIG_40x);
+}
+
+static inline bool regs_is_unrecoverable(struct pt_regs *regs)
+{
+	return unlikely(cpu_has_msr_ri() && !(regs->msr & MSR_RI));
+}
+
+static inline void regs_set_recoverable(struct pt_regs *regs)
+{
+	if (cpu_has_msr_ri())
+		regs_set_return_msr(regs, regs->msr | MSR_RI);
+}
+
+static inline void regs_set_unrecoverable(struct pt_regs *regs)
+{
+	if (cpu_has_msr_ri())
+		regs_set_return_msr(regs, regs->msr & ~MSR_RI);
+}
 
 #define arch_has_single_step()	(1)
-#define arch_has_block_step()	(!cpu_has_feature(CPU_FTR_601))
-#define ARCH_HAS_USER_SINGLE_STEP_INFO
+#define arch_has_block_step()	(true)
+#define ARCH_HAS_USER_SINGLE_STEP_REPORT
 
 /*
  * kprobe-based event tracer support
@@ -205,225 +380,14 @@ static inline unsigned long regs_get_kernel_stack_nth(struct pt_regs *regs,
 
 #endif /* __ASSEMBLY__ */
 
-#endif /* __KERNEL__ */
-
-/*
- * Offsets used by 'ptrace' system call interface.
- * These can't be changed without breaking binary compatibility
- * with MkLinux, etc.
- */
-#define PT_R0	0
-#define PT_R1	1
-#define PT_R2	2
-#define PT_R3	3
-#define PT_R4	4
-#define PT_R5	5
-#define PT_R6	6
-#define PT_R7	7
-#define PT_R8	8
-#define PT_R9	9
-#define PT_R10	10
-#define PT_R11	11
-#define PT_R12	12
-#define PT_R13	13
-#define PT_R14	14
-#define PT_R15	15
-#define PT_R16	16
-#define PT_R17	17
-#define PT_R18	18
-#define PT_R19	19
-#define PT_R20	20
-#define PT_R21	21
-#define PT_R22	22
-#define PT_R23	23
-#define PT_R24	24
-#define PT_R25	25
-#define PT_R26	26
-#define PT_R27	27
-#define PT_R28	28
-#define PT_R29	29
-#define PT_R30	30
-#define PT_R31	31
-
-#define PT_NIP	32
-#define PT_MSR	33
-#define PT_ORIG_R3 34
-#define PT_CTR	35
-#define PT_LNK	36
-#define PT_XER	37
-#define PT_CCR	38
 #ifndef __powerpc64__
-#define PT_MQ	39
-#else
-#define PT_SOFTE 39
-#endif
-#define PT_TRAP	40
-#define PT_DAR	41
-#define PT_DSISR 42
-#define PT_RESULT 43
-#define PT_REGS_COUNT 44
-
-#define PT_FPR0	48	/* each FP reg occupies 2 slots in this space */
-
-#ifndef __powerpc64__
-
-#define PT_FPR31 (PT_FPR0 + 2*31)
-#define PT_FPSCR (PT_FPR0 + 2*32 + 1)
-
+/* We need PT_SOFTE defined at all time to avoid #ifdefs */
+#define PT_SOFTE PT_MQ
 #else /* __powerpc64__ */
-
-#define PT_FPSCR (PT_FPR0 + 32)	/* each FP reg occupies 1 slot in 64-bit space */
-
-#ifdef __KERNEL__
 #define PT_FPSCR32 (PT_FPR0 + 2*32 + 1)	/* each FP reg occupies 2 32-bit userspace slots */
-#endif
-
-#define PT_VR0 82	/* each Vector reg occupies 2 slots in 64-bit */
-#define PT_VSCR (PT_VR0 + 32*2 + 1)
-#define PT_VRSAVE (PT_VR0 + 33*2)
-
-#ifdef __KERNEL__
 #define PT_VR0_32 164	/* each Vector reg occupies 4 slots in 32-bit */
 #define PT_VSCR_32 (PT_VR0 + 32*4 + 3)
 #define PT_VRSAVE_32 (PT_VR0 + 33*4)
-#endif
-
-/*
- * Only store first 32 VSRs here. The second 32 VSRs in VR0-31
- */
-#define PT_VSR0 150	/* each VSR reg occupies 2 slots in 64-bit */
-#define PT_VSR31 (PT_VSR0 + 2*31)
-#ifdef __KERNEL__
 #define PT_VSR0_32 300 	/* each VSR reg occupies 4 slots in 32-bit */
-#endif
 #endif /* __powerpc64__ */
-
-/*
- * Get/set all the altivec registers vr0..vr31, vscr, vrsave, in one go.
- * The transfer totals 34 quadword.  Quadwords 0-31 contain the
- * corresponding vector registers.  Quadword 32 contains the vscr as the
- * last word (offset 12) within that quadword.  Quadword 33 contains the
- * vrsave as the first word (offset 0) within the quadword.
- *
- * This definition of the VMX state is compatible with the current PPC32
- * ptrace interface.  This allows signal handling and ptrace to use the same
- * structures.  This also simplifies the implementation of a bi-arch
- * (combined (32- and 64-bit) gdb.
- */
-#define PTRACE_GETVRREGS	18
-#define PTRACE_SETVRREGS	19
-
-/* Get/set all the upper 32-bits of the SPE registers, accumulator, and
- * spefscr, in one go */
-#define PTRACE_GETEVRREGS	20
-#define PTRACE_SETEVRREGS	21
-
-/* Get the first 32 128bit VSX registers */
-#define PTRACE_GETVSRREGS	27
-#define PTRACE_SETVSRREGS	28
-
-/*
- * Get or set a debug register. The first 16 are DABR registers and the
- * second 16 are IABR registers.
- */
-#define PTRACE_GET_DEBUGREG	25
-#define PTRACE_SET_DEBUGREG	26
-
-/* (new) PTRACE requests using the same numbers as x86 and the same
- * argument ordering. Additionally, they support more registers too
- */
-#define PTRACE_GETREGS            12
-#define PTRACE_SETREGS            13
-#define PTRACE_GETFPREGS          14
-#define PTRACE_SETFPREGS          15
-#define PTRACE_GETREGS64	  22
-#define PTRACE_SETREGS64	  23
-
-/* (old) PTRACE requests with inverted arguments */
-#define PPC_PTRACE_GETREGS	0x99	/* Get GPRs 0 - 31 */
-#define PPC_PTRACE_SETREGS	0x98	/* Set GPRs 0 - 31 */
-#define PPC_PTRACE_GETFPREGS	0x97	/* Get FPRs 0 - 31 */
-#define PPC_PTRACE_SETFPREGS	0x96	/* Set FPRs 0 - 31 */
-
-/* Calls to trace a 64bit program from a 32bit program */
-#define PPC_PTRACE_PEEKTEXT_3264 0x95
-#define PPC_PTRACE_PEEKDATA_3264 0x94
-#define PPC_PTRACE_POKETEXT_3264 0x93
-#define PPC_PTRACE_POKEDATA_3264 0x92
-#define PPC_PTRACE_PEEKUSR_3264  0x91
-#define PPC_PTRACE_POKEUSR_3264  0x90
-
-#define PTRACE_SINGLEBLOCK	0x100	/* resume execution until next branch */
-
-#define PPC_PTRACE_GETHWDBGINFO	0x89
-#define PPC_PTRACE_SETHWDEBUG	0x88
-#define PPC_PTRACE_DELHWDEBUG	0x87
-
-#ifndef __ASSEMBLY__
-
-struct ppc_debug_info {
-	__u32 version;			/* Only version 1 exists to date */
-	__u32 num_instruction_bps;
-	__u32 num_data_bps;
-	__u32 num_condition_regs;
-	__u32 data_bp_alignment;
-	__u32 sizeof_condition;		/* size of the DVC register */
-	__u64 features;
-};
-
-#endif /* __ASSEMBLY__ */
-
-/*
- * features will have bits indication whether there is support for:
- */
-#define PPC_DEBUG_FEATURE_INSN_BP_RANGE		0x0000000000000001
-#define PPC_DEBUG_FEATURE_INSN_BP_MASK		0x0000000000000002
-#define PPC_DEBUG_FEATURE_DATA_BP_RANGE		0x0000000000000004
-#define PPC_DEBUG_FEATURE_DATA_BP_MASK		0x0000000000000008
-
-#ifndef __ASSEMBLY__
-
-struct ppc_hw_breakpoint {
-	__u32 version;		/* currently, version must be 1 */
-	__u32 trigger_type;	/* only some combinations allowed */
-	__u32 addr_mode;	/* address match mode */
-	__u32 condition_mode;	/* break/watchpoint condition flags */
-	__u64 addr;		/* break/watchpoint address */
-	__u64 addr2;		/* range end or mask */
-	__u64 condition_value;	/* contents of the DVC register */
-};
-
-#endif /* __ASSEMBLY__ */
-
-/*
- * Trigger Type
- */
-#define PPC_BREAKPOINT_TRIGGER_EXECUTE	0x00000001
-#define PPC_BREAKPOINT_TRIGGER_READ	0x00000002
-#define PPC_BREAKPOINT_TRIGGER_WRITE	0x00000004
-#define PPC_BREAKPOINT_TRIGGER_RW	\
-	(PPC_BREAKPOINT_TRIGGER_READ | PPC_BREAKPOINT_TRIGGER_WRITE)
-
-/*
- * Address Mode
- */
-#define PPC_BREAKPOINT_MODE_EXACT		0x00000000
-#define PPC_BREAKPOINT_MODE_RANGE_INCLUSIVE	0x00000001
-#define PPC_BREAKPOINT_MODE_RANGE_EXCLUSIVE	0x00000002
-#define PPC_BREAKPOINT_MODE_MASK		0x00000003
-
-/*
- * Condition Mode
- */
-#define PPC_BREAKPOINT_CONDITION_MODE	0x00000003
-#define PPC_BREAKPOINT_CONDITION_NONE	0x00000000
-#define PPC_BREAKPOINT_CONDITION_AND	0x00000001
-#define PPC_BREAKPOINT_CONDITION_EXACT	PPC_BREAKPOINT_CONDITION_AND
-#define PPC_BREAKPOINT_CONDITION_OR	0x00000002
-#define PPC_BREAKPOINT_CONDITION_AND_OR	0x00000003
-#define PPC_BREAKPOINT_CONDITION_BE_ALL	0x00ff0000
-#define PPC_BREAKPOINT_CONDITION_BE_SHIFT	16
-#define PPC_BREAKPOINT_CONDITION_BE(n)	\
-	(1<<((n)+PPC_BREAKPOINT_CONDITION_BE_SHIFT))
-
 #endif /* _ASM_POWERPC_PTRACE_H */

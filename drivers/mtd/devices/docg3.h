@@ -1,26 +1,14 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Handles the M-Systems DiskOnChip G3 chip
  *
  * Copyright (C) 2011 Robert Jarzmik
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
- *
  */
 
 #ifndef _MTD_DOCG3_H
 #define _MTD_DOCG3_H
+
+#include <linux/mtd/mtd.h>
 
 /*
  * Flash memory areas :
@@ -267,9 +255,23 @@
 #define DOC_LAYOUT_DPS_KEY_LENGTH	8
 
 /**
+ * struct docg3_cascade - Cascade of 1 to 4 docg3 chips
+ * @floors: floors (ie. one physical docg3 chip is one floor)
+ * @base: IO space to access all chips in the cascade
+ * @bch: the BCH correcting control structure
+ * @lock: lock to protect docg3 IO space from concurrent accesses
+ */
+struct docg3_cascade {
+	struct mtd_info *floors[DOC_MAX_NBFLOORS];
+	void __iomem *base;
+	struct bch_control *bch;
+	struct mutex lock;
+};
+
+/**
  * struct docg3 - DiskOnChip driver private data
  * @dev: the device currently under control
- * @base: mapped IO space
+ * @cascade: the cascade this device belongs to
  * @device_id: number of the cascaded DoCG3 device (0, 1, 2 or 3)
  * @if_cfg: if true, reads are on 16bits, else reads are on 8bits
 
@@ -283,11 +285,10 @@
  * @oob_autoecc: if 1, use only bytes 0-7, 15, and fill the others with HW ECC
  *               if 0, use all the 16 bytes.
  * @oob_write_buf: prepared OOB for next page_write
- * @debugfs_root: debugfs root node
  */
 struct docg3 {
 	struct device *dev;
-	void __iomem *base;
+	struct docg3_cascade *cascade;
 	unsigned int device_id:4;
 	unsigned int if_cfg:1;
 	unsigned int reliable:2;
@@ -296,24 +297,12 @@ struct docg3 {
 	loff_t oob_write_ofs;
 	int oob_autoecc;
 	u8 oob_write_buf[DOC_LAYOUT_OOB_SIZE];
-	struct dentry *debugfs_root;
 };
 
 #define doc_err(fmt, arg...) dev_err(docg3->dev, (fmt), ## arg)
 #define doc_info(fmt, arg...) dev_info(docg3->dev, (fmt), ## arg)
 #define doc_dbg(fmt, arg...) dev_dbg(docg3->dev, (fmt), ## arg)
 #define doc_vdbg(fmt, arg...) dev_vdbg(docg3->dev, (fmt), ## arg)
-
-#define DEBUGFS_RO_ATTR(name, show_fct) \
-	static int name##_open(struct inode *inode, struct file *file) \
-	{ return single_open(file, show_fct, inode->i_private); }      \
-	static const struct file_operations name##_fops = { \
-		.owner = THIS_MODULE, \
-		.open = name##_open, \
-		.llseek = seq_lseek, \
-		.read = seq_read, \
-		.release = single_release \
-	};
 #endif
 
 /*

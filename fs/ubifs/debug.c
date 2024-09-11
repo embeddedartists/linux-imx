@@ -1,20 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * This file is part of UBIFS.
  *
  * Copyright (C) 2006-2008 Nokia Corporation
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 as published by
- * the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc., 51
- * Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  *
  * Authors: Artem Bityutskiy (Битюцкий Артём)
  *          Adrian Hunter
@@ -32,11 +20,10 @@
 #include <linux/math64.h>
 #include <linux/uaccess.h>
 #include <linux/random.h>
+#include <linux/ctype.h>
 #include "ubifs.h"
 
-#ifdef CONFIG_UBIFS_FS_DEBUG
-
-DEFINE_SPINLOCK(dbg_lock);
+static DEFINE_SPINLOCK(dbg_lock);
 
 static const char *get_key_fmt(int fmt)
 {
@@ -135,7 +122,7 @@ const char *dbg_snprintf_key(const struct ubifs_info *c,
 		}
 	} else
 		len -= snprintf(p, len, "bad key format %d", c->key_fmt);
-	ubifs_assert(len > 0);
+	ubifs_assert(c, len > 0);
 	return p;
 }
 
@@ -166,6 +153,8 @@ const char *dbg_ntype(int type)
 		return "commit start node";
 	case UBIFS_ORPH_NODE:
 		return "orphan node";
+	case UBIFS_AUTH_NODE:
+		return "auth node";
 	default:
 		return "unknown node";
 	}
@@ -221,78 +210,80 @@ const char *dbg_jhead(int jhead)
 
 static void dump_ch(const struct ubifs_ch *ch)
 {
-	printk(KERN_DEBUG "\tmagic          %#x\n", le32_to_cpu(ch->magic));
-	printk(KERN_DEBUG "\tcrc            %#x\n", le32_to_cpu(ch->crc));
-	printk(KERN_DEBUG "\tnode_type      %d (%s)\n", ch->node_type,
+	pr_err("\tmagic          %#x\n", le32_to_cpu(ch->magic));
+	pr_err("\tcrc            %#x\n", le32_to_cpu(ch->crc));
+	pr_err("\tnode_type      %d (%s)\n", ch->node_type,
 	       dbg_ntype(ch->node_type));
-	printk(KERN_DEBUG "\tgroup_type     %d (%s)\n", ch->group_type,
+	pr_err("\tgroup_type     %d (%s)\n", ch->group_type,
 	       dbg_gtype(ch->group_type));
-	printk(KERN_DEBUG "\tsqnum          %llu\n",
+	pr_err("\tsqnum          %llu\n",
 	       (unsigned long long)le64_to_cpu(ch->sqnum));
-	printk(KERN_DEBUG "\tlen            %u\n", le32_to_cpu(ch->len));
+	pr_err("\tlen            %u\n", le32_to_cpu(ch->len));
 }
 
-void dbg_dump_inode(struct ubifs_info *c, const struct inode *inode)
+void ubifs_dump_inode(struct ubifs_info *c, const struct inode *inode)
 {
 	const struct ubifs_inode *ui = ubifs_inode(inode);
-	struct qstr nm = { .name = NULL };
+	struct fscrypt_name nm = {0};
 	union ubifs_key key;
 	struct ubifs_dent_node *dent, *pdent = NULL;
 	int count = 2;
 
-	printk(KERN_DEBUG "Dump in-memory inode:");
-	printk(KERN_DEBUG "\tinode          %lu\n", inode->i_ino);
-	printk(KERN_DEBUG "\tsize           %llu\n",
+	pr_err("Dump in-memory inode:");
+	pr_err("\tinode          %lu\n", inode->i_ino);
+	pr_err("\tsize           %llu\n",
 	       (unsigned long long)i_size_read(inode));
-	printk(KERN_DEBUG "\tnlink          %u\n", inode->i_nlink);
-	printk(KERN_DEBUG "\tuid            %u\n", (unsigned int)inode->i_uid);
-	printk(KERN_DEBUG "\tgid            %u\n", (unsigned int)inode->i_gid);
-	printk(KERN_DEBUG "\tatime          %u.%u\n",
+	pr_err("\tnlink          %u\n", inode->i_nlink);
+	pr_err("\tuid            %u\n", (unsigned int)i_uid_read(inode));
+	pr_err("\tgid            %u\n", (unsigned int)i_gid_read(inode));
+	pr_err("\tatime          %u.%u\n",
 	       (unsigned int)inode->i_atime.tv_sec,
 	       (unsigned int)inode->i_atime.tv_nsec);
-	printk(KERN_DEBUG "\tmtime          %u.%u\n",
+	pr_err("\tmtime          %u.%u\n",
 	       (unsigned int)inode->i_mtime.tv_sec,
 	       (unsigned int)inode->i_mtime.tv_nsec);
-	printk(KERN_DEBUG "\tctime          %u.%u\n",
+	pr_err("\tctime          %u.%u\n",
 	       (unsigned int)inode->i_ctime.tv_sec,
 	       (unsigned int)inode->i_ctime.tv_nsec);
-	printk(KERN_DEBUG "\tcreat_sqnum    %llu\n", ui->creat_sqnum);
-	printk(KERN_DEBUG "\txattr_size     %u\n", ui->xattr_size);
-	printk(KERN_DEBUG "\txattr_cnt      %u\n", ui->xattr_cnt);
-	printk(KERN_DEBUG "\txattr_names    %u\n", ui->xattr_names);
-	printk(KERN_DEBUG "\tdirty          %u\n", ui->dirty);
-	printk(KERN_DEBUG "\txattr          %u\n", ui->xattr);
-	printk(KERN_DEBUG "\tbulk_read      %u\n", ui->xattr);
-	printk(KERN_DEBUG "\tsynced_i_size  %llu\n",
+	pr_err("\tcreat_sqnum    %llu\n", ui->creat_sqnum);
+	pr_err("\txattr_size     %u\n", ui->xattr_size);
+	pr_err("\txattr_cnt      %u\n", ui->xattr_cnt);
+	pr_err("\txattr_names    %u\n", ui->xattr_names);
+	pr_err("\tdirty          %u\n", ui->dirty);
+	pr_err("\txattr          %u\n", ui->xattr);
+	pr_err("\tbulk_read      %u\n", ui->bulk_read);
+	pr_err("\tsynced_i_size  %llu\n",
 	       (unsigned long long)ui->synced_i_size);
-	printk(KERN_DEBUG "\tui_size        %llu\n",
+	pr_err("\tui_size        %llu\n",
 	       (unsigned long long)ui->ui_size);
-	printk(KERN_DEBUG "\tflags          %d\n", ui->flags);
-	printk(KERN_DEBUG "\tcompr_type     %d\n", ui->compr_type);
-	printk(KERN_DEBUG "\tlast_page_read %lu\n", ui->last_page_read);
-	printk(KERN_DEBUG "\tread_in_a_row  %lu\n", ui->read_in_a_row);
-	printk(KERN_DEBUG "\tdata_len       %d\n", ui->data_len);
+	pr_err("\tflags          %d\n", ui->flags);
+	pr_err("\tcompr_type     %d\n", ui->compr_type);
+	pr_err("\tlast_page_read %lu\n", ui->last_page_read);
+	pr_err("\tread_in_a_row  %lu\n", ui->read_in_a_row);
+	pr_err("\tdata_len       %d\n", ui->data_len);
 
 	if (!S_ISDIR(inode->i_mode))
 		return;
 
-	printk(KERN_DEBUG "List of directory entries:\n");
-	ubifs_assert(!mutex_is_locked(&c->tnc_mutex));
+	pr_err("List of directory entries:\n");
+	ubifs_assert(c, !mutex_is_locked(&c->tnc_mutex));
 
 	lowest_dent_key(c, &key, inode->i_ino);
 	while (1) {
 		dent = ubifs_tnc_next_ent(c, &key, &nm);
 		if (IS_ERR(dent)) {
 			if (PTR_ERR(dent) != -ENOENT)
-				printk(KERN_DEBUG "error %ld\n", PTR_ERR(dent));
+				pr_err("error %ld\n", PTR_ERR(dent));
 			break;
 		}
 
-		printk(KERN_DEBUG "\t%d: %s (%s)\n",
-		       count++, dent->name, get_dent_type(dent->type));
+		pr_err("\t%d: inode %llu, type %s, len %d\n",
+		       count++, (unsigned long long) le64_to_cpu(dent->inum),
+		       get_dent_type(dent->type),
+		       le16_to_cpu(dent->nlen));
 
-		nm.name = dent->name;
-		nm.len = le16_to_cpu(dent->nlen);
+		fname_name(&nm) = dent->name;
+		fname_len(&nm) = le16_to_cpu(dent->nlen);
 		kfree(pdent);
 		pdent = dent;
 		key_read(c, &dent->key, &key);
@@ -300,34 +291,60 @@ void dbg_dump_inode(struct ubifs_info *c, const struct inode *inode)
 	kfree(pdent);
 }
 
-void dbg_dump_node(const struct ubifs_info *c, const void *node)
+void ubifs_dump_node(const struct ubifs_info *c, const void *node, int node_len)
 {
-	int i, n;
+	int i, n, type, safe_len, max_node_len, min_node_len;
 	union ubifs_key key;
 	const struct ubifs_ch *ch = node;
 	char key_buf[DBG_KEY_BUF_LEN];
 
-	if (dbg_is_tst_rcvry(c))
-		return;
-
 	/* If the magic is incorrect, just hexdump the first bytes */
 	if (le32_to_cpu(ch->magic) != UBIFS_NODE_MAGIC) {
-		printk(KERN_DEBUG "Not a node, first %zu bytes:", UBIFS_CH_SZ);
-		print_hex_dump(KERN_DEBUG, "", DUMP_PREFIX_OFFSET, 32, 1,
+		pr_err("Not a node, first %zu bytes:", UBIFS_CH_SZ);
+		print_hex_dump(KERN_ERR, "", DUMP_PREFIX_OFFSET, 32, 1,
 			       (void *)node, UBIFS_CH_SZ, 1);
+		return;
+	}
+
+	/* Skip dumping unknown type node */
+	type = ch->node_type;
+	if (type < 0 || type >= UBIFS_NODE_TYPES_CNT) {
+		pr_err("node type %d was not recognized\n", type);
 		return;
 	}
 
 	spin_lock(&dbg_lock);
 	dump_ch(node);
 
-	switch (ch->node_type) {
+	if (c->ranges[type].max_len == 0) {
+		max_node_len = min_node_len = c->ranges[type].len;
+	} else {
+		max_node_len = c->ranges[type].max_len;
+		min_node_len = c->ranges[type].min_len;
+	}
+	safe_len = le32_to_cpu(ch->len);
+	safe_len = safe_len > 0 ? safe_len : 0;
+	safe_len = min3(safe_len, max_node_len, node_len);
+	if (safe_len < min_node_len) {
+		pr_err("node len(%d) is too short for %s, left %d bytes:\n",
+		       safe_len, dbg_ntype(type),
+		       safe_len > UBIFS_CH_SZ ?
+		       safe_len - (int)UBIFS_CH_SZ : 0);
+		if (safe_len > UBIFS_CH_SZ)
+			print_hex_dump(KERN_ERR, "", DUMP_PREFIX_OFFSET, 32, 1,
+				       (void *)node + UBIFS_CH_SZ,
+				       safe_len - UBIFS_CH_SZ, 0);
+		goto out_unlock;
+	}
+	if (safe_len != le32_to_cpu(ch->len))
+		pr_err("\ttruncated node length      %d\n", safe_len);
+
+	switch (type) {
 	case UBIFS_PAD_NODE:
 	{
 		const struct ubifs_pad_node *pad = node;
 
-		printk(KERN_DEBUG "\tpad_len        %u\n",
-		       le32_to_cpu(pad->pad_len));
+		pr_err("\tpad_len        %u\n", le32_to_cpu(pad->pad_len));
 		break;
 	}
 	case UBIFS_SB_NODE:
@@ -335,112 +352,77 @@ void dbg_dump_node(const struct ubifs_info *c, const void *node)
 		const struct ubifs_sb_node *sup = node;
 		unsigned int sup_flags = le32_to_cpu(sup->flags);
 
-		printk(KERN_DEBUG "\tkey_hash       %d (%s)\n",
+		pr_err("\tkey_hash       %d (%s)\n",
 		       (int)sup->key_hash, get_key_hash(sup->key_hash));
-		printk(KERN_DEBUG "\tkey_fmt        %d (%s)\n",
+		pr_err("\tkey_fmt        %d (%s)\n",
 		       (int)sup->key_fmt, get_key_fmt(sup->key_fmt));
-		printk(KERN_DEBUG "\tflags          %#x\n", sup_flags);
-		printk(KERN_DEBUG "\t  big_lpt      %u\n",
+		pr_err("\tflags          %#x\n", sup_flags);
+		pr_err("\tbig_lpt        %u\n",
 		       !!(sup_flags & UBIFS_FLG_BIGLPT));
-		printk(KERN_DEBUG "\t  space_fixup  %u\n",
+		pr_err("\tspace_fixup    %u\n",
 		       !!(sup_flags & UBIFS_FLG_SPACE_FIXUP));
-		printk(KERN_DEBUG "\tmin_io_size    %u\n",
-		       le32_to_cpu(sup->min_io_size));
-		printk(KERN_DEBUG "\tleb_size       %u\n",
-		       le32_to_cpu(sup->leb_size));
-		printk(KERN_DEBUG "\tleb_cnt        %u\n",
-		       le32_to_cpu(sup->leb_cnt));
-		printk(KERN_DEBUG "\tmax_leb_cnt    %u\n",
-		       le32_to_cpu(sup->max_leb_cnt));
-		printk(KERN_DEBUG "\tmax_bud_bytes  %llu\n",
+		pr_err("\tmin_io_size    %u\n", le32_to_cpu(sup->min_io_size));
+		pr_err("\tleb_size       %u\n", le32_to_cpu(sup->leb_size));
+		pr_err("\tleb_cnt        %u\n", le32_to_cpu(sup->leb_cnt));
+		pr_err("\tmax_leb_cnt    %u\n", le32_to_cpu(sup->max_leb_cnt));
+		pr_err("\tmax_bud_bytes  %llu\n",
 		       (unsigned long long)le64_to_cpu(sup->max_bud_bytes));
-		printk(KERN_DEBUG "\tlog_lebs       %u\n",
-		       le32_to_cpu(sup->log_lebs));
-		printk(KERN_DEBUG "\tlpt_lebs       %u\n",
-		       le32_to_cpu(sup->lpt_lebs));
-		printk(KERN_DEBUG "\torph_lebs      %u\n",
-		       le32_to_cpu(sup->orph_lebs));
-		printk(KERN_DEBUG "\tjhead_cnt      %u\n",
-		       le32_to_cpu(sup->jhead_cnt));
-		printk(KERN_DEBUG "\tfanout         %u\n",
-		       le32_to_cpu(sup->fanout));
-		printk(KERN_DEBUG "\tlsave_cnt      %u\n",
-		       le32_to_cpu(sup->lsave_cnt));
-		printk(KERN_DEBUG "\tdefault_compr  %u\n",
+		pr_err("\tlog_lebs       %u\n", le32_to_cpu(sup->log_lebs));
+		pr_err("\tlpt_lebs       %u\n", le32_to_cpu(sup->lpt_lebs));
+		pr_err("\torph_lebs      %u\n", le32_to_cpu(sup->orph_lebs));
+		pr_err("\tjhead_cnt      %u\n", le32_to_cpu(sup->jhead_cnt));
+		pr_err("\tfanout         %u\n", le32_to_cpu(sup->fanout));
+		pr_err("\tlsave_cnt      %u\n", le32_to_cpu(sup->lsave_cnt));
+		pr_err("\tdefault_compr  %u\n",
 		       (int)le16_to_cpu(sup->default_compr));
-		printk(KERN_DEBUG "\trp_size        %llu\n",
+		pr_err("\trp_size        %llu\n",
 		       (unsigned long long)le64_to_cpu(sup->rp_size));
-		printk(KERN_DEBUG "\trp_uid         %u\n",
-		       le32_to_cpu(sup->rp_uid));
-		printk(KERN_DEBUG "\trp_gid         %u\n",
-		       le32_to_cpu(sup->rp_gid));
-		printk(KERN_DEBUG "\tfmt_version    %u\n",
-		       le32_to_cpu(sup->fmt_version));
-		printk(KERN_DEBUG "\ttime_gran      %u\n",
-		       le32_to_cpu(sup->time_gran));
-		printk(KERN_DEBUG "\tUUID           %pUB\n",
-		       sup->uuid);
+		pr_err("\trp_uid         %u\n", le32_to_cpu(sup->rp_uid));
+		pr_err("\trp_gid         %u\n", le32_to_cpu(sup->rp_gid));
+		pr_err("\tfmt_version    %u\n", le32_to_cpu(sup->fmt_version));
+		pr_err("\ttime_gran      %u\n", le32_to_cpu(sup->time_gran));
+		pr_err("\tUUID           %pUB\n", sup->uuid);
 		break;
 	}
 	case UBIFS_MST_NODE:
 	{
 		const struct ubifs_mst_node *mst = node;
 
-		printk(KERN_DEBUG "\thighest_inum   %llu\n",
+		pr_err("\thighest_inum   %llu\n",
 		       (unsigned long long)le64_to_cpu(mst->highest_inum));
-		printk(KERN_DEBUG "\tcommit number  %llu\n",
+		pr_err("\tcommit number  %llu\n",
 		       (unsigned long long)le64_to_cpu(mst->cmt_no));
-		printk(KERN_DEBUG "\tflags          %#x\n",
-		       le32_to_cpu(mst->flags));
-		printk(KERN_DEBUG "\tlog_lnum       %u\n",
-		       le32_to_cpu(mst->log_lnum));
-		printk(KERN_DEBUG "\troot_lnum      %u\n",
-		       le32_to_cpu(mst->root_lnum));
-		printk(KERN_DEBUG "\troot_offs      %u\n",
-		       le32_to_cpu(mst->root_offs));
-		printk(KERN_DEBUG "\troot_len       %u\n",
-		       le32_to_cpu(mst->root_len));
-		printk(KERN_DEBUG "\tgc_lnum        %u\n",
-		       le32_to_cpu(mst->gc_lnum));
-		printk(KERN_DEBUG "\tihead_lnum     %u\n",
-		       le32_to_cpu(mst->ihead_lnum));
-		printk(KERN_DEBUG "\tihead_offs     %u\n",
-		       le32_to_cpu(mst->ihead_offs));
-		printk(KERN_DEBUG "\tindex_size     %llu\n",
+		pr_err("\tflags          %#x\n", le32_to_cpu(mst->flags));
+		pr_err("\tlog_lnum       %u\n", le32_to_cpu(mst->log_lnum));
+		pr_err("\troot_lnum      %u\n", le32_to_cpu(mst->root_lnum));
+		pr_err("\troot_offs      %u\n", le32_to_cpu(mst->root_offs));
+		pr_err("\troot_len       %u\n", le32_to_cpu(mst->root_len));
+		pr_err("\tgc_lnum        %u\n", le32_to_cpu(mst->gc_lnum));
+		pr_err("\tihead_lnum     %u\n", le32_to_cpu(mst->ihead_lnum));
+		pr_err("\tihead_offs     %u\n", le32_to_cpu(mst->ihead_offs));
+		pr_err("\tindex_size     %llu\n",
 		       (unsigned long long)le64_to_cpu(mst->index_size));
-		printk(KERN_DEBUG "\tlpt_lnum       %u\n",
-		       le32_to_cpu(mst->lpt_lnum));
-		printk(KERN_DEBUG "\tlpt_offs       %u\n",
-		       le32_to_cpu(mst->lpt_offs));
-		printk(KERN_DEBUG "\tnhead_lnum     %u\n",
-		       le32_to_cpu(mst->nhead_lnum));
-		printk(KERN_DEBUG "\tnhead_offs     %u\n",
-		       le32_to_cpu(mst->nhead_offs));
-		printk(KERN_DEBUG "\tltab_lnum      %u\n",
-		       le32_to_cpu(mst->ltab_lnum));
-		printk(KERN_DEBUG "\tltab_offs      %u\n",
-		       le32_to_cpu(mst->ltab_offs));
-		printk(KERN_DEBUG "\tlsave_lnum     %u\n",
-		       le32_to_cpu(mst->lsave_lnum));
-		printk(KERN_DEBUG "\tlsave_offs     %u\n",
-		       le32_to_cpu(mst->lsave_offs));
-		printk(KERN_DEBUG "\tlscan_lnum     %u\n",
-		       le32_to_cpu(mst->lscan_lnum));
-		printk(KERN_DEBUG "\tleb_cnt        %u\n",
-		       le32_to_cpu(mst->leb_cnt));
-		printk(KERN_DEBUG "\tempty_lebs     %u\n",
-		       le32_to_cpu(mst->empty_lebs));
-		printk(KERN_DEBUG "\tidx_lebs       %u\n",
-		       le32_to_cpu(mst->idx_lebs));
-		printk(KERN_DEBUG "\ttotal_free     %llu\n",
+		pr_err("\tlpt_lnum       %u\n", le32_to_cpu(mst->lpt_lnum));
+		pr_err("\tlpt_offs       %u\n", le32_to_cpu(mst->lpt_offs));
+		pr_err("\tnhead_lnum     %u\n", le32_to_cpu(mst->nhead_lnum));
+		pr_err("\tnhead_offs     %u\n", le32_to_cpu(mst->nhead_offs));
+		pr_err("\tltab_lnum      %u\n", le32_to_cpu(mst->ltab_lnum));
+		pr_err("\tltab_offs      %u\n", le32_to_cpu(mst->ltab_offs));
+		pr_err("\tlsave_lnum     %u\n", le32_to_cpu(mst->lsave_lnum));
+		pr_err("\tlsave_offs     %u\n", le32_to_cpu(mst->lsave_offs));
+		pr_err("\tlscan_lnum     %u\n", le32_to_cpu(mst->lscan_lnum));
+		pr_err("\tleb_cnt        %u\n", le32_to_cpu(mst->leb_cnt));
+		pr_err("\tempty_lebs     %u\n", le32_to_cpu(mst->empty_lebs));
+		pr_err("\tidx_lebs       %u\n", le32_to_cpu(mst->idx_lebs));
+		pr_err("\ttotal_free     %llu\n",
 		       (unsigned long long)le64_to_cpu(mst->total_free));
-		printk(KERN_DEBUG "\ttotal_dirty    %llu\n",
+		pr_err("\ttotal_dirty    %llu\n",
 		       (unsigned long long)le64_to_cpu(mst->total_dirty));
-		printk(KERN_DEBUG "\ttotal_used     %llu\n",
+		pr_err("\ttotal_used     %llu\n",
 		       (unsigned long long)le64_to_cpu(mst->total_used));
-		printk(KERN_DEBUG "\ttotal_dead     %llu\n",
+		pr_err("\ttotal_dead     %llu\n",
 		       (unsigned long long)le64_to_cpu(mst->total_dead));
-		printk(KERN_DEBUG "\ttotal_dark     %llu\n",
+		pr_err("\ttotal_dark     %llu\n",
 		       (unsigned long long)le64_to_cpu(mst->total_dark));
 		break;
 	}
@@ -448,12 +430,9 @@ void dbg_dump_node(const struct ubifs_info *c, const void *node)
 	{
 		const struct ubifs_ref_node *ref = node;
 
-		printk(KERN_DEBUG "\tlnum           %u\n",
-		       le32_to_cpu(ref->lnum));
-		printk(KERN_DEBUG "\toffs           %u\n",
-		       le32_to_cpu(ref->offs));
-		printk(KERN_DEBUG "\tjhead          %u\n",
-		       le32_to_cpu(ref->jhead));
+		pr_err("\tlnum           %u\n", le32_to_cpu(ref->lnum));
+		pr_err("\toffs           %u\n", le32_to_cpu(ref->offs));
+		pr_err("\tjhead          %u\n", le32_to_cpu(ref->jhead));
 		break;
 	}
 	case UBIFS_INO_NODE:
@@ -461,41 +440,32 @@ void dbg_dump_node(const struct ubifs_info *c, const void *node)
 		const struct ubifs_ino_node *ino = node;
 
 		key_read(c, &ino->key, &key);
-		printk(KERN_DEBUG "\tkey            %s\n",
+		pr_err("\tkey            %s\n",
 		       dbg_snprintf_key(c, &key, key_buf, DBG_KEY_BUF_LEN));
-		printk(KERN_DEBUG "\tcreat_sqnum    %llu\n",
+		pr_err("\tcreat_sqnum    %llu\n",
 		       (unsigned long long)le64_to_cpu(ino->creat_sqnum));
-		printk(KERN_DEBUG "\tsize           %llu\n",
+		pr_err("\tsize           %llu\n",
 		       (unsigned long long)le64_to_cpu(ino->size));
-		printk(KERN_DEBUG "\tnlink          %u\n",
-		       le32_to_cpu(ino->nlink));
-		printk(KERN_DEBUG "\tatime          %lld.%u\n",
+		pr_err("\tnlink          %u\n", le32_to_cpu(ino->nlink));
+		pr_err("\tatime          %lld.%u\n",
 		       (long long)le64_to_cpu(ino->atime_sec),
 		       le32_to_cpu(ino->atime_nsec));
-		printk(KERN_DEBUG "\tmtime          %lld.%u\n",
+		pr_err("\tmtime          %lld.%u\n",
 		       (long long)le64_to_cpu(ino->mtime_sec),
 		       le32_to_cpu(ino->mtime_nsec));
-		printk(KERN_DEBUG "\tctime          %lld.%u\n",
+		pr_err("\tctime          %lld.%u\n",
 		       (long long)le64_to_cpu(ino->ctime_sec),
 		       le32_to_cpu(ino->ctime_nsec));
-		printk(KERN_DEBUG "\tuid            %u\n",
-		       le32_to_cpu(ino->uid));
-		printk(KERN_DEBUG "\tgid            %u\n",
-		       le32_to_cpu(ino->gid));
-		printk(KERN_DEBUG "\tmode           %u\n",
-		       le32_to_cpu(ino->mode));
-		printk(KERN_DEBUG "\tflags          %#x\n",
-		       le32_to_cpu(ino->flags));
-		printk(KERN_DEBUG "\txattr_cnt      %u\n",
-		       le32_to_cpu(ino->xattr_cnt));
-		printk(KERN_DEBUG "\txattr_size     %u\n",
-		       le32_to_cpu(ino->xattr_size));
-		printk(KERN_DEBUG "\txattr_names    %u\n",
-		       le32_to_cpu(ino->xattr_names));
-		printk(KERN_DEBUG "\tcompr_type     %#x\n",
+		pr_err("\tuid            %u\n", le32_to_cpu(ino->uid));
+		pr_err("\tgid            %u\n", le32_to_cpu(ino->gid));
+		pr_err("\tmode           %u\n", le32_to_cpu(ino->mode));
+		pr_err("\tflags          %#x\n", le32_to_cpu(ino->flags));
+		pr_err("\txattr_cnt      %u\n", le32_to_cpu(ino->xattr_cnt));
+		pr_err("\txattr_size     %u\n", le32_to_cpu(ino->xattr_size));
+		pr_err("\txattr_names    %u\n", le32_to_cpu(ino->xattr_names));
+		pr_err("\tcompr_type     %#x\n",
 		       (int)le16_to_cpu(ino->compr_type));
-		printk(KERN_DEBUG "\tdata len       %u\n",
-		       le32_to_cpu(ino->data_len));
+		pr_err("\tdata len       %u\n", le32_to_cpu(ino->data_len));
 		break;
 	}
 	case UBIFS_DENT_NODE:
@@ -505,72 +475,74 @@ void dbg_dump_node(const struct ubifs_info *c, const void *node)
 		int nlen = le16_to_cpu(dent->nlen);
 
 		key_read(c, &dent->key, &key);
-		printk(KERN_DEBUG "\tkey            %s\n",
+		pr_err("\tkey            %s\n",
 		       dbg_snprintf_key(c, &key, key_buf, DBG_KEY_BUF_LEN));
-		printk(KERN_DEBUG "\tinum           %llu\n",
+		pr_err("\tinum           %llu\n",
 		       (unsigned long long)le64_to_cpu(dent->inum));
-		printk(KERN_DEBUG "\ttype           %d\n", (int)dent->type);
-		printk(KERN_DEBUG "\tnlen           %d\n", nlen);
-		printk(KERN_DEBUG "\tname           ");
+		pr_err("\ttype           %d\n", (int)dent->type);
+		pr_err("\tnlen           %d\n", nlen);
+		pr_err("\tname           ");
 
-		if (nlen > UBIFS_MAX_NLEN)
-			printk(KERN_DEBUG "(bad name length, not printing, "
-					  "bad or corrupted node)");
+		if (nlen > UBIFS_MAX_NLEN ||
+		    nlen > safe_len - UBIFS_DENT_NODE_SZ)
+			pr_err("(bad name length, not printing, bad or corrupted node)");
 		else {
 			for (i = 0; i < nlen && dent->name[i]; i++)
-				printk(KERN_CONT "%c", dent->name[i]);
+				pr_cont("%c", isprint(dent->name[i]) ?
+					dent->name[i] : '?');
 		}
-		printk(KERN_CONT "\n");
+		pr_cont("\n");
 
 		break;
 	}
 	case UBIFS_DATA_NODE:
 	{
 		const struct ubifs_data_node *dn = node;
-		int dlen = le32_to_cpu(ch->len) - UBIFS_DATA_NODE_SZ;
 
 		key_read(c, &dn->key, &key);
-		printk(KERN_DEBUG "\tkey            %s\n",
+		pr_err("\tkey            %s\n",
 		       dbg_snprintf_key(c, &key, key_buf, DBG_KEY_BUF_LEN));
-		printk(KERN_DEBUG "\tsize           %u\n",
-		       le32_to_cpu(dn->size));
-		printk(KERN_DEBUG "\tcompr_typ      %d\n",
+		pr_err("\tsize           %u\n", le32_to_cpu(dn->size));
+		pr_err("\tcompr_typ      %d\n",
 		       (int)le16_to_cpu(dn->compr_type));
-		printk(KERN_DEBUG "\tdata size      %d\n",
-		       dlen);
-		printk(KERN_DEBUG "\tdata:\n");
-		print_hex_dump(KERN_DEBUG, "\t", DUMP_PREFIX_OFFSET, 32, 1,
-			       (void *)&dn->data, dlen, 0);
+		pr_err("\tdata size      %u\n",
+		       le32_to_cpu(ch->len) - (unsigned int)UBIFS_DATA_NODE_SZ);
+		pr_err("\tdata (length = %d):\n",
+		       safe_len - (int)UBIFS_DATA_NODE_SZ);
+		print_hex_dump(KERN_ERR, "\t", DUMP_PREFIX_OFFSET, 32, 1,
+			       (void *)&dn->data,
+			       safe_len - (int)UBIFS_DATA_NODE_SZ, 0);
 		break;
 	}
 	case UBIFS_TRUN_NODE:
 	{
 		const struct ubifs_trun_node *trun = node;
 
-		printk(KERN_DEBUG "\tinum           %u\n",
-		       le32_to_cpu(trun->inum));
-		printk(KERN_DEBUG "\told_size       %llu\n",
+		pr_err("\tinum           %u\n", le32_to_cpu(trun->inum));
+		pr_err("\told_size       %llu\n",
 		       (unsigned long long)le64_to_cpu(trun->old_size));
-		printk(KERN_DEBUG "\tnew_size       %llu\n",
+		pr_err("\tnew_size       %llu\n",
 		       (unsigned long long)le64_to_cpu(trun->new_size));
 		break;
 	}
 	case UBIFS_IDX_NODE:
 	{
 		const struct ubifs_idx_node *idx = node;
+		int max_child_cnt = (safe_len - UBIFS_IDX_NODE_SZ) /
+				    (ubifs_idx_node_sz(c, 1) -
+				    UBIFS_IDX_NODE_SZ);
 
-		n = le16_to_cpu(idx->child_cnt);
-		printk(KERN_DEBUG "\tchild_cnt      %d\n", n);
-		printk(KERN_DEBUG "\tlevel          %d\n",
-		       (int)le16_to_cpu(idx->level));
-		printk(KERN_DEBUG "\tBranches:\n");
+		n = min_t(int, le16_to_cpu(idx->child_cnt), max_child_cnt);
+		pr_err("\tchild_cnt      %d\n", (int)le16_to_cpu(idx->child_cnt));
+		pr_err("\tlevel          %d\n", (int)le16_to_cpu(idx->level));
+		pr_err("\tBranches:\n");
 
-		for (i = 0; i < n && i < c->fanout - 1; i++) {
+		for (i = 0; i < n && i < c->fanout; i++) {
 			const struct ubifs_branch *br;
 
 			br = ubifs_idx_branch(c, idx, i);
 			key_read(c, &br->key, &key);
-			printk(KERN_DEBUG "\t%d: LEB %d:%d len %d key %s\n",
+			pr_err("\t%d: LEB %d:%d len %d key %s\n",
 			       i, le32_to_cpu(br->lnum), le32_to_cpu(br->offs),
 			       le32_to_cpu(br->len),
 			       dbg_snprintf_key(c, &key, key_buf,
@@ -584,57 +556,60 @@ void dbg_dump_node(const struct ubifs_info *c, const void *node)
 	{
 		const struct ubifs_orph_node *orph = node;
 
-		printk(KERN_DEBUG "\tcommit number  %llu\n",
+		pr_err("\tcommit number  %llu\n",
 		       (unsigned long long)
 				le64_to_cpu(orph->cmt_no) & LLONG_MAX);
-		printk(KERN_DEBUG "\tlast node flag %llu\n",
+		pr_err("\tlast node flag %llu\n",
 		       (unsigned long long)(le64_to_cpu(orph->cmt_no)) >> 63);
-		n = (le32_to_cpu(ch->len) - UBIFS_ORPH_NODE_SZ) >> 3;
-		printk(KERN_DEBUG "\t%d orphan inode numbers:\n", n);
+		n = (safe_len - UBIFS_ORPH_NODE_SZ) >> 3;
+		pr_err("\t%d orphan inode numbers:\n", n);
 		for (i = 0; i < n; i++)
-			printk(KERN_DEBUG "\t  ino %llu\n",
+			pr_err("\t  ino %llu\n",
 			       (unsigned long long)le64_to_cpu(orph->inos[i]));
 		break;
 	}
-	default:
-		printk(KERN_DEBUG "node type %d was not recognized\n",
-		       (int)ch->node_type);
+	case UBIFS_AUTH_NODE:
+	{
+		break;
 	}
+	default:
+		pr_err("node type %d was not recognized\n", type);
+	}
+
+out_unlock:
 	spin_unlock(&dbg_lock);
 }
 
-void dbg_dump_budget_req(const struct ubifs_budget_req *req)
+void ubifs_dump_budget_req(const struct ubifs_budget_req *req)
 {
 	spin_lock(&dbg_lock);
-	printk(KERN_DEBUG "Budgeting request: new_ino %d, dirtied_ino %d\n",
+	pr_err("Budgeting request: new_ino %d, dirtied_ino %d\n",
 	       req->new_ino, req->dirtied_ino);
-	printk(KERN_DEBUG "\tnew_ino_d   %d, dirtied_ino_d %d\n",
+	pr_err("\tnew_ino_d   %d, dirtied_ino_d %d\n",
 	       req->new_ino_d, req->dirtied_ino_d);
-	printk(KERN_DEBUG "\tnew_page    %d, dirtied_page %d\n",
+	pr_err("\tnew_page    %d, dirtied_page %d\n",
 	       req->new_page, req->dirtied_page);
-	printk(KERN_DEBUG "\tnew_dent    %d, mod_dent     %d\n",
+	pr_err("\tnew_dent    %d, mod_dent     %d\n",
 	       req->new_dent, req->mod_dent);
-	printk(KERN_DEBUG "\tidx_growth  %d\n", req->idx_growth);
-	printk(KERN_DEBUG "\tdata_growth %d dd_growth     %d\n",
+	pr_err("\tidx_growth  %d\n", req->idx_growth);
+	pr_err("\tdata_growth %d dd_growth     %d\n",
 	       req->data_growth, req->dd_growth);
 	spin_unlock(&dbg_lock);
 }
 
-void dbg_dump_lstats(const struct ubifs_lp_stats *lst)
+void ubifs_dump_lstats(const struct ubifs_lp_stats *lst)
 {
 	spin_lock(&dbg_lock);
-	printk(KERN_DEBUG "(pid %d) Lprops statistics: empty_lebs %d, "
-	       "idx_lebs  %d\n", current->pid, lst->empty_lebs, lst->idx_lebs);
-	printk(KERN_DEBUG "\ttaken_empty_lebs %d, total_free %lld, "
-	       "total_dirty %lld\n", lst->taken_empty_lebs, lst->total_free,
-	       lst->total_dirty);
-	printk(KERN_DEBUG "\ttotal_used %lld, total_dark %lld, "
-	       "total_dead %lld\n", lst->total_used, lst->total_dark,
-	       lst->total_dead);
+	pr_err("(pid %d) Lprops statistics: empty_lebs %d, idx_lebs  %d\n",
+	       current->pid, lst->empty_lebs, lst->idx_lebs);
+	pr_err("\ttaken_empty_lebs %d, total_free %lld, total_dirty %lld\n",
+	       lst->taken_empty_lebs, lst->total_free, lst->total_dirty);
+	pr_err("\ttotal_used %lld, total_dark %lld, total_dead %lld\n",
+	       lst->total_used, lst->total_dark, lst->total_dead);
 	spin_unlock(&dbg_lock);
 }
 
-void dbg_dump_budg(struct ubifs_info *c, const struct ubifs_budg_info *bi)
+void ubifs_dump_budg(struct ubifs_info *c, const struct ubifs_budg_info *bi)
 {
 	int i;
 	struct rb_node *rb;
@@ -644,21 +619,17 @@ void dbg_dump_budg(struct ubifs_info *c, const struct ubifs_budg_info *bi)
 
 	spin_lock(&c->space_lock);
 	spin_lock(&dbg_lock);
-	printk(KERN_DEBUG "(pid %d) Budgeting info: data budget sum %lld, "
-	       "total budget sum %lld\n", current->pid,
-	       bi->data_growth + bi->dd_growth,
+	pr_err("(pid %d) Budgeting info: data budget sum %lld, total budget sum %lld\n",
+	       current->pid, bi->data_growth + bi->dd_growth,
 	       bi->data_growth + bi->dd_growth + bi->idx_growth);
-	printk(KERN_DEBUG "\tbudg_data_growth %lld, budg_dd_growth %lld, "
-	       "budg_idx_growth %lld\n", bi->data_growth, bi->dd_growth,
-	       bi->idx_growth);
-	printk(KERN_DEBUG "\tmin_idx_lebs %d, old_idx_sz %llu, "
-	       "uncommitted_idx %lld\n", bi->min_idx_lebs, bi->old_idx_sz,
-	       bi->uncommitted_idx);
-	printk(KERN_DEBUG "\tpage_budget %d, inode_budget %d, dent_budget %d\n",
+	pr_err("\tbudg_data_growth %lld, budg_dd_growth %lld, budg_idx_growth %lld\n",
+	       bi->data_growth, bi->dd_growth, bi->idx_growth);
+	pr_err("\tmin_idx_lebs %d, old_idx_sz %llu, uncommitted_idx %lld\n",
+	       bi->min_idx_lebs, bi->old_idx_sz, bi->uncommitted_idx);
+	pr_err("\tpage_budget %d, inode_budget %d, dent_budget %d\n",
 	       bi->page_budget, bi->inode_budget, bi->dent_budget);
-	printk(KERN_DEBUG "\tnospace %u, nospace_rp %u\n",
-	       bi->nospace, bi->nospace_rp);
-	printk(KERN_DEBUG "\tdark_wm %d, dead_wm %d, max_idx_node_sz %d\n",
+	pr_err("\tnospace %u, nospace_rp %u\n", bi->nospace, bi->nospace_rp);
+	pr_err("\tdark_wm %d, dead_wm %d, max_idx_node_sz %d\n",
 	       c->dark_wm, c->dead_wm, c->max_idx_node_sz);
 
 	if (bi != &c->bi)
@@ -669,45 +640,44 @@ void dbg_dump_budg(struct ubifs_info *c, const struct ubifs_budg_info *bi)
 		 */
 		goto out_unlock;
 
-	printk(KERN_DEBUG "\tfreeable_cnt %d, calc_idx_sz %lld, idx_gc_cnt %d\n",
+	pr_err("\tfreeable_cnt %d, calc_idx_sz %lld, idx_gc_cnt %d\n",
 	       c->freeable_cnt, c->calc_idx_sz, c->idx_gc_cnt);
-	printk(KERN_DEBUG "\tdirty_pg_cnt %ld, dirty_zn_cnt %ld, "
-	       "clean_zn_cnt %ld\n", atomic_long_read(&c->dirty_pg_cnt),
+	pr_err("\tdirty_pg_cnt %ld, dirty_zn_cnt %ld, clean_zn_cnt %ld\n",
+	       atomic_long_read(&c->dirty_pg_cnt),
 	       atomic_long_read(&c->dirty_zn_cnt),
 	       atomic_long_read(&c->clean_zn_cnt));
-	printk(KERN_DEBUG "\tgc_lnum %d, ihead_lnum %d\n",
-	       c->gc_lnum, c->ihead_lnum);
+	pr_err("\tgc_lnum %d, ihead_lnum %d\n", c->gc_lnum, c->ihead_lnum);
 
 	/* If we are in R/O mode, journal heads do not exist */
 	if (c->jheads)
 		for (i = 0; i < c->jhead_cnt; i++)
-			printk(KERN_DEBUG "\tjhead %s\t LEB %d\n",
+			pr_err("\tjhead %s\t LEB %d\n",
 			       dbg_jhead(c->jheads[i].wbuf.jhead),
 			       c->jheads[i].wbuf.lnum);
 	for (rb = rb_first(&c->buds); rb; rb = rb_next(rb)) {
 		bud = rb_entry(rb, struct ubifs_bud, rb);
-		printk(KERN_DEBUG "\tbud LEB %d\n", bud->lnum);
+		pr_err("\tbud LEB %d\n", bud->lnum);
 	}
 	list_for_each_entry(bud, &c->old_buds, list)
-		printk(KERN_DEBUG "\told bud LEB %d\n", bud->lnum);
+		pr_err("\told bud LEB %d\n", bud->lnum);
 	list_for_each_entry(idx_gc, &c->idx_gc, list)
-		printk(KERN_DEBUG "\tGC'ed idx LEB %d unmap %d\n",
+		pr_err("\tGC'ed idx LEB %d unmap %d\n",
 		       idx_gc->lnum, idx_gc->unmap);
-	printk(KERN_DEBUG "\tcommit state %d\n", c->cmt_state);
+	pr_err("\tcommit state %d\n", c->cmt_state);
 
 	/* Print budgeting predictions */
 	available = ubifs_calc_available(c, c->bi.min_idx_lebs);
 	outstanding = c->bi.data_growth + c->bi.dd_growth;
 	free = ubifs_get_free_space_nolock(c);
-	printk(KERN_DEBUG "Budgeting predictions:\n");
-	printk(KERN_DEBUG "\tavailable: %lld, outstanding %lld, free %lld\n",
+	pr_err("Budgeting predictions:\n");
+	pr_err("\tavailable: %lld, outstanding %lld, free %lld\n",
 	       available, outstanding, free);
 out_unlock:
 	spin_unlock(&dbg_lock);
 	spin_unlock(&c->space_lock);
 }
 
-void dbg_dump_lprop(const struct ubifs_info *c, const struct ubifs_lprops *lp)
+void ubifs_dump_lprop(const struct ubifs_info *c, const struct ubifs_lprops *lp)
 {
 	int i, spc, dark = 0, dead = 0;
 	struct rb_node *rb;
@@ -720,21 +690,19 @@ void dbg_dump_lprop(const struct ubifs_info *c, const struct ubifs_lprops *lp)
 		dark = ubifs_calc_dark(c, spc);
 
 	if (lp->flags & LPROPS_INDEX)
-		printk(KERN_DEBUG "LEB %-7d free %-8d dirty %-8d used %-8d "
-		       "free + dirty %-8d flags %#x (", lp->lnum, lp->free,
-		       lp->dirty, c->leb_size - spc, spc, lp->flags);
+		pr_err("LEB %-7d free %-8d dirty %-8d used %-8d free + dirty %-8d flags %#x (",
+		       lp->lnum, lp->free, lp->dirty, c->leb_size - spc, spc,
+		       lp->flags);
 	else
-		printk(KERN_DEBUG "LEB %-7d free %-8d dirty %-8d used %-8d "
-		       "free + dirty %-8d dark %-4d dead %-4d nodes fit %-3d "
-		       "flags %#-4x (", lp->lnum, lp->free, lp->dirty,
-		       c->leb_size - spc, spc, dark, dead,
-		       (int)(spc / UBIFS_MAX_NODE_SZ), lp->flags);
+		pr_err("LEB %-7d free %-8d dirty %-8d used %-8d free + dirty %-8d dark %-4d dead %-4d nodes fit %-3d flags %#-4x (",
+		       lp->lnum, lp->free, lp->dirty, c->leb_size - spc, spc,
+		       dark, dead, (int)(spc / UBIFS_MAX_NODE_SZ), lp->flags);
 
 	if (lp->flags & LPROPS_TAKEN) {
 		if (lp->flags & LPROPS_INDEX)
-			printk(KERN_CONT "index, taken");
+			pr_cont("index, taken");
 		else
-			printk(KERN_CONT "taken");
+			pr_cont("taken");
 	} else {
 		const char *s;
 
@@ -771,7 +739,7 @@ void dbg_dump_lprop(const struct ubifs_info *c, const struct ubifs_lprops *lp)
 				break;
 			}
 		}
-		printk(KERN_CONT "%s", s);
+		pr_cont("%s", s);
 	}
 
 	for (rb = rb_first((struct rb_root *)&c->buds); rb; rb = rb_next(rb)) {
@@ -786,134 +754,111 @@ void dbg_dump_lprop(const struct ubifs_info *c, const struct ubifs_lprops *lp)
 				 */
 				if (c->jheads &&
 				    lp->lnum == c->jheads[i].wbuf.lnum) {
-					printk(KERN_CONT ", jhead %s",
-					       dbg_jhead(i));
+					pr_cont(", jhead %s", dbg_jhead(i));
 					head = 1;
 				}
 			}
 			if (!head)
-				printk(KERN_CONT ", bud of jhead %s",
+				pr_cont(", bud of jhead %s",
 				       dbg_jhead(bud->jhead));
 		}
 	}
 	if (lp->lnum == c->gc_lnum)
-		printk(KERN_CONT ", GC LEB");
-	printk(KERN_CONT ")\n");
+		pr_cont(", GC LEB");
+	pr_cont(")\n");
 }
 
-void dbg_dump_lprops(struct ubifs_info *c)
+void ubifs_dump_lprops(struct ubifs_info *c)
 {
 	int lnum, err;
 	struct ubifs_lprops lp;
 	struct ubifs_lp_stats lst;
 
-	printk(KERN_DEBUG "(pid %d) start dumping LEB properties\n",
-	       current->pid);
+	pr_err("(pid %d) start dumping LEB properties\n", current->pid);
 	ubifs_get_lp_stats(c, &lst);
-	dbg_dump_lstats(&lst);
+	ubifs_dump_lstats(&lst);
 
 	for (lnum = c->main_first; lnum < c->leb_cnt; lnum++) {
 		err = ubifs_read_one_lp(c, lnum, &lp);
-		if (err)
-			ubifs_err("cannot read lprops for LEB %d", lnum);
+		if (err) {
+			ubifs_err(c, "cannot read lprops for LEB %d", lnum);
+			continue;
+		}
 
-		dbg_dump_lprop(c, &lp);
+		ubifs_dump_lprop(c, &lp);
 	}
-	printk(KERN_DEBUG "(pid %d) finish dumping LEB properties\n",
-	       current->pid);
+	pr_err("(pid %d) finish dumping LEB properties\n", current->pid);
 }
 
-void dbg_dump_lpt_info(struct ubifs_info *c)
+void ubifs_dump_lpt_info(struct ubifs_info *c)
 {
 	int i;
 
 	spin_lock(&dbg_lock);
-	printk(KERN_DEBUG "(pid %d) dumping LPT information\n", current->pid);
-	printk(KERN_DEBUG "\tlpt_sz:        %lld\n", c->lpt_sz);
-	printk(KERN_DEBUG "\tpnode_sz:      %d\n", c->pnode_sz);
-	printk(KERN_DEBUG "\tnnode_sz:      %d\n", c->nnode_sz);
-	printk(KERN_DEBUG "\tltab_sz:       %d\n", c->ltab_sz);
-	printk(KERN_DEBUG "\tlsave_sz:      %d\n", c->lsave_sz);
-	printk(KERN_DEBUG "\tbig_lpt:       %d\n", c->big_lpt);
-	printk(KERN_DEBUG "\tlpt_hght:      %d\n", c->lpt_hght);
-	printk(KERN_DEBUG "\tpnode_cnt:     %d\n", c->pnode_cnt);
-	printk(KERN_DEBUG "\tnnode_cnt:     %d\n", c->nnode_cnt);
-	printk(KERN_DEBUG "\tdirty_pn_cnt:  %d\n", c->dirty_pn_cnt);
-	printk(KERN_DEBUG "\tdirty_nn_cnt:  %d\n", c->dirty_nn_cnt);
-	printk(KERN_DEBUG "\tlsave_cnt:     %d\n", c->lsave_cnt);
-	printk(KERN_DEBUG "\tspace_bits:    %d\n", c->space_bits);
-	printk(KERN_DEBUG "\tlpt_lnum_bits: %d\n", c->lpt_lnum_bits);
-	printk(KERN_DEBUG "\tlpt_offs_bits: %d\n", c->lpt_offs_bits);
-	printk(KERN_DEBUG "\tlpt_spc_bits:  %d\n", c->lpt_spc_bits);
-	printk(KERN_DEBUG "\tpcnt_bits:     %d\n", c->pcnt_bits);
-	printk(KERN_DEBUG "\tlnum_bits:     %d\n", c->lnum_bits);
-	printk(KERN_DEBUG "\tLPT root is at %d:%d\n", c->lpt_lnum, c->lpt_offs);
-	printk(KERN_DEBUG "\tLPT head is at %d:%d\n",
+	pr_err("(pid %d) dumping LPT information\n", current->pid);
+	pr_err("\tlpt_sz:        %lld\n", c->lpt_sz);
+	pr_err("\tpnode_sz:      %d\n", c->pnode_sz);
+	pr_err("\tnnode_sz:      %d\n", c->nnode_sz);
+	pr_err("\tltab_sz:       %d\n", c->ltab_sz);
+	pr_err("\tlsave_sz:      %d\n", c->lsave_sz);
+	pr_err("\tbig_lpt:       %u\n", c->big_lpt);
+	pr_err("\tlpt_hght:      %d\n", c->lpt_hght);
+	pr_err("\tpnode_cnt:     %d\n", c->pnode_cnt);
+	pr_err("\tnnode_cnt:     %d\n", c->nnode_cnt);
+	pr_err("\tdirty_pn_cnt:  %d\n", c->dirty_pn_cnt);
+	pr_err("\tdirty_nn_cnt:  %d\n", c->dirty_nn_cnt);
+	pr_err("\tlsave_cnt:     %d\n", c->lsave_cnt);
+	pr_err("\tspace_bits:    %d\n", c->space_bits);
+	pr_err("\tlpt_lnum_bits: %d\n", c->lpt_lnum_bits);
+	pr_err("\tlpt_offs_bits: %d\n", c->lpt_offs_bits);
+	pr_err("\tlpt_spc_bits:  %d\n", c->lpt_spc_bits);
+	pr_err("\tpcnt_bits:     %d\n", c->pcnt_bits);
+	pr_err("\tlnum_bits:     %d\n", c->lnum_bits);
+	pr_err("\tLPT root is at %d:%d\n", c->lpt_lnum, c->lpt_offs);
+	pr_err("\tLPT head is at %d:%d\n",
 	       c->nhead_lnum, c->nhead_offs);
-	printk(KERN_DEBUG "\tLPT ltab is at %d:%d\n",
-	       c->ltab_lnum, c->ltab_offs);
+	pr_err("\tLPT ltab is at %d:%d\n", c->ltab_lnum, c->ltab_offs);
 	if (c->big_lpt)
-		printk(KERN_DEBUG "\tLPT lsave is at %d:%d\n",
+		pr_err("\tLPT lsave is at %d:%d\n",
 		       c->lsave_lnum, c->lsave_offs);
 	for (i = 0; i < c->lpt_lebs; i++)
-		printk(KERN_DEBUG "\tLPT LEB %d free %d dirty %d tgc %d "
-		       "cmt %d\n", i + c->lpt_first, c->ltab[i].free,
-		       c->ltab[i].dirty, c->ltab[i].tgc, c->ltab[i].cmt);
+		pr_err("\tLPT LEB %d free %d dirty %d tgc %d cmt %d\n",
+		       i + c->lpt_first, c->ltab[i].free, c->ltab[i].dirty,
+		       c->ltab[i].tgc, c->ltab[i].cmt);
 	spin_unlock(&dbg_lock);
 }
 
-void dbg_dump_sleb(const struct ubifs_info *c,
-		   const struct ubifs_scan_leb *sleb, int offs)
-{
-	struct ubifs_scan_node *snod;
-
-	printk(KERN_DEBUG "(pid %d) start dumping scanned data from LEB %d:%d\n",
-	       current->pid, sleb->lnum, offs);
-
-	list_for_each_entry(snod, &sleb->nodes, list) {
-		cond_resched();
-		printk(KERN_DEBUG "Dumping node at LEB %d:%d len %d\n", sleb->lnum,
-		       snod->offs, snod->len);
-		dbg_dump_node(c, snod->node);
-	}
-}
-
-void dbg_dump_leb(const struct ubifs_info *c, int lnum)
+void ubifs_dump_leb(const struct ubifs_info *c, int lnum)
 {
 	struct ubifs_scan_leb *sleb;
 	struct ubifs_scan_node *snod;
 	void *buf;
 
-	if (dbg_is_tst_rcvry(c))
-		return;
+	pr_err("(pid %d) start dumping LEB %d\n", current->pid, lnum);
 
-	printk(KERN_DEBUG "(pid %d) start dumping LEB %d\n",
-	       current->pid, lnum);
-
-	buf = __vmalloc(c->leb_size, GFP_NOFS, PAGE_KERNEL);
+	buf = __vmalloc(c->leb_size, GFP_NOFS);
 	if (!buf) {
-		ubifs_err("cannot allocate memory for dumping LEB %d", lnum);
+		ubifs_err(c, "cannot allocate memory for dumping LEB %d", lnum);
 		return;
 	}
 
 	sleb = ubifs_scan(c, lnum, 0, buf, 0);
 	if (IS_ERR(sleb)) {
-		ubifs_err("scan error %d", (int)PTR_ERR(sleb));
+		ubifs_err(c, "scan error %d", (int)PTR_ERR(sleb));
 		goto out;
 	}
 
-	printk(KERN_DEBUG "LEB %d has %d nodes ending at %d\n", lnum,
+	pr_err("LEB %d has %d nodes ending at %d\n", lnum,
 	       sleb->nodes_cnt, sleb->endpt);
 
 	list_for_each_entry(snod, &sleb->nodes, list) {
 		cond_resched();
-		printk(KERN_DEBUG "Dumping node at LEB %d:%d len %d\n", lnum,
+		pr_err("Dumping node at LEB %d:%d len %d\n", lnum,
 		       snod->offs, snod->len);
-		dbg_dump_node(c, snod->node);
+		ubifs_dump_node(c, snod->node, c->leb_size - snod->offs);
 	}
 
-	printk(KERN_DEBUG "(pid %d) finish dumping LEB %d\n",
-	       current->pid, lnum);
+	pr_err("(pid %d) finish dumping LEB %d\n", current->pid, lnum);
 	ubifs_scan_destroy(sleb);
 
 out:
@@ -921,8 +866,8 @@ out:
 	return;
 }
 
-void dbg_dump_znode(const struct ubifs_info *c,
-		    const struct ubifs_znode *znode)
+void ubifs_dump_znode(const struct ubifs_info *c,
+		      const struct ubifs_znode *znode)
 {
 	int n;
 	const struct ubifs_zbranch *zbr;
@@ -934,107 +879,102 @@ void dbg_dump_znode(const struct ubifs_info *c,
 	else
 		zbr = &c->zroot;
 
-	printk(KERN_DEBUG "znode %p, LEB %d:%d len %d parent %p iip %d level %d"
-	       " child_cnt %d flags %lx\n", znode, zbr->lnum, zbr->offs,
-	       zbr->len, znode->parent, znode->iip, znode->level,
-	       znode->child_cnt, znode->flags);
+	pr_err("znode %p, LEB %d:%d len %d parent %p iip %d level %d child_cnt %d flags %lx\n",
+	       znode, zbr->lnum, zbr->offs, zbr->len, znode->parent, znode->iip,
+	       znode->level, znode->child_cnt, znode->flags);
 
 	if (znode->child_cnt <= 0 || znode->child_cnt > c->fanout) {
 		spin_unlock(&dbg_lock);
 		return;
 	}
 
-	printk(KERN_DEBUG "zbranches:\n");
+	pr_err("zbranches:\n");
 	for (n = 0; n < znode->child_cnt; n++) {
 		zbr = &znode->zbranch[n];
 		if (znode->level > 0)
-			printk(KERN_DEBUG "\t%d: znode %p LEB %d:%d len %d key "
-					  "%s\n", n, zbr->znode, zbr->lnum,
-					  zbr->offs, zbr->len,
-					  dbg_snprintf_key(c, &zbr->key,
-							   key_buf,
-							   DBG_KEY_BUF_LEN));
+			pr_err("\t%d: znode %p LEB %d:%d len %d key %s\n",
+			       n, zbr->znode, zbr->lnum, zbr->offs, zbr->len,
+			       dbg_snprintf_key(c, &zbr->key, key_buf,
+						DBG_KEY_BUF_LEN));
 		else
-			printk(KERN_DEBUG "\t%d: LNC %p LEB %d:%d len %d key "
-					  "%s\n", n, zbr->znode, zbr->lnum,
-					  zbr->offs, zbr->len,
-					  dbg_snprintf_key(c, &zbr->key,
-							   key_buf,
-							   DBG_KEY_BUF_LEN));
+			pr_err("\t%d: LNC %p LEB %d:%d len %d key %s\n",
+			       n, zbr->znode, zbr->lnum, zbr->offs, zbr->len,
+			       dbg_snprintf_key(c, &zbr->key, key_buf,
+						DBG_KEY_BUF_LEN));
 	}
 	spin_unlock(&dbg_lock);
 }
 
-void dbg_dump_heap(struct ubifs_info *c, struct ubifs_lpt_heap *heap, int cat)
+void ubifs_dump_heap(struct ubifs_info *c, struct ubifs_lpt_heap *heap, int cat)
 {
 	int i;
 
-	printk(KERN_DEBUG "(pid %d) start dumping heap cat %d (%d elements)\n",
+	pr_err("(pid %d) start dumping heap cat %d (%d elements)\n",
 	       current->pid, cat, heap->cnt);
 	for (i = 0; i < heap->cnt; i++) {
 		struct ubifs_lprops *lprops = heap->arr[i];
 
-		printk(KERN_DEBUG "\t%d. LEB %d hpos %d free %d dirty %d "
-		       "flags %d\n", i, lprops->lnum, lprops->hpos,
-		       lprops->free, lprops->dirty, lprops->flags);
+		pr_err("\t%d. LEB %d hpos %d free %d dirty %d flags %d\n",
+		       i, lprops->lnum, lprops->hpos, lprops->free,
+		       lprops->dirty, lprops->flags);
 	}
-	printk(KERN_DEBUG "(pid %d) finish dumping heap\n", current->pid);
+	pr_err("(pid %d) finish dumping heap\n", current->pid);
 }
 
-void dbg_dump_pnode(struct ubifs_info *c, struct ubifs_pnode *pnode,
-		    struct ubifs_nnode *parent, int iip)
+void ubifs_dump_pnode(struct ubifs_info *c, struct ubifs_pnode *pnode,
+		      struct ubifs_nnode *parent, int iip)
 {
 	int i;
 
-	printk(KERN_DEBUG "(pid %d) dumping pnode:\n", current->pid);
-	printk(KERN_DEBUG "\taddress %zx parent %zx cnext %zx\n",
+	pr_err("(pid %d) dumping pnode:\n", current->pid);
+	pr_err("\taddress %zx parent %zx cnext %zx\n",
 	       (size_t)pnode, (size_t)parent, (size_t)pnode->cnext);
-	printk(KERN_DEBUG "\tflags %lu iip %d level %d num %d\n",
+	pr_err("\tflags %lu iip %d level %d num %d\n",
 	       pnode->flags, iip, pnode->level, pnode->num);
 	for (i = 0; i < UBIFS_LPT_FANOUT; i++) {
 		struct ubifs_lprops *lp = &pnode->lprops[i];
 
-		printk(KERN_DEBUG "\t%d: free %d dirty %d flags %d lnum %d\n",
+		pr_err("\t%d: free %d dirty %d flags %d lnum %d\n",
 		       i, lp->free, lp->dirty, lp->flags, lp->lnum);
 	}
 }
 
-void dbg_dump_tnc(struct ubifs_info *c)
+void ubifs_dump_tnc(struct ubifs_info *c)
 {
 	struct ubifs_znode *znode;
 	int level;
 
-	printk(KERN_DEBUG "\n");
-	printk(KERN_DEBUG "(pid %d) start dumping TNC tree\n", current->pid);
-	znode = ubifs_tnc_levelorder_next(c->zroot.znode, NULL);
+	pr_err("\n");
+	pr_err("(pid %d) start dumping TNC tree\n", current->pid);
+	znode = ubifs_tnc_levelorder_next(c, c->zroot.znode, NULL);
 	level = znode->level;
-	printk(KERN_DEBUG "== Level %d ==\n", level);
+	pr_err("== Level %d ==\n", level);
 	while (znode) {
 		if (level != znode->level) {
 			level = znode->level;
-			printk(KERN_DEBUG "== Level %d ==\n", level);
+			pr_err("== Level %d ==\n", level);
 		}
-		dbg_dump_znode(c, znode);
-		znode = ubifs_tnc_levelorder_next(c->zroot.znode, znode);
+		ubifs_dump_znode(c, znode);
+		znode = ubifs_tnc_levelorder_next(c, c->zroot.znode, znode);
 	}
-	printk(KERN_DEBUG "(pid %d) finish dumping TNC tree\n", current->pid);
+	pr_err("(pid %d) finish dumping TNC tree\n", current->pid);
 }
 
 static int dump_znode(struct ubifs_info *c, struct ubifs_znode *znode,
 		      void *priv)
 {
-	dbg_dump_znode(c, znode);
+	ubifs_dump_znode(c, znode);
 	return 0;
 }
 
 /**
- * dbg_dump_index - dump the on-flash index.
+ * ubifs_dump_index - dump the on-flash index.
  * @c: UBIFS file-system description object
  *
- * This function dumps whole UBIFS indexing B-tree, unlike 'dbg_dump_tnc()'
+ * This function dumps whole UBIFS indexing B-tree, unlike 'ubifs_dump_tnc()'
  * which dumps only in-memory znodes and does not read znodes which from flash.
  */
-void dbg_dump_index(struct ubifs_info *c)
+void ubifs_dump_index(struct ubifs_info *c)
 {
 	dbg_walk_index(c, NULL, dump_znode, NULL);
 }
@@ -1093,7 +1033,7 @@ void dbg_save_space_info(struct ubifs_info *c)
  *
  * This function compares current flash space information with the information
  * which was saved when the 'dbg_save_space_info()' function was called.
- * Returns zero if the information has not changed, and %-EINVAL it it has
+ * Returns zero if the information has not changed, and %-EINVAL if it has
  * changed.
  */
 int dbg_check_space_info(struct ubifs_info *c)
@@ -1111,7 +1051,7 @@ int dbg_check_space_info(struct ubifs_info *c)
 	spin_unlock(&c->space_lock);
 
 	if (free != d->saved_free) {
-		ubifs_err("free space changed from %lld to %lld",
+		ubifs_err(c, "free space changed from %lld to %lld",
 			  d->saved_free, free);
 		goto out;
 	}
@@ -1119,16 +1059,16 @@ int dbg_check_space_info(struct ubifs_info *c)
 	return 0;
 
 out:
-	ubifs_msg("saved lprops statistics dump");
-	dbg_dump_lstats(&d->saved_lst);
-	ubifs_msg("saved budgeting info dump");
-	dbg_dump_budg(c, &d->saved_bi);
-	ubifs_msg("saved idx_gc_cnt %d", d->saved_idx_gc_cnt);
-	ubifs_msg("current lprops statistics dump");
+	ubifs_msg(c, "saved lprops statistics dump");
+	ubifs_dump_lstats(&d->saved_lst);
+	ubifs_msg(c, "saved budgeting info dump");
+	ubifs_dump_budg(c, &d->saved_bi);
+	ubifs_msg(c, "saved idx_gc_cnt %d", d->saved_idx_gc_cnt);
+	ubifs_msg(c, "current lprops statistics dump");
 	ubifs_get_lp_stats(c, &lst);
-	dbg_dump_lstats(&lst);
-	ubifs_msg("current budgeting info dump");
-	dbg_dump_budg(c, &c->bi);
+	ubifs_dump_lstats(&lst);
+	ubifs_msg(c, "current budgeting info dump");
+	ubifs_dump_budg(c, &c->bi);
 	dump_stack();
 	return -EINVAL;
 }
@@ -1156,11 +1096,11 @@ int dbg_check_synced_i_size(const struct ubifs_info *c, struct inode *inode)
 	mutex_lock(&ui->ui_mutex);
 	spin_lock(&ui->ui_lock);
 	if (ui->ui_size != ui->synced_i_size && !ui->dirty) {
-		ubifs_err("ui_size is %lld, synced_i_size is %lld, but inode "
-			  "is clean", ui->ui_size, ui->synced_i_size);
-		ubifs_err("i_ino %lu, i_mode %#x, i_size %lld", inode->i_ino,
+		ubifs_err(c, "ui_size is %lld, synced_i_size is %lld, but inode is clean",
+			  ui->ui_size, ui->synced_i_size);
+		ubifs_err(c, "i_ino %lu, i_mode %#x, i_size %lld", inode->i_ino,
 			  inode->i_mode, i_size_read(inode));
-		dbg_dump_stack();
+		dump_stack();
 		err = -EINVAL;
 	}
 	spin_unlock(&ui->ui_lock);
@@ -1186,7 +1126,7 @@ int dbg_check_dir(struct ubifs_info *c, const struct inode *dir)
 	unsigned int nlink = 2;
 	union ubifs_key key;
 	struct ubifs_dent_node *dent, *pdent = NULL;
-	struct qstr nm = { .name = NULL };
+	struct fscrypt_name nm = {0};
 	loff_t size = UBIFS_INO_NODE_SZ;
 
 	if (!dbg_is_chk_gen(c))
@@ -1204,12 +1144,13 @@ int dbg_check_dir(struct ubifs_info *c, const struct inode *dir)
 			err = PTR_ERR(dent);
 			if (err == -ENOENT)
 				break;
+			kfree(pdent);
 			return err;
 		}
 
-		nm.name = dent->name;
-		nm.len = le16_to_cpu(dent->nlen);
-		size += CALC_DENT_SIZE(nm.len);
+		fname_name(&nm) = dent->name;
+		fname_len(&nm) = le16_to_cpu(dent->nlen);
+		size += CALC_DENT_SIZE(fname_len(&nm));
 		if (dent->type == UBIFS_ITYPE_DIR)
 			nlink += 1;
 		kfree(pdent);
@@ -1219,18 +1160,17 @@ int dbg_check_dir(struct ubifs_info *c, const struct inode *dir)
 	kfree(pdent);
 
 	if (i_size_read(dir) != size) {
-		ubifs_err("directory inode %lu has size %llu, "
-			  "but calculated size is %llu", dir->i_ino,
-			  (unsigned long long)i_size_read(dir),
+		ubifs_err(c, "directory inode %lu has size %llu, but calculated size is %llu",
+			  dir->i_ino, (unsigned long long)i_size_read(dir),
 			  (unsigned long long)size);
-		dbg_dump_inode(c, dir);
+		ubifs_dump_inode(c, dir);
 		dump_stack();
 		return -EINVAL;
 	}
 	if (dir->i_nlink != nlink) {
-		ubifs_err("directory inode %lu has nlink %u, but calculated "
-			  "nlink is %u", dir->i_ino, dir->i_nlink, nlink);
-		dbg_dump_inode(c, dir);
+		ubifs_err(c, "directory inode %lu has nlink %u, but calculated nlink is %u",
+			  dir->i_ino, dir->i_nlink, nlink);
+		ubifs_dump_inode(c, dir);
 		dump_stack();
 		return -EINVAL;
 	}
@@ -1259,7 +1199,7 @@ static int dbg_check_key_order(struct ubifs_info *c, struct ubifs_zbranch *zbr1,
 	union ubifs_key key;
 	char key_buf[DBG_KEY_BUF_LEN];
 
-	ubifs_assert(!keys_cmp(c, &zbr1->key, &zbr2->key));
+	ubifs_assert(c, !keys_cmp(c, &zbr1->key, &zbr2->key));
 	dent1 = kmalloc(UBIFS_MAX_DENT_NODE_SZ, GFP_NOFS);
 	if (!dent1)
 		return -ENOMEM;
@@ -1287,25 +1227,25 @@ static int dbg_check_key_order(struct ubifs_info *c, struct ubifs_zbranch *zbr1,
 	err = 1;
 	key_read(c, &dent1->key, &key);
 	if (keys_cmp(c, &zbr1->key, &key)) {
-		dbg_err("1st entry at %d:%d has key %s", zbr1->lnum,
-			zbr1->offs, dbg_snprintf_key(c, &key, key_buf,
-						     DBG_KEY_BUF_LEN));
-		dbg_err("but it should have key %s according to tnc",
-			dbg_snprintf_key(c, &zbr1->key, key_buf,
-					 DBG_KEY_BUF_LEN));
-		dbg_dump_node(c, dent1);
+		ubifs_err(c, "1st entry at %d:%d has key %s", zbr1->lnum,
+			  zbr1->offs, dbg_snprintf_key(c, &key, key_buf,
+						       DBG_KEY_BUF_LEN));
+		ubifs_err(c, "but it should have key %s according to tnc",
+			  dbg_snprintf_key(c, &zbr1->key, key_buf,
+					   DBG_KEY_BUF_LEN));
+		ubifs_dump_node(c, dent1, UBIFS_MAX_DENT_NODE_SZ);
 		goto out_free;
 	}
 
 	key_read(c, &dent2->key, &key);
 	if (keys_cmp(c, &zbr2->key, &key)) {
-		dbg_err("2nd entry at %d:%d has key %s", zbr1->lnum,
-			zbr1->offs, dbg_snprintf_key(c, &key, key_buf,
-						     DBG_KEY_BUF_LEN));
-		dbg_err("but it should have key %s according to tnc",
-			dbg_snprintf_key(c, &zbr2->key, key_buf,
-					 DBG_KEY_BUF_LEN));
-		dbg_dump_node(c, dent2);
+		ubifs_err(c, "2nd entry at %d:%d has key %s", zbr1->lnum,
+			  zbr1->offs, dbg_snprintf_key(c, &key, key_buf,
+						       DBG_KEY_BUF_LEN));
+		ubifs_err(c, "but it should have key %s according to tnc",
+			  dbg_snprintf_key(c, &zbr2->key, key_buf,
+					   DBG_KEY_BUF_LEN));
+		ubifs_dump_node(c, dent2, UBIFS_MAX_DENT_NODE_SZ);
 		goto out_free;
 	}
 
@@ -1318,15 +1258,15 @@ static int dbg_check_key_order(struct ubifs_info *c, struct ubifs_zbranch *zbr1,
 		goto out_free;
 	}
 	if (cmp == 0 && nlen1 == nlen2)
-		dbg_err("2 xent/dent nodes with the same name");
+		ubifs_err(c, "2 xent/dent nodes with the same name");
 	else
-		dbg_err("bad order of colliding key %s",
-			dbg_snprintf_key(c, &key, key_buf, DBG_KEY_BUF_LEN));
+		ubifs_err(c, "bad order of colliding key %s",
+			  dbg_snprintf_key(c, &key, key_buf, DBG_KEY_BUF_LEN));
 
-	ubifs_msg("first node at %d:%d\n", zbr1->lnum, zbr1->offs);
-	dbg_dump_node(c, dent1);
-	ubifs_msg("second node at %d:%d\n", zbr2->lnum, zbr2->offs);
-	dbg_dump_node(c, dent2);
+	ubifs_msg(c, "first node at %d:%d\n", zbr1->lnum, zbr1->offs);
+	ubifs_dump_node(c, dent1, UBIFS_MAX_DENT_NODE_SZ);
+	ubifs_msg(c, "second node at %d:%d\n", zbr2->lnum, zbr2->offs);
+	ubifs_dump_node(c, dent2, UBIFS_MAX_DENT_NODE_SZ);
 
 out_free:
 	kfree(dent2);
@@ -1527,12 +1467,12 @@ static int dbg_check_znode(struct ubifs_info *c, struct ubifs_zbranch *zbr)
 	return 0;
 
 out:
-	ubifs_err("failed, error %d", err);
-	ubifs_msg("dump of the znode");
-	dbg_dump_znode(c, znode);
+	ubifs_err(c, "failed, error %d", err);
+	ubifs_msg(c, "dump of the znode");
+	ubifs_dump_znode(c, znode);
 	if (zp) {
-		ubifs_msg("dump of the parent znode");
-		dbg_dump_znode(c, zp);
+		ubifs_msg(c, "dump of the parent znode");
+		ubifs_dump_znode(c, zp);
 	}
 	dump_stack();
 	return -EINVAL;
@@ -1555,7 +1495,7 @@ int dbg_check_tnc(struct ubifs_info *c, int extra)
 	if (!dbg_is_chk_index(c))
 		return 0;
 
-	ubifs_assert(mutex_is_locked(&c->tnc_mutex));
+	ubifs_assert(c, mutex_is_locked(&c->tnc_mutex));
 	if (!c->zroot.znode)
 		return 0;
 
@@ -1581,7 +1521,7 @@ int dbg_check_tnc(struct ubifs_info *c, int extra)
 		}
 
 		prev = znode;
-		znode = ubifs_tnc_postorder_next(znode);
+		znode = ubifs_tnc_postorder_next(c, znode);
 		if (!znode)
 			break;
 
@@ -1598,10 +1538,10 @@ int dbg_check_tnc(struct ubifs_info *c, int extra)
 			if (err < 0)
 				return err;
 			if (err) {
-				ubifs_msg("first znode");
-				dbg_dump_znode(c, prev);
-				ubifs_msg("second znode");
-				dbg_dump_znode(c, znode);
+				ubifs_msg(c, "first znode");
+				ubifs_dump_znode(c, prev);
+				ubifs_msg(c, "second znode");
+				ubifs_dump_znode(c, znode);
 				return -EINVAL;
 			}
 		}
@@ -1609,13 +1549,13 @@ int dbg_check_tnc(struct ubifs_info *c, int extra)
 
 	if (extra) {
 		if (clean_cnt != atomic_long_read(&c->clean_zn_cnt)) {
-			ubifs_err("incorrect clean_zn_cnt %ld, calculated %ld",
+			ubifs_err(c, "incorrect clean_zn_cnt %ld, calculated %ld",
 				  atomic_long_read(&c->clean_zn_cnt),
 				  clean_cnt);
 			return -EINVAL;
 		}
 		if (dirty_cnt != atomic_long_read(&c->dirty_zn_cnt)) {
-			ubifs_err("incorrect dirty_zn_cnt %ld, calculated %ld",
+			ubifs_err(c, "incorrect dirty_zn_cnt %ld, calculated %ld",
 				  atomic_long_read(&c->dirty_zn_cnt),
 				  dirty_cnt);
 			return -EINVAL;
@@ -1673,7 +1613,6 @@ int dbg_walk_index(struct ubifs_info *c, dbg_leaf_callback leaf_cb,
 				err = PTR_ERR(child);
 				goto out_unlock;
 			}
-			zbr->znode = child;
 		}
 
 		znode = child;
@@ -1688,9 +1627,9 @@ int dbg_walk_index(struct ubifs_info *c, dbg_leaf_callback leaf_cb,
 		if (znode_cb) {
 			err = znode_cb(c, znode, priv);
 			if (err) {
-				ubifs_err("znode checking function returned "
-					  "error %d", err);
-				dbg_dump_znode(c, znode);
+				ubifs_err(c, "znode checking function returned error %d",
+					  err);
+				ubifs_dump_znode(c, znode);
 				goto out_dump;
 			}
 		}
@@ -1699,9 +1638,7 @@ int dbg_walk_index(struct ubifs_info *c, dbg_leaf_callback leaf_cb,
 				zbr = &znode->zbranch[idx];
 				err = leaf_cb(c, zbr, priv);
 				if (err) {
-					ubifs_err("leaf checking function "
-						  "returned error %d, for leaf "
-						  "at LEB %d:%d",
+					ubifs_err(c, "leaf checking function returned error %d, for leaf at LEB %d:%d",
 						  err, zbr->lnum, zbr->offs);
 					goto out_dump;
 				}
@@ -1757,8 +1694,8 @@ out_dump:
 		zbr = &znode->parent->zbranch[znode->iip];
 	else
 		zbr = &c->zroot;
-	ubifs_msg("dump of znode at LEB %d:%d", zbr->lnum, zbr->offs);
-	dbg_dump_znode(c, znode);
+	ubifs_msg(c, "dump of znode at LEB %d:%d", zbr->lnum, zbr->offs);
+	ubifs_dump_znode(c, znode);
 out_unlock:
 	mutex_unlock(&c->tnc_mutex);
 	return err;
@@ -1804,13 +1741,13 @@ int dbg_check_idx_size(struct ubifs_info *c, long long idx_size)
 
 	err = dbg_walk_index(c, NULL, add_size, &calc);
 	if (err) {
-		ubifs_err("error %d while walking the index", err);
+		ubifs_err(c, "error %d while walking the index", err);
 		return err;
 	}
 
 	if (calc != idx_size) {
-		ubifs_err("index size check failed: calculated size is %lld, "
-			  "should be %lld", calc, idx_size);
+		ubifs_err(c, "index size check failed: calculated size is %lld, should be %lld",
+			  calc, idx_size);
 		dump_stack();
 		return -EINVAL;
 	}
@@ -1896,7 +1833,7 @@ static struct fsck_inode *add_inode(struct ubifs_info *c,
 	}
 
 	if (inum > c->highest_inum) {
-		ubifs_err("too high inode number, max. is %lu",
+		ubifs_err(c, "too high inode number, max. is %lu",
 			  (unsigned long)c->highest_inum);
 		return ERR_PTR(-EINVAL);
 	}
@@ -2003,17 +1940,17 @@ static struct fsck_inode *read_add_inode(struct ubifs_info *c,
 	ino_key_init(c, &key, inum);
 	err = ubifs_lookup_level0(c, &key, &znode, &n);
 	if (!err) {
-		ubifs_err("inode %lu not found in index", (unsigned long)inum);
+		ubifs_err(c, "inode %lu not found in index", (unsigned long)inum);
 		return ERR_PTR(-ENOENT);
 	} else if (err < 0) {
-		ubifs_err("error %d while looking up inode %lu",
+		ubifs_err(c, "error %d while looking up inode %lu",
 			  err, (unsigned long)inum);
 		return ERR_PTR(err);
 	}
 
 	zbr = &znode->zbranch[n];
 	if (zbr->len < UBIFS_INO_NODE_SZ) {
-		ubifs_err("bad node %lu node length %d",
+		ubifs_err(c, "bad node %lu node length %d",
 			  (unsigned long)inum, zbr->len);
 		return ERR_PTR(-EINVAL);
 	}
@@ -2024,7 +1961,7 @@ static struct fsck_inode *read_add_inode(struct ubifs_info *c,
 
 	err = ubifs_tnc_read_node(c, zbr, ino);
 	if (err) {
-		ubifs_err("cannot read inode node at LEB %d:%d, error %d",
+		ubifs_err(c, "cannot read inode node at LEB %d:%d, error %d",
 			  zbr->lnum, zbr->offs, err);
 		kfree(ino);
 		return ERR_PTR(err);
@@ -2033,7 +1970,7 @@ static struct fsck_inode *read_add_inode(struct ubifs_info *c,
 	fscki = add_inode(c, fsckd, ino);
 	kfree(ino);
 	if (IS_ERR(fscki)) {
-		ubifs_err("error %ld while adding inode %lu node",
+		ubifs_err(c, "error %ld while adding inode %lu node",
 			  PTR_ERR(fscki), (unsigned long)inum);
 		return fscki;
 	}
@@ -2067,7 +2004,7 @@ static int check_leaf(struct ubifs_info *c, struct ubifs_zbranch *zbr,
 	struct fsck_inode *fscki;
 
 	if (zbr->len < UBIFS_CH_SZ) {
-		ubifs_err("bad leaf length %d (LEB %d:%d)",
+		ubifs_err(c, "bad leaf length %d (LEB %d:%d)",
 			  zbr->len, zbr->lnum, zbr->offs);
 		return -EINVAL;
 	}
@@ -2078,7 +2015,7 @@ static int check_leaf(struct ubifs_info *c, struct ubifs_zbranch *zbr,
 
 	err = ubifs_tnc_read_node(c, zbr, node);
 	if (err) {
-		ubifs_err("cannot read leaf node at LEB %d:%d, error %d",
+		ubifs_err(c, "cannot read leaf node at LEB %d:%d, error %d",
 			  zbr->lnum, zbr->offs, err);
 		goto out_free;
 	}
@@ -2088,7 +2025,7 @@ static int check_leaf(struct ubifs_info *c, struct ubifs_zbranch *zbr,
 		fscki = add_inode(c, priv, node);
 		if (IS_ERR(fscki)) {
 			err = PTR_ERR(fscki);
-			ubifs_err("error %d while adding inode node", err);
+			ubifs_err(c, "error %d while adding inode node", err);
 			goto out_dump;
 		}
 		goto out;
@@ -2096,7 +2033,7 @@ static int check_leaf(struct ubifs_info *c, struct ubifs_zbranch *zbr,
 
 	if (type != UBIFS_DENT_KEY && type != UBIFS_XENT_KEY &&
 	    type != UBIFS_DATA_KEY) {
-		ubifs_err("unexpected node type %d at LEB %d:%d",
+		ubifs_err(c, "unexpected node type %d at LEB %d:%d",
 			  type, zbr->lnum, zbr->offs);
 		err = -EINVAL;
 		goto out_free;
@@ -2104,7 +2041,7 @@ static int check_leaf(struct ubifs_info *c, struct ubifs_zbranch *zbr,
 
 	ch = node;
 	if (le64_to_cpu(ch->sqnum) > c->max_sqnum) {
-		ubifs_err("too high sequence number, max. is %llu",
+		ubifs_err(c, "too high sequence number, max. is %llu",
 			  c->max_sqnum);
 		err = -EINVAL;
 		goto out_dump;
@@ -2114,6 +2051,8 @@ static int check_leaf(struct ubifs_info *c, struct ubifs_zbranch *zbr,
 		long long blk_offs;
 		struct ubifs_data_node *dn = node;
 
+		ubifs_assert(c, zbr->len >= UBIFS_DATA_NODE_SZ);
+
 		/*
 		 * Search the inode node this data node belongs to and insert
 		 * it to the RB-tree of inodes.
@@ -2122,8 +2061,7 @@ static int check_leaf(struct ubifs_info *c, struct ubifs_zbranch *zbr,
 		fscki = read_add_inode(c, priv, inum);
 		if (IS_ERR(fscki)) {
 			err = PTR_ERR(fscki);
-			ubifs_err("error %d while processing data node and "
-				  "trying to find inode node %lu",
+			ubifs_err(c, "error %d while processing data node and trying to find inode node %lu",
 				  err, (unsigned long)inum);
 			goto out_dump;
 		}
@@ -2133,9 +2071,8 @@ static int check_leaf(struct ubifs_info *c, struct ubifs_zbranch *zbr,
 		blk_offs <<= UBIFS_BLOCK_SHIFT;
 		blk_offs += le32_to_cpu(dn->size);
 		if (blk_offs > fscki->size) {
-			ubifs_err("data node at LEB %d:%d is not within inode "
-				  "size %lld", zbr->lnum, zbr->offs,
-				  fscki->size);
+			ubifs_err(c, "data node at LEB %d:%d is not within inode size %lld",
+				  zbr->lnum, zbr->offs, fscki->size);
 			err = -EINVAL;
 			goto out_dump;
 		}
@@ -2143,6 +2080,8 @@ static int check_leaf(struct ubifs_info *c, struct ubifs_zbranch *zbr,
 		int nlen;
 		struct ubifs_dent_node *dent = node;
 		struct fsck_inode *fscki1;
+
+		ubifs_assert(c, zbr->len >= UBIFS_DENT_NODE_SZ);
 
 		err = ubifs_validate_entry(c, dent);
 		if (err)
@@ -2156,8 +2095,7 @@ static int check_leaf(struct ubifs_info *c, struct ubifs_zbranch *zbr,
 		fscki = read_add_inode(c, priv, inum);
 		if (IS_ERR(fscki)) {
 			err = PTR_ERR(fscki);
-			ubifs_err("error %d while processing entry node and "
-				  "trying to find inode node %lu",
+			ubifs_err(c, "error %d while processing entry node and trying to find inode node %lu",
 				  err, (unsigned long)inum);
 			goto out_dump;
 		}
@@ -2169,8 +2107,7 @@ static int check_leaf(struct ubifs_info *c, struct ubifs_zbranch *zbr,
 		fscki1 = read_add_inode(c, priv, inum);
 		if (IS_ERR(fscki1)) {
 			err = PTR_ERR(fscki1);
-			ubifs_err("error %d while processing entry node and "
-				  "trying to find parent inode node %lu",
+			ubifs_err(c, "error %d while processing entry node and trying to find parent inode node %lu",
 				  err, (unsigned long)inum);
 			goto out_dump;
 		}
@@ -2193,8 +2130,8 @@ out:
 	return 0;
 
 out_dump:
-	ubifs_msg("dump of node at LEB %d:%d", zbr->lnum, zbr->offs);
-	dbg_dump_node(c, node);
+	ubifs_msg(c, "dump of node at LEB %d:%d", zbr->lnum, zbr->offs);
+	ubifs_dump_node(c, node, zbr->len);
 out_free:
 	kfree(node);
 	return err;
@@ -2206,26 +2143,10 @@ out_free:
  */
 static void free_inodes(struct fsck_data *fsckd)
 {
-	struct rb_node *this = fsckd->inodes.rb_node;
-	struct fsck_inode *fscki;
+	struct fsck_inode *fscki, *n;
 
-	while (this) {
-		if (this->rb_left)
-			this = this->rb_left;
-		else if (this->rb_right)
-			this = this->rb_right;
-		else {
-			fscki = rb_entry(this, struct fsck_inode, rb);
-			this = rb_parent(this);
-			if (this) {
-				if (this->rb_left == &fscki->rb)
-					this->rb_left = NULL;
-				else
-					this->rb_right = NULL;
-			}
-			kfree(fscki);
-		}
-	}
+	rbtree_postorder_for_each_entry_safe(fscki, n, &fsckd->inodes, rb)
+		kfree(fscki);
 }
 
 /**
@@ -2260,61 +2181,52 @@ static int check_inodes(struct ubifs_info *c, struct fsck_data *fsckd)
 			 */
 			if (fscki->inum != UBIFS_ROOT_INO &&
 			    fscki->references != 1) {
-				ubifs_err("directory inode %lu has %d "
-					  "direntries which refer it, but "
-					  "should be 1",
+				ubifs_err(c, "directory inode %lu has %d direntries which refer it, but should be 1",
 					  (unsigned long)fscki->inum,
 					  fscki->references);
 				goto out_dump;
 			}
 			if (fscki->inum == UBIFS_ROOT_INO &&
 			    fscki->references != 0) {
-				ubifs_err("root inode %lu has non-zero (%d) "
-					  "direntries which refer it",
+				ubifs_err(c, "root inode %lu has non-zero (%d) direntries which refer it",
 					  (unsigned long)fscki->inum,
 					  fscki->references);
 				goto out_dump;
 			}
 			if (fscki->calc_sz != fscki->size) {
-				ubifs_err("directory inode %lu size is %lld, "
-					  "but calculated size is %lld",
+				ubifs_err(c, "directory inode %lu size is %lld, but calculated size is %lld",
 					  (unsigned long)fscki->inum,
 					  fscki->size, fscki->calc_sz);
 				goto out_dump;
 			}
 			if (fscki->calc_cnt != fscki->nlink) {
-				ubifs_err("directory inode %lu nlink is %d, "
-					  "but calculated nlink is %d",
+				ubifs_err(c, "directory inode %lu nlink is %d, but calculated nlink is %d",
 					  (unsigned long)fscki->inum,
 					  fscki->nlink, fscki->calc_cnt);
 				goto out_dump;
 			}
 		} else {
 			if (fscki->references != fscki->nlink) {
-				ubifs_err("inode %lu nlink is %d, but "
-					  "calculated nlink is %d",
+				ubifs_err(c, "inode %lu nlink is %d, but calculated nlink is %d",
 					  (unsigned long)fscki->inum,
 					  fscki->nlink, fscki->references);
 				goto out_dump;
 			}
 		}
 		if (fscki->xattr_sz != fscki->calc_xsz) {
-			ubifs_err("inode %lu has xattr size %u, but "
-				  "calculated size is %lld",
+			ubifs_err(c, "inode %lu has xattr size %u, but calculated size is %lld",
 				  (unsigned long)fscki->inum, fscki->xattr_sz,
 				  fscki->calc_xsz);
 			goto out_dump;
 		}
 		if (fscki->xattr_cnt != fscki->calc_xcnt) {
-			ubifs_err("inode %lu has %u xattrs, but "
-				  "calculated count is %lld",
+			ubifs_err(c, "inode %lu has %u xattrs, but calculated count is %lld",
 				  (unsigned long)fscki->inum,
 				  fscki->xattr_cnt, fscki->calc_xcnt);
 			goto out_dump;
 		}
 		if (fscki->xattr_nms != fscki->calc_xnms) {
-			ubifs_err("inode %lu has xattr names' size %u, but "
-				  "calculated names' size is %lld",
+			ubifs_err(c, "inode %lu has xattr names' size %u, but calculated names' size is %lld",
 				  (unsigned long)fscki->inum, fscki->xattr_nms,
 				  fscki->calc_xnms);
 			goto out_dump;
@@ -2328,11 +2240,11 @@ out_dump:
 	ino_key_init(c, &key, fscki->inum);
 	err = ubifs_lookup_level0(c, &key, &znode, &n);
 	if (!err) {
-		ubifs_err("inode %lu not found in index",
+		ubifs_err(c, "inode %lu not found in index",
 			  (unsigned long)fscki->inum);
 		return -ENOENT;
 	} else if (err < 0) {
-		ubifs_err("error %d while looking up inode %lu",
+		ubifs_err(c, "error %d while looking up inode %lu",
 			  err, (unsigned long)fscki->inum);
 		return err;
 	}
@@ -2344,15 +2256,15 @@ out_dump:
 
 	err = ubifs_tnc_read_node(c, zbr, ino);
 	if (err) {
-		ubifs_err("cannot read inode node at LEB %d:%d, error %d",
+		ubifs_err(c, "cannot read inode node at LEB %d:%d, error %d",
 			  zbr->lnum, zbr->offs, err);
 		kfree(ino);
 		return err;
 	}
 
-	ubifs_msg("dump of the inode %lu sitting in LEB %d:%d",
+	ubifs_msg(c, "dump of the inode %lu sitting in LEB %d:%d",
 		  (unsigned long)fscki->inum, zbr->lnum, zbr->offs);
-	dbg_dump_node(c, ino);
+	ubifs_dump_node(c, ino, zbr->len);
 	kfree(ino);
 	return -EINVAL;
 }
@@ -2391,7 +2303,7 @@ int dbg_check_filesystem(struct ubifs_info *c)
 	return 0;
 
 out_free:
-	ubifs_err("file-system check failed with error %d", err);
+	ubifs_err(c, "file-system check failed with error %d", err);
 	dump_stack();
 	free_inodes(&fsckd);
 	return err;
@@ -2422,13 +2334,13 @@ int dbg_check_data_nodes_order(struct ubifs_info *c, struct list_head *head)
 		sb = container_of(cur->next, struct ubifs_scan_node, list);
 
 		if (sa->type != UBIFS_DATA_NODE) {
-			ubifs_err("bad node type %d", sa->type);
-			dbg_dump_node(c, sa->node);
+			ubifs_err(c, "bad node type %d", sa->type);
+			ubifs_dump_node(c, sa->node, c->leb_size - sa->offs);
 			return -EINVAL;
 		}
 		if (sb->type != UBIFS_DATA_NODE) {
-			ubifs_err("bad node type %d", sb->type);
-			dbg_dump_node(c, sb->node);
+			ubifs_err(c, "bad node type %d", sb->type);
+			ubifs_dump_node(c, sb->node, c->leb_size - sb->offs);
 			return -EINVAL;
 		}
 
@@ -2438,7 +2350,7 @@ int dbg_check_data_nodes_order(struct ubifs_info *c, struct list_head *head)
 		if (inuma < inumb)
 			continue;
 		if (inuma > inumb) {
-			ubifs_err("larger inum %lu goes before inum %lu",
+			ubifs_err(c, "larger inum %lu goes before inum %lu",
 				  (unsigned long)inuma, (unsigned long)inumb);
 			goto error_dump;
 		}
@@ -2447,11 +2359,11 @@ int dbg_check_data_nodes_order(struct ubifs_info *c, struct list_head *head)
 		blkb = key_block(c, &sb->key);
 
 		if (blka > blkb) {
-			ubifs_err("larger block %u goes before %u", blka, blkb);
+			ubifs_err(c, "larger block %u goes before %u", blka, blkb);
 			goto error_dump;
 		}
 		if (blka == blkb) {
-			ubifs_err("two data nodes for the same block");
+			ubifs_err(c, "two data nodes for the same block");
 			goto error_dump;
 		}
 	}
@@ -2459,8 +2371,8 @@ int dbg_check_data_nodes_order(struct ubifs_info *c, struct list_head *head)
 	return 0;
 
 error_dump:
-	dbg_dump_node(c, sa->node);
-	dbg_dump_node(c, sb->node);
+	ubifs_dump_node(c, sa->node, c->leb_size - sa->offs);
+	ubifs_dump_node(c, sb->node, c->leb_size - sb->offs);
 	return -EINVAL;
 }
 
@@ -2490,19 +2402,19 @@ int dbg_check_nondata_nodes_order(struct ubifs_info *c, struct list_head *head)
 
 		if (sa->type != UBIFS_INO_NODE && sa->type != UBIFS_DENT_NODE &&
 		    sa->type != UBIFS_XENT_NODE) {
-			ubifs_err("bad node type %d", sa->type);
-			dbg_dump_node(c, sa->node);
+			ubifs_err(c, "bad node type %d", sa->type);
+			ubifs_dump_node(c, sa->node, c->leb_size - sa->offs);
 			return -EINVAL;
 		}
-		if (sa->type != UBIFS_INO_NODE && sa->type != UBIFS_DENT_NODE &&
-		    sa->type != UBIFS_XENT_NODE) {
-			ubifs_err("bad node type %d", sb->type);
-			dbg_dump_node(c, sb->node);
+		if (sb->type != UBIFS_INO_NODE && sb->type != UBIFS_DENT_NODE &&
+		    sb->type != UBIFS_XENT_NODE) {
+			ubifs_err(c, "bad node type %d", sb->type);
+			ubifs_dump_node(c, sb->node, c->leb_size - sb->offs);
 			return -EINVAL;
 		}
 
 		if (sa->type != UBIFS_INO_NODE && sb->type == UBIFS_INO_NODE) {
-			ubifs_err("non-inode node goes before inode node");
+			ubifs_err(c, "non-inode node goes before inode node");
 			goto error_dump;
 		}
 
@@ -2512,7 +2424,7 @@ int dbg_check_nondata_nodes_order(struct ubifs_info *c, struct list_head *head)
 		if (sa->type == UBIFS_INO_NODE && sb->type == UBIFS_INO_NODE) {
 			/* Inode nodes are sorted in descending size order */
 			if (sa->len < sb->len) {
-				ubifs_err("smaller inode node goes first");
+				ubifs_err(c, "smaller inode node goes first");
 				goto error_dump;
 			}
 			continue;
@@ -2528,7 +2440,7 @@ int dbg_check_nondata_nodes_order(struct ubifs_info *c, struct list_head *head)
 		if (inuma < inumb)
 			continue;
 		if (inuma > inumb) {
-			ubifs_err("larger inum %lu goes before inum %lu",
+			ubifs_err(c, "larger inum %lu goes before inum %lu",
 				  (unsigned long)inuma, (unsigned long)inumb);
 			goto error_dump;
 		}
@@ -2537,7 +2449,7 @@ int dbg_check_nondata_nodes_order(struct ubifs_info *c, struct list_head *head)
 		hashb = key_block(c, &sb->key);
 
 		if (hasha > hashb) {
-			ubifs_err("larger hash %u goes before %u",
+			ubifs_err(c, "larger hash %u goes before %u",
 				  hasha, hashb);
 			goto error_dump;
 		}
@@ -2546,17 +2458,16 @@ int dbg_check_nondata_nodes_order(struct ubifs_info *c, struct list_head *head)
 	return 0;
 
 error_dump:
-	ubifs_msg("dumping first node");
-	dbg_dump_node(c, sa->node);
-	ubifs_msg("dumping second node");
-	dbg_dump_node(c, sb->node);
+	ubifs_msg(c, "dumping first node");
+	ubifs_dump_node(c, sa->node, c->leb_size - sa->offs);
+	ubifs_msg(c, "dumping second node");
+	ubifs_dump_node(c, sb->node, c->leb_size - sb->offs);
 	return -EINVAL;
-	return 0;
 }
 
 static inline int chance(unsigned int n, unsigned int out_of)
 {
-	return !!((random32() % out_of) + 1 <= n);
+	return !!((prandom_u32() % out_of) + 1 <= n);
 
 }
 
@@ -2564,7 +2475,7 @@ static int power_cut_emulated(struct ubifs_info *c, int lnum, int write)
 {
 	struct ubifs_debug_info *d = c->dbg;
 
-	ubifs_assert(dbg_is_tst_rcvry(c));
+	ubifs_assert(c, dbg_is_tst_rcvry(c));
 
 	if (!d->pc_cnt) {
 		/* First call - decide delay to the power cut */
@@ -2573,17 +2484,17 @@ static int power_cut_emulated(struct ubifs_info *c, int lnum, int write)
 
 			if (chance(1, 2)) {
 				d->pc_delay = 1;
-				/* Fail withing 1 minute */
-				delay = random32() % 60000;
+				/* Fail within 1 minute */
+				delay = prandom_u32() % 60000;
 				d->pc_timeout = jiffies;
 				d->pc_timeout += msecs_to_jiffies(delay);
-				ubifs_warn("failing after %lums", delay);
+				ubifs_warn(c, "failing after %lums", delay);
 			} else {
 				d->pc_delay = 2;
-				delay = random32() % 10000;
+				delay = prandom_u32() % 10000;
 				/* Fail within 10000 operations */
 				d->pc_cnt_max = delay;
-				ubifs_warn("failing after %lu calls", delay);
+				ubifs_warn(c, "failing after %lu calls", delay);
 			}
 		}
 
@@ -2601,94 +2512,95 @@ static int power_cut_emulated(struct ubifs_info *c, int lnum, int write)
 			return 0;
 		if (chance(19, 20))
 			return 0;
-		ubifs_warn("failing in super block LEB %d", lnum);
+		ubifs_warn(c, "failing in super block LEB %d", lnum);
 	} else if (lnum == UBIFS_MST_LNUM || lnum == UBIFS_MST_LNUM + 1) {
 		if (chance(19, 20))
 			return 0;
-		ubifs_warn("failing in master LEB %d", lnum);
+		ubifs_warn(c, "failing in master LEB %d", lnum);
 	} else if (lnum >= UBIFS_LOG_LNUM && lnum <= c->log_last) {
 		if (write && chance(99, 100))
 			return 0;
 		if (chance(399, 400))
 			return 0;
-		ubifs_warn("failing in log LEB %d", lnum);
+		ubifs_warn(c, "failing in log LEB %d", lnum);
 	} else if (lnum >= c->lpt_first && lnum <= c->lpt_last) {
 		if (write && chance(7, 8))
 			return 0;
 		if (chance(19, 20))
 			return 0;
-		ubifs_warn("failing in LPT LEB %d", lnum);
+		ubifs_warn(c, "failing in LPT LEB %d", lnum);
 	} else if (lnum >= c->orph_first && lnum <= c->orph_last) {
 		if (write && chance(1, 2))
 			return 0;
 		if (chance(9, 10))
 			return 0;
-		ubifs_warn("failing in orphan LEB %d", lnum);
+		ubifs_warn(c, "failing in orphan LEB %d", lnum);
 	} else if (lnum == c->ihead_lnum) {
 		if (chance(99, 100))
 			return 0;
-		ubifs_warn("failing in index head LEB %d", lnum);
+		ubifs_warn(c, "failing in index head LEB %d", lnum);
 	} else if (c->jheads && lnum == c->jheads[GCHD].wbuf.lnum) {
 		if (chance(9, 10))
 			return 0;
-		ubifs_warn("failing in GC head LEB %d", lnum);
+		ubifs_warn(c, "failing in GC head LEB %d", lnum);
 	} else if (write && !RB_EMPTY_ROOT(&c->buds) &&
 		   !ubifs_search_bud(c, lnum)) {
 		if (chance(19, 20))
 			return 0;
-		ubifs_warn("failing in non-bud LEB %d", lnum);
+		ubifs_warn(c, "failing in non-bud LEB %d", lnum);
 	} else if (c->cmt_state == COMMIT_RUNNING_BACKGROUND ||
 		   c->cmt_state == COMMIT_RUNNING_REQUIRED) {
 		if (chance(999, 1000))
 			return 0;
-		ubifs_warn("failing in bud LEB %d commit running", lnum);
+		ubifs_warn(c, "failing in bud LEB %d commit running", lnum);
 	} else {
 		if (chance(9999, 10000))
 			return 0;
-		ubifs_warn("failing in bud LEB %d commit not running", lnum);
+		ubifs_warn(c, "failing in bud LEB %d commit not running", lnum);
 	}
 
 	d->pc_happened = 1;
-	ubifs_warn("========== Power cut emulated ==========");
+	ubifs_warn(c, "========== Power cut emulated ==========");
 	dump_stack();
 	return 1;
 }
 
-static void cut_data(const void *buf, unsigned int len)
+static int corrupt_data(const struct ubifs_info *c, const void *buf,
+			unsigned int len)
 {
-	unsigned int from, to, i, ffs = chance(1, 2);
+	unsigned int from, to, ffs = chance(1, 2);
 	unsigned char *p = (void *)buf;
 
-	from = random32() % (len + 1);
-	if (chance(1, 2))
-		to = random32() % (len - from + 1);
-	else
-		to = len;
+	from = prandom_u32() % len;
+	/* Corruption span max to end of write unit */
+	to = min(len, ALIGN(from + 1, c->max_write_size));
 
-	if (from < to)
-		ubifs_warn("filled bytes %u-%u with %s", from, to - 1,
-			   ffs ? "0xFFs" : "random data");
+	ubifs_warn(c, "filled bytes %u-%u with %s", from, to - 1,
+		   ffs ? "0xFFs" : "random data");
 
 	if (ffs)
-		for (i = from; i < to; i++)
-			p[i] = 0xFF;
+		memset(p + from, 0xFF, to - from);
 	else
-		for (i = from; i < to; i++)
-			p[i] = random32() % 0x100;
+		prandom_bytes(p + from, to - from);
+
+	return to;
 }
 
 int dbg_leb_write(struct ubifs_info *c, int lnum, const void *buf,
-		  int offs, int len, int dtype)
+		  int offs, int len)
 {
 	int err, failing;
 
-	if (c->dbg->pc_happened)
+	if (dbg_is_power_cut(c))
 		return -EROFS;
 
 	failing = power_cut_emulated(c, lnum, 1);
-	if (failing)
-		cut_data(buf, len);
-	err = ubi_leb_write(c->ubi, lnum, buf, offs, len, dtype);
+	if (failing) {
+		len = corrupt_data(c, buf, len);
+		ubifs_warn(c, "actually write %d bytes to LEB %d:%d (the buffer was corrupted)",
+			   len, lnum, offs);
+	}
+	err = ubi_leb_write(c->ubi, lnum, buf, offs, len);
 	if (err)
 		return err;
 	if (failing)
@@ -2697,15 +2609,15 @@ int dbg_leb_write(struct ubifs_info *c, int lnum, const void *buf,
 }
 
 int dbg_leb_change(struct ubifs_info *c, int lnum, const void *buf,
-		   int len, int dtype)
+		   int len)
 {
 	int err;
 
-	if (c->dbg->pc_happened)
+	if (dbg_is_power_cut(c))
 		return -EROFS;
 	if (power_cut_emulated(c, lnum, 1))
 		return -EROFS;
-	err = ubi_leb_change(c->ubi, lnum, buf, len, dtype);
+	err = ubi_leb_change(c->ubi, lnum, buf, len);
 	if (err)
 		return err;
 	if (power_cut_emulated(c, lnum, 1))
@@ -2717,7 +2629,7 @@ int dbg_leb_unmap(struct ubifs_info *c, int lnum)
 {
 	int err;
 
-	if (c->dbg->pc_happened)
+	if (dbg_is_power_cut(c))
 		return -EROFS;
 	if (power_cut_emulated(c, lnum, 0))
 		return -EROFS;
@@ -2729,15 +2641,15 @@ int dbg_leb_unmap(struct ubifs_info *c, int lnum)
 	return 0;
 }
 
-int dbg_leb_map(struct ubifs_info *c, int lnum, int dtype)
+int dbg_leb_map(struct ubifs_info *c, int lnum)
 {
 	int err;
 
-	if (c->dbg->pc_happened)
+	if (dbg_is_power_cut(c))
 		return -EROFS;
 	if (power_cut_emulated(c, lnum, 0))
 		return -EROFS;
-	err = ubi_leb_map(c->ubi, lnum, dtype);
+	err = ubi_leb_map(c->ubi, lnum);
 	if (err)
 		return err;
 	if (power_cut_emulated(c, lnum, 0))
@@ -2804,6 +2716,8 @@ static ssize_t dfs_file_read(struct file *file, char __user *u, size_t count,
 		val = d->chk_fs;
 	else if (dent == d->dfs_tst_rcvry)
 		val = d->tst_rcvry;
+	else if (dent == d->dfs_ro_error)
+		val = c->ro_error;
 	else
 		return -EINVAL;
 
@@ -2844,29 +2758,17 @@ static ssize_t dfs_file_write(struct file *file, const char __user *u,
 	struct dentry *dent = file->f_path.dentry;
 	int val;
 
-	/*
-	 * TODO: this is racy - the file-system might have already been
-	 * unmounted and we'd oops in this case. The plan is to fix it with
-	 * help of 'iterate_supers_type()' which we should have in v3.0: when
-	 * a debugfs opened, we rember FS's UUID in file->private_data. Then
-	 * whenever we access the FS via a debugfs file, we iterate all UBIFS
-	 * superblocks and fine the one with the same UUID, and take the
-	 * locking right.
-	 *
-	 * The other way to go suggested by Al Viro is to create a separate
-	 * 'ubifs-debug' file-system instead.
-	 */
 	if (file->f_path.dentry == d->dfs_dump_lprops) {
-		dbg_dump_lprops(c);
+		ubifs_dump_lprops(c);
 		return count;
 	}
 	if (file->f_path.dentry == d->dfs_dump_budg) {
-		dbg_dump_budg(c, &c->bi);
+		ubifs_dump_budg(c, &c->bi);
 		return count;
 	}
 	if (file->f_path.dentry == d->dfs_dump_tnc) {
 		mutex_lock(&c->tnc_mutex);
-		dbg_dump_tnc(c);
+		ubifs_dump_tnc(c);
 		mutex_unlock(&c->tnc_mutex);
 		return count;
 	}
@@ -2887,6 +2789,8 @@ static ssize_t dfs_file_write(struct file *file, const char __user *u,
 		d->chk_fs = val;
 	else if (dent == d->dfs_tst_rcvry)
 		d->tst_rcvry = val;
+	else if (dent == d->dfs_ro_error)
+		c->ro_error = !!val;
 	else
 		return -EINVAL;
 
@@ -2905,105 +2809,68 @@ static const struct file_operations dfs_fops = {
  * dbg_debugfs_init_fs - initialize debugfs for UBIFS instance.
  * @c: UBIFS file-system description object
  *
- * This function creates all debugfs files for this instance of UBIFS. Returns
- * zero in case of success and a negative error code in case of failure.
+ * This function creates all debugfs files for this instance of UBIFS.
  *
  * Note, the only reason we have not merged this function with the
  * 'ubifs_debugging_init()' function is because it is better to initialize
  * debugfs interfaces at the very end of the mount process, and remove them at
  * the very beginning of the mount process.
  */
-int dbg_debugfs_init_fs(struct ubifs_info *c)
+void dbg_debugfs_init_fs(struct ubifs_info *c)
 {
-	int err, n;
+	int n;
 	const char *fname;
-	struct dentry *dent;
 	struct ubifs_debug_info *d = c->dbg;
 
 	n = snprintf(d->dfs_dir_name, UBIFS_DFS_DIR_LEN + 1, UBIFS_DFS_DIR_NAME,
 		     c->vi.ubi_num, c->vi.vol_id);
-	if (n == UBIFS_DFS_DIR_LEN) {
+	if (n > UBIFS_DFS_DIR_LEN) {
 		/* The array size is too small */
-		fname = UBIFS_DFS_DIR_NAME;
-		dent = ERR_PTR(-EINVAL);
-		goto out;
+		return;
 	}
 
 	fname = d->dfs_dir_name;
-	dent = debugfs_create_dir(fname, dfs_rootdir);
-	if (IS_ERR_OR_NULL(dent))
-		goto out;
-	d->dfs_dir = dent;
+	d->dfs_dir = debugfs_create_dir(fname, dfs_rootdir);
 
 	fname = "dump_lprops";
-	dent = debugfs_create_file(fname, S_IWUSR, d->dfs_dir, c, &dfs_fops);
-	if (IS_ERR_OR_NULL(dent))
-		goto out_remove;
-	d->dfs_dump_lprops = dent;
+	d->dfs_dump_lprops = debugfs_create_file(fname, S_IWUSR, d->dfs_dir, c,
+						 &dfs_fops);
 
 	fname = "dump_budg";
-	dent = debugfs_create_file(fname, S_IWUSR, d->dfs_dir, c, &dfs_fops);
-	if (IS_ERR_OR_NULL(dent))
-		goto out_remove;
-	d->dfs_dump_budg = dent;
+	d->dfs_dump_budg = debugfs_create_file(fname, S_IWUSR, d->dfs_dir, c,
+					       &dfs_fops);
 
 	fname = "dump_tnc";
-	dent = debugfs_create_file(fname, S_IWUSR, d->dfs_dir, c, &dfs_fops);
-	if (IS_ERR_OR_NULL(dent))
-		goto out_remove;
-	d->dfs_dump_tnc = dent;
+	d->dfs_dump_tnc = debugfs_create_file(fname, S_IWUSR, d->dfs_dir, c,
+					      &dfs_fops);
 
 	fname = "chk_general";
-	dent = debugfs_create_file(fname, S_IRUSR | S_IWUSR, d->dfs_dir, c,
-				   &dfs_fops);
-	if (IS_ERR_OR_NULL(dent))
-		goto out_remove;
-	d->dfs_chk_gen = dent;
+	d->dfs_chk_gen = debugfs_create_file(fname, S_IRUSR | S_IWUSR,
+					     d->dfs_dir, c, &dfs_fops);
 
 	fname = "chk_index";
-	dent = debugfs_create_file(fname, S_IRUSR | S_IWUSR, d->dfs_dir, c,
-				   &dfs_fops);
-	if (IS_ERR_OR_NULL(dent))
-		goto out_remove;
-	d->dfs_chk_index = dent;
+	d->dfs_chk_index = debugfs_create_file(fname, S_IRUSR | S_IWUSR,
+					       d->dfs_dir, c, &dfs_fops);
 
 	fname = "chk_orphans";
-	dent = debugfs_create_file(fname, S_IRUSR | S_IWUSR, d->dfs_dir, c,
-				   &dfs_fops);
-	if (IS_ERR_OR_NULL(dent))
-		goto out_remove;
-	d->dfs_chk_orph = dent;
+	d->dfs_chk_orph = debugfs_create_file(fname, S_IRUSR | S_IWUSR,
+					      d->dfs_dir, c, &dfs_fops);
 
 	fname = "chk_lprops";
-	dent = debugfs_create_file(fname, S_IRUSR | S_IWUSR, d->dfs_dir, c,
-				   &dfs_fops);
-	if (IS_ERR_OR_NULL(dent))
-		goto out_remove;
-	d->dfs_chk_lprops = dent;
+	d->dfs_chk_lprops = debugfs_create_file(fname, S_IRUSR | S_IWUSR,
+						d->dfs_dir, c, &dfs_fops);
 
 	fname = "chk_fs";
-	dent = debugfs_create_file(fname, S_IRUSR | S_IWUSR, d->dfs_dir, c,
-				   &dfs_fops);
-	if (IS_ERR_OR_NULL(dent))
-		goto out_remove;
-	d->dfs_chk_fs = dent;
+	d->dfs_chk_fs = debugfs_create_file(fname, S_IRUSR | S_IWUSR,
+					    d->dfs_dir, c, &dfs_fops);
 
 	fname = "tst_recovery";
-	dent = debugfs_create_file(fname, S_IRUSR | S_IWUSR, d->dfs_dir, c,
-				   &dfs_fops);
-	if (IS_ERR_OR_NULL(dent))
-		goto out_remove;
-	d->dfs_tst_rcvry = dent;
+	d->dfs_tst_rcvry = debugfs_create_file(fname, S_IRUSR | S_IWUSR,
+					       d->dfs_dir, c, &dfs_fops);
 
-	return 0;
-
-out_remove:
-	debugfs_remove_recursive(d->dfs_dir);
-out:
-	err = dent ? PTR_ERR(dent) : -ENODEV;
-	ubifs_err("cannot create \"%s\" debugfs file or directory, error %d\n",
-		  fname, err);
-	return err;
+	fname = "ro_error";
+	d->dfs_ro_error = debugfs_create_file(fname, S_IRUSR | S_IWUSR,
+					      d->dfs_dir, c, &dfs_fops);
 }
 
 /**
@@ -3088,72 +2955,38 @@ static const struct file_operations dfs_global_fops = {
  *
  * UBIFS uses debugfs file-system to expose various debugging knobs to
  * user-space. This function creates "ubifs" directory in the debugfs
- * file-system. Returns zero in case of success and a negative error code in
- * case of failure.
+ * file-system.
  */
-int dbg_debugfs_init(void)
+void dbg_debugfs_init(void)
 {
-	int err;
 	const char *fname;
-	struct dentry *dent;
 
 	fname = "ubifs";
-	dent = debugfs_create_dir(fname, NULL);
-	if (IS_ERR_OR_NULL(dent))
-		goto out;
-	dfs_rootdir = dent;
+	dfs_rootdir = debugfs_create_dir(fname, NULL);
 
 	fname = "chk_general";
-	dent = debugfs_create_file(fname, S_IRUSR | S_IWUSR, dfs_rootdir, NULL,
-				   &dfs_global_fops);
-	if (IS_ERR_OR_NULL(dent))
-		goto out_remove;
-	dfs_chk_gen = dent;
+	dfs_chk_gen = debugfs_create_file(fname, S_IRUSR | S_IWUSR, dfs_rootdir,
+					  NULL, &dfs_global_fops);
 
 	fname = "chk_index";
-	dent = debugfs_create_file(fname, S_IRUSR | S_IWUSR, dfs_rootdir, NULL,
-				   &dfs_global_fops);
-	if (IS_ERR_OR_NULL(dent))
-		goto out_remove;
-	dfs_chk_index = dent;
+	dfs_chk_index = debugfs_create_file(fname, S_IRUSR | S_IWUSR,
+					    dfs_rootdir, NULL, &dfs_global_fops);
 
 	fname = "chk_orphans";
-	dent = debugfs_create_file(fname, S_IRUSR | S_IWUSR, dfs_rootdir, NULL,
-				   &dfs_global_fops);
-	if (IS_ERR_OR_NULL(dent))
-		goto out_remove;
-	dfs_chk_orph = dent;
+	dfs_chk_orph = debugfs_create_file(fname, S_IRUSR | S_IWUSR,
+					   dfs_rootdir, NULL, &dfs_global_fops);
 
 	fname = "chk_lprops";
-	dent = debugfs_create_file(fname, S_IRUSR | S_IWUSR, dfs_rootdir, NULL,
-				   &dfs_global_fops);
-	if (IS_ERR_OR_NULL(dent))
-		goto out_remove;
-	dfs_chk_lprops = dent;
+	dfs_chk_lprops = debugfs_create_file(fname, S_IRUSR | S_IWUSR,
+					     dfs_rootdir, NULL, &dfs_global_fops);
 
 	fname = "chk_fs";
-	dent = debugfs_create_file(fname, S_IRUSR | S_IWUSR, dfs_rootdir, NULL,
-				   &dfs_global_fops);
-	if (IS_ERR_OR_NULL(dent))
-		goto out_remove;
-	dfs_chk_fs = dent;
+	dfs_chk_fs = debugfs_create_file(fname, S_IRUSR | S_IWUSR, dfs_rootdir,
+					 NULL, &dfs_global_fops);
 
 	fname = "tst_recovery";
-	dent = debugfs_create_file(fname, S_IRUSR | S_IWUSR, dfs_rootdir, NULL,
-				   &dfs_global_fops);
-	if (IS_ERR_OR_NULL(dent))
-		goto out_remove;
-	dfs_tst_rcvry = dent;
-
-	return 0;
-
-out_remove:
-	debugfs_remove_recursive(dfs_rootdir);
-out:
-	err = dent ? PTR_ERR(dent) : -ENODEV;
-	ubifs_err("cannot create \"%s\" debugfs file or directory, error %d\n",
-		  fname, err);
-	return err;
+	dfs_tst_rcvry = debugfs_create_file(fname, S_IRUSR | S_IWUSR,
+					    dfs_rootdir, NULL, &dfs_global_fops);
 }
 
 /**
@@ -3162,6 +2995,28 @@ out:
 void dbg_debugfs_exit(void)
 {
 	debugfs_remove_recursive(dfs_rootdir);
+}
+
+void ubifs_assert_failed(struct ubifs_info *c, const char *expr,
+			 const char *file, int line)
+{
+	ubifs_err(c, "UBIFS assert failed: %s, in %s:%u", expr, file, line);
+
+	switch (c->assert_action) {
+		case ASSACT_PANIC:
+		BUG();
+		break;
+
+		case ASSACT_RO:
+		ubifs_ro_mode(c, -EINVAL);
+		break;
+
+		case ASSACT_REPORT:
+		default:
+		dump_stack();
+		break;
+
+	}
 }
 
 /**
@@ -3189,5 +3044,3 @@ void ubifs_debugging_exit(struct ubifs_info *c)
 {
 	kfree(c->dbg);
 }
-
-#endif /* CONFIG_UBIFS_FS_DEBUG */

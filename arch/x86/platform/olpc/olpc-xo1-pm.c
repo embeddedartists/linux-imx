@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Support for power management features of the OLPC XO-1 laptop
  *
@@ -5,19 +6,14 @@
  * Copyright (C) 2010 One Laptop per Child
  * Copyright (C) 2006 Red Hat, Inc.
  * Copyright (C) 2006 Advanced Micro Devices, Inc.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
  */
 
 #include <linux/cs5535.h>
 #include <linux/platform_device.h>
 #include <linux/export.h>
 #include <linux/pm.h>
-#include <linux/mfd/core.h>
 #include <linux/suspend.h>
+#include <linux/olpc-ec.h>
 
 #include <asm/io.h>
 #include <asm/olpc.h>
@@ -51,15 +47,10 @@ EXPORT_SYMBOL_GPL(olpc_xo1_pm_wakeup_clear);
 static int xo1_power_state_enter(suspend_state_t pm_state)
 {
 	unsigned long saved_sci_mask;
-	int r;
 
 	/* Only STR is supported */
 	if (pm_state != PM_SUSPEND_MEM)
 		return -EINVAL;
-
-	r = olpc_ec_cmd(EC_SET_SCI_INHIBIT, NULL, 0, NULL, 0);
-	if (r)
-		return r;
 
 	/*
 	 * Save SCI mask (this gets lost since PM1_EN is used as a mask for
@@ -76,22 +67,12 @@ static int xo1_power_state_enter(suspend_state_t pm_state)
 	/* Restore SCI mask (using dword access to CS5536_PM1_EN) */
 	outl(saved_sci_mask, acpi_base + CS5536_PM1_STS);
 
-	/* Tell the EC to stop inhibiting SCIs */
-	olpc_ec_cmd(EC_SET_SCI_INHIBIT_RELEASE, NULL, 0, NULL, 0);
-
-	/*
-	 * Tell the wireless module to restart USB communication.
-	 * Must be done twice.
-	 */
-	olpc_ec_cmd(EC_WAKE_UP_WLAN, NULL, 0, NULL, 0);
-	olpc_ec_cmd(EC_WAKE_UP_WLAN, NULL, 0, NULL, 0);
-
 	return 0;
 }
 
-asmlinkage int xo1_do_sleep(u8 sleep_state)
+asmlinkage __visible int xo1_do_sleep(u8 sleep_state)
 {
-	void *pgd_addr = __va(read_cr3());
+	void *pgd_addr = __va(read_cr3_pa());
 
 	/* Program wakeup mask (using dword access to CS5536_PM1_EN) */
 	outl(wakeup_mask << 16, acpi_base + CS5536_PM1_STS);
@@ -135,18 +116,13 @@ static const struct platform_suspend_ops xo1_suspend_ops = {
 	.enter = xo1_power_state_enter,
 };
 
-static int __devinit xo1_pm_probe(struct platform_device *pdev)
+static int xo1_pm_probe(struct platform_device *pdev)
 {
 	struct resource *res;
-	int err;
 
 	/* don't run on non-XOs */
 	if (!machine_is_olpc())
 		return -ENODEV;
-
-	err = mfd_cell_enable(pdev);
-	if (err)
-		return err;
 
 	res = platform_get_resource(pdev, IORESOURCE_IO, 0);
 	if (!res) {
@@ -168,10 +144,8 @@ static int __devinit xo1_pm_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int __devexit xo1_pm_remove(struct platform_device *pdev)
+static int xo1_pm_remove(struct platform_device *pdev)
 {
-	mfd_cell_disable(pdev);
-
 	if (strcmp(pdev->name, "cs5535-pms") == 0)
 		pms_base = 0;
 	else if (strcmp(pdev->name, "olpc-xo1-pm-acpi") == 0)
@@ -184,19 +158,17 @@ static int __devexit xo1_pm_remove(struct platform_device *pdev)
 static struct platform_driver cs5535_pms_driver = {
 	.driver = {
 		.name = "cs5535-pms",
-		.owner = THIS_MODULE,
 	},
 	.probe = xo1_pm_probe,
-	.remove = __devexit_p(xo1_pm_remove),
+	.remove = xo1_pm_remove,
 };
 
 static struct platform_driver cs5535_acpi_driver = {
 	.driver = {
 		.name = "olpc-xo1-pm-acpi",
-		.owner = THIS_MODULE,
 	},
 	.probe = xo1_pm_probe,
-	.remove = __devexit_p(xo1_pm_remove),
+	.remove = xo1_pm_remove,
 };
 
 static int __init xo1_pm_init(void)

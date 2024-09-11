@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
 * Host Controller Driver for the Elan Digital Systems U132 adapter
 *
@@ -6,11 +7,6 @@
 *
 * Author and Maintainer - Tony Olech - Elan Digital Systems
 * tony.olech@elandigitalsystems.com
-*
-* This program is free software;you can redistribute it and/or
-* modify it under the terms of the GNU General Public License as
-* published by the Free Software Foundation, version 2.
-*
 *
 * This driver was written by Tony Olech(tony.olech@elandigitalsystems.com)
 * based on various USB host drivers in the 2.6.15 linux kernel
@@ -55,7 +51,6 @@
 #include <linux/mutex.h>
 #include <asm/io.h>
 #include <asm/irq.h>
-#include <asm/system.h>
 #include <asm/byteorder.h>
 
 	/* FIXME ohci.h is ONLY for internal use by the OHCI driver.
@@ -74,19 +69,18 @@ MODULE_LICENSE("GPL");
 #define INT_MODULE_PARM(n, v) static int n = v;module_param(n, int, 0444)
 INT_MODULE_PARM(testing, 0);
 /* Some boards misreport power switching/overcurrent*/
-static bool distrust_firmware = 1;
+static bool distrust_firmware = true;
 module_param(distrust_firmware, bool, 0);
-MODULE_PARM_DESC(distrust_firmware, "true to distrust firmware power/overcurren"
+MODULE_PARM_DESC(distrust_firmware, "true to distrust firmware power/overcurrent"
 	"t setup");
 static DECLARE_WAIT_QUEUE_HEAD(u132_hcd_wait);
 /*
 * u132_module_lock exists to protect access to global variables
 *
 */
-static struct mutex u132_module_lock;
+static DEFINE_MUTEX(u132_module_lock);
 static int u132_exiting;
 static int u132_instances;
-static struct list_head u132_static_list;
 /*
 * end of the global variables protected by u132_module_lock
 */
@@ -182,7 +176,6 @@ struct u132_ring {
 };
 struct u132 {
 	struct kref kref;
-	struct list_head u132_list;
 	struct mutex sw_lock;
 	struct mutex scheduler_lock;
 	struct u132_platform_data *board;
@@ -215,13 +208,13 @@ struct u132 {
 #define ftdi_read_pcimem(pdev, member, data) usb_ftdi_elan_read_pcimem(pdev, \
 	offsetof(struct ohci_regs, member), 0, data);
 #define ftdi_write_pcimem(pdev, member, data) usb_ftdi_elan_write_pcimem(pdev, \
-	offsetof(struct ohci_regs, member), 0, data);
+	offsetof(struct ohci_regs, member), 0, data)
 #define u132_read_pcimem(u132, member, data) \
 	usb_ftdi_elan_read_pcimem(u132->platform_dev, offsetof(struct \
-	ohci_regs, member), 0, data);
+	ohci_regs, member), 0, data)
 #define u132_write_pcimem(u132, member, data) \
 	usb_ftdi_elan_write_pcimem(u132->platform_dev, offsetof(struct \
-	ohci_regs, member), 0, data);
+	ohci_regs, member), 0, data)
 static inline struct u132 *udev_to_u132(struct u132_udev *udev)
 {
 	u8 udev_number = udev->udev_number;
@@ -259,7 +252,6 @@ static void u132_hcd_delete(struct kref *kref)
 	struct usb_hcd *hcd = u132_to_hcd(u132);
 	u132->going += 1;
 	mutex_lock(&u132_module_lock);
-	list_del_init(&u132->u132_list);
 	u132_instances -= 1;
 	mutex_unlock(&u132_module_lock);
 	dev_warn(&u132->platform_dev->dev, "FREEING the hcd=%p and thus the u13"
@@ -1310,13 +1302,9 @@ static void u132_hcd_ring_work_scheduler(struct work_struct *work)
 		u132_ring_put_kref(u132, ring);
 		return;
 	} else if (ring->curr_endp) {
-		struct u132_endp *last_endp = ring->curr_endp;
-		struct list_head *scan;
-		struct list_head *head = &last_endp->endp_ring;
+		struct u132_endp *endp, *last_endp = ring->curr_endp;
 		unsigned long wakeup = 0;
-		list_for_each(scan, head) {
-			struct u132_endp *endp = list_entry(scan,
-				struct u132_endp, endp_ring);
+		list_for_each_entry(endp, &last_endp->endp_ring, endp_ring) {
 			if (endp->queue_next == endp->queue_last) {
 			} else if ((endp->delayed == 0)
 				|| time_after_eq(jiffies, endp->jiffies)) {
@@ -1543,11 +1531,8 @@ static int u132_periodic_reinit(struct u132 *u132)
 		(fit ^ FIT) | u132->hc_fminterval);
 	if (retval)
 		return retval;
-	retval = u132_write_pcimem(u132, periodicstart,
-		((9 * fi) / 10) & 0x3fff);
-	if (retval)
-		return retval;
-	return 0;
+	return u132_write_pcimem(u132, periodicstart,
+	       ((9 * fi) / 10) & 0x3fff);
 }
 
 static char *hcfs2string(int state)
@@ -1810,9 +1795,9 @@ static int u132_hcd_start(struct usb_hcd *hcd)
 		struct platform_device *pdev =
 			to_platform_device(hcd->self.controller);
 		u16 vendor = ((struct u132_platform_data *)
-			(pdev->dev.platform_data))->vendor;
+			dev_get_platdata(&pdev->dev))->vendor;
 		u16 device = ((struct u132_platform_data *)
-			(pdev->dev.platform_data))->device;
+			dev_get_platdata(&pdev->dev))->device;
 		mutex_lock(&u132->sw_lock);
 		msleep(10);
 		if (vendor == PCI_VENDOR_ID_AMD && device == 0x740c) {
@@ -2248,9 +2233,8 @@ static int u132_urb_enqueue(struct usb_hcd *hcd, struct urb *urb,
 {
 	struct u132 *u132 = hcd_to_u132(hcd);
 	if (irqs_disabled()) {
-		if (__GFP_WAIT & mem_flags) {
-			printk(KERN_ERR "invalid context for function that migh"
-				"t sleep\n");
+		if (gfpflags_allow_blocking(mem_flags)) {
+			printk(KERN_ERR "invalid context for function that might sleep\n");
 			return -EINVAL;
 		}
 	}
@@ -2398,20 +2382,17 @@ static int u132_urb_enqueue(struct usb_hcd *hcd, struct urb *urb,
 static int dequeue_from_overflow_chain(struct u132 *u132,
 	struct u132_endp *endp, struct urb *urb)
 {
-	struct list_head *scan;
-	struct list_head *head = &endp->urb_more;
-	list_for_each(scan, head) {
-		struct u132_urbq *urbq = list_entry(scan, struct u132_urbq,
-			urb_more);
+	struct u132_urbq *urbq;
+
+	list_for_each_entry(urbq, &endp->urb_more, urb_more) {
 		if (urbq->urb == urb) {
 			struct usb_hcd *hcd = u132_to_hcd(u132);
-			list_del(scan);
+			list_del(&urbq->urb_more);
 			endp->queue_size -= 1;
 			urb->error_count = 0;
 			usb_hcd_giveback_urb(hcd, urb, 0);
 			return 0;
-		} else
-			continue;
+		}
 	}
 	dev_err(&u132->platform_dev->dev, "urb=%p not found in endp[%d]=%p ring"
 		"[%d] %c%c usb_endp=%d usb_addr=%d size=%d next=%04X last=%04X"
@@ -2466,8 +2447,7 @@ static int u132_endp_urb_dequeue(struct u132 *u132, struct u132_endp *endp,
 				urb_slot = &endp->urb_list[ENDP_QUEUE_MASK &
 					queue_scan];
 				break;
-			} else
-				continue;
+			}
 		}
 		while (++queue_list < ENDP_QUEUE_SIZE && --queue_size > 0) {
 			*urb_slot = endp->urb_list[ENDP_QUEUE_MASK &
@@ -2492,7 +2472,8 @@ static int u132_endp_urb_dequeue(struct u132 *u132, struct u132_endp *endp,
 				spin_unlock_irqrestore(&endp->queue_lock.slock,
 					irqs);
 				kfree(urbq);
-			} urb->error_count = 0;
+			}
+			urb->error_count = 0;
 			usb_hcd_giveback_urb(hcd, urb, status);
 			return 0;
 		} else if (list_empty(&endp->urb_more)) {
@@ -2568,10 +2549,9 @@ static int u132_get_frame(struct usb_hcd *hcd)
 		dev_err(&u132->platform_dev->dev, "device is being removed\n");
 		return -ESHUTDOWN;
 	} else {
-		int frame = 0;
 		dev_err(&u132->platform_dev->dev, "TODO: u132_get_frame\n");
-		msleep(100);
-		return frame;
+		mdelay(100);
+		return 0;
 	}
 }
 
@@ -2585,21 +2565,21 @@ static int u132_roothub_descriptor(struct u132 *u132,
 	retval = u132_read_pcimem(u132, roothub.a, &rh_a);
 	if (retval)
 		return retval;
-	desc->bDescriptorType = 0x29;
+	desc->bDescriptorType = USB_DT_HUB;
 	desc->bPwrOn2PwrGood = (rh_a & RH_A_POTPGT) >> 24;
 	desc->bHubContrCurrent = 0;
 	desc->bNbrPorts = u132->num_ports;
 	temp = 1 + (u132->num_ports / 8);
 	desc->bDescLength = 7 + 2 * temp;
-	temp = 0;
+	temp = HUB_CHAR_COMMON_LPSM | HUB_CHAR_COMMON_OCPM;
 	if (rh_a & RH_A_NPS)
-		temp |= 0x0002;
+		temp |= HUB_CHAR_NO_LPSM;
 	if (rh_a & RH_A_PSM)
-		temp |= 0x0001;
+		temp |= HUB_CHAR_INDV_PORT_LPSM;
 	if (rh_a & RH_A_NOCP)
-		temp |= 0x0010;
+		temp |= HUB_CHAR_NO_OCPM;
 	else if (rh_a & RH_A_OCPM)
-		temp |= 0x0008;
+		temp |= HUB_CHAR_INDV_PORT_OCPM;
 	desc->wHubCharacteristics = cpu_to_le16(temp);
 	retval = u132_read_pcimem(u132, roothub.b, &rh_b);
 	if (retval)
@@ -2702,28 +2682,18 @@ static int u132_roothub_setportfeature(struct u132 *u132, u16 wValue,
 	if (wIndex == 0 || wIndex > u132->num_ports) {
 		return -EINVAL;
 	} else {
-		int retval;
 		int port_index = wIndex - 1;
 		struct u132_port *port = &u132->port[port_index];
 		port->Status &= ~(1 << wValue);
 		switch (wValue) {
 		case USB_PORT_FEAT_SUSPEND:
-			retval = u132_write_pcimem(u132,
-				roothub.portstatus[port_index], RH_PS_PSS);
-			if (retval)
-				return retval;
-			return 0;
+			return u132_write_pcimem(u132,
+			       roothub.portstatus[port_index], RH_PS_PSS);
 		case USB_PORT_FEAT_POWER:
-			retval = u132_write_pcimem(u132,
-				roothub.portstatus[port_index], RH_PS_PPS);
-			if (retval)
-				return retval;
-			return 0;
+			return u132_write_pcimem(u132,
+			       roothub.portstatus[port_index], RH_PS_PPS);
 		case USB_PORT_FEAT_RESET:
-			retval = u132_roothub_portreset(u132, port_index);
-			if (retval)
-				return retval;
-			return 0;
+			return u132_roothub_portreset(u132, port_index);
 		default:
 			return -EPIPE;
 		}
@@ -2738,7 +2708,6 @@ static int u132_roothub_clearportfeature(struct u132 *u132, u16 wValue,
 	} else {
 		int port_index = wIndex - 1;
 		u32 temp;
-		int retval;
 		struct u132_port *port = &u132->port[port_index];
 		port->Status &= ~(1 << wValue);
 		switch (wValue) {
@@ -2774,11 +2743,8 @@ static int u132_roothub_clearportfeature(struct u132 *u132, u16 wValue,
 		default:
 			return -EPIPE;
 		}
-		retval = u132_write_pcimem(u132, roothub.portstatus[port_index],
-			 temp);
-		if (retval)
-			return retval;
-		return 0;
+		return u132_write_pcimem(u132, roothub.portstatus[port_index],
+		       temp);
 	}
 }
 
@@ -2966,7 +2932,7 @@ static int u132_bus_resume(struct usb_hcd *hcd)
 #define u132_bus_suspend NULL
 #define u132_bus_resume NULL
 #endif
-static struct hc_driver u132_hc_driver = {
+static const struct hc_driver u132_hc_driver = {
 	.description = hcd_name,
 	.hcd_priv_size = sizeof(struct u132),
 	.irq = NULL,
@@ -2991,7 +2957,7 @@ static struct hc_driver u132_hc_driver = {
 * synchronously - but instead should immediately stop activity to the
 * device and asynchronously call usb_remove_hcd()
 */
-static int __devexit u132_remove(struct platform_device *pdev)
+static int u132_remove(struct platform_device *pdev)
 {
 	struct usb_hcd *hcd = platform_get_drvdata(pdev);
 	if (hcd) {
@@ -3011,7 +2977,8 @@ static int __devexit u132_remove(struct platform_device *pdev)
 			while (rings-- > 0) {
 				struct u132_ring *ring = &u132->ring[rings];
 				u132_ring_cancel_work(u132, ring);
-			} while (endps-- > 0) {
+			}
+			while (endps-- > 0) {
 				struct u132_endp *endp = u132->endp[endps];
 				if (endp)
 					u132_endp_cancel_work(u132, endp);
@@ -3035,7 +3002,7 @@ static void u132_initialise(struct u132 *u132, struct platform_device *pdev)
 	int addrs = MAX_U132_ADDRS;
 	int udevs = MAX_U132_UDEVS;
 	int endps = MAX_U132_ENDPS;
-	u132->board = pdev->dev.platform_data;
+	u132->board = dev_get_platdata(&pdev->dev);
 	u132->platform_dev = pdev;
 	u132->power = 0;
 	u132->reset = 0;
@@ -3085,13 +3052,12 @@ static void u132_initialise(struct u132 *u132, struct platform_device *pdev)
 	mutex_unlock(&u132->sw_lock);
 }
 
-static int __devinit u132_probe(struct platform_device *pdev)
+static int u132_probe(struct platform_device *pdev)
 {
 	struct usb_hcd *hcd;
 	int retval;
 	u32 control;
 	u32 rh_a = -1;
-	u32 num_ports;
 
 	msleep(100);
 	if (u132_exiting > 0)
@@ -3106,9 +3072,6 @@ static int __devinit u132_probe(struct platform_device *pdev)
 	retval = ftdi_read_pcimem(pdev, roothub.a, &rh_a);
 	if (retval)
 		return retval;
-	num_ports = rh_a & RH_A_NDP;	/* refuse to confuse usbcore */
-	if (pdev->dev.dma_mask)
-		return -EINVAL;
 
 	hcd = usb_create_hcd(&u132_hc_driver, &pdev->dev, dev_name(&pdev->dev));
 	if (!hcd) {
@@ -3121,7 +3084,6 @@ static int __devinit u132_probe(struct platform_device *pdev)
 		retval = 0;
 		hcd->rsrc_start = 0;
 		mutex_lock(&u132_module_lock);
-		list_add_tail(&u132->u132_list, &u132_static_list);
 		u132->sequence_num = ++u132_instances;
 		mutex_unlock(&u132_module_lock);
 		u132_u132_init_kref(u132);
@@ -3134,6 +3096,7 @@ static int __devinit u132_probe(struct platform_device *pdev)
 			u132_u132_put_kref(u132);
 			return retval;
 		} else {
+			device_wakeup_enable(hcd->self.controller);
 			u132_monitor_queue_work(u132, 100);
 			return 0;
 		}
@@ -3142,10 +3105,10 @@ static int __devinit u132_probe(struct platform_device *pdev)
 
 
 #ifdef CONFIG_PM
-/* for this device there's no useful distinction between the controller
-* and its root hub, except that the root hub only gets direct PM calls
-* when CONFIG_USB_SUSPEND is enabled.
-*/
+/*
+ * for this device there's no useful distinction between the controller
+ * and its root hub.
+ */
 static int u132_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct usb_hcd *hcd = platform_get_drvdata(pdev);
@@ -3213,26 +3176,28 @@ static int u132_resume(struct platform_device *pdev)
 */
 static struct platform_driver u132_platform_driver = {
 	.probe = u132_probe,
-	.remove = __devexit_p(u132_remove),
+	.remove = u132_remove,
 	.suspend = u132_suspend,
 	.resume = u132_resume,
 	.driver = {
-		   .name = (char *)hcd_name,
-		   .owner = THIS_MODULE,
+		   .name = hcd_name,
 		   },
 };
 static int __init u132_hcd_init(void)
 {
 	int retval;
-	INIT_LIST_HEAD(&u132_static_list);
 	u132_instances = 0;
 	u132_exiting = 0;
-	mutex_init(&u132_module_lock);
 	if (usb_disabled())
 		return -ENODEV;
 	printk(KERN_INFO "driver %s\n", hcd_name);
 	workqueue = create_singlethread_workqueue("u132");
+	if (!workqueue)
+		return -ENOMEM;
 	retval = platform_driver_register(&u132_platform_driver);
+	if (retval)
+		destroy_workqueue(workqueue);
+
 	return retval;
 }
 
@@ -3240,14 +3205,9 @@ static int __init u132_hcd_init(void)
 module_init(u132_hcd_init);
 static void __exit u132_hcd_exit(void)
 {
-	struct u132 *u132;
-	struct u132 *temp;
 	mutex_lock(&u132_module_lock);
 	u132_exiting += 1;
 	mutex_unlock(&u132_module_lock);
-	list_for_each_entry_safe(u132, temp, &u132_static_list, u132_list) {
-		platform_device_unregister(u132->platform_dev);
-	}
 	platform_driver_unregister(&u132_platform_driver);
 	printk(KERN_INFO "u132-hcd driver deregistered\n");
 	wait_event(u132_hcd_wait, u132_instances == 0);

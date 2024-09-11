@@ -1,30 +1,5 @@
-/*******************************************************************************
-
-  Intel PRO/10GbE Linux driver
-  Copyright(c) 1999 - 2008 Intel Corporation.
-
-  This program is free software; you can redistribute it and/or modify it
-  under the terms and conditions of the GNU General Public License,
-  version 2, as published by the Free Software Foundation.
-
-  This program is distributed in the hope it will be useful, but WITHOUT
-  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
-  more details.
-
-  You should have received a copy of the GNU General Public License along with
-  this program; if not, write to the Free Software Foundation, Inc.,
-  51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
-
-  The full GNU General Public License is included in this distribution in
-  the file called "COPYING".
-
-  Contact Information:
-  Linux NICS <linux.nics@intel.com>
-  e1000-devel Mailing List <e1000-devel@lists.sourceforge.net>
-  Intel Corporation, 5200 N.E. Elam Young Parkway, Hillsboro, OR 97124-6497
-
-*******************************************************************************/
+/* SPDX-License-Identifier: GPL-2.0 */
+/* Copyright(c) 1999 - 2008 Intel Corporation. */
 
 #ifndef _IXGB_H_
 #define _IXGB_H_
@@ -33,7 +8,6 @@
 #include <linux/module.h>
 #include <linux/types.h>
 #include <asm/byteorder.h>
-#include <linux/init.h>
 #include <linux/mm.h>
 #include <linux/errno.h>
 #include <linux/ioport.h>
@@ -68,24 +42,11 @@
 
 #define BAR_0		0
 #define BAR_1		1
-#define BAR_5		5
 
 struct ixgb_adapter;
 #include "ixgb_hw.h"
 #include "ixgb_ee.h"
 #include "ixgb_ids.h"
-
-#define PFX "ixgb: "
-
-#ifdef _DEBUG_DRIVER_
-#define IXGB_DBG(fmt, args...) printk(KERN_DEBUG PFX fmt, ##args)
-#else
-#define IXGB_DBG(fmt, args...)				\
-do {							\
-	if (0)						\
-		printk(KERN_DEBUG PFX fmt, ##args);	\
-} while (0)
-#endif
 
 /* TX/RX descriptor defines */
 #define DEFAULT_TXD      256
@@ -199,21 +160,20 @@ enum ixgb_state_t {
 };
 
 /* Exported from other modules */
-extern void ixgb_check_options(struct ixgb_adapter *adapter);
-extern void ixgb_set_ethtool_ops(struct net_device *netdev);
+void ixgb_check_options(struct ixgb_adapter *adapter);
+void ixgb_set_ethtool_ops(struct net_device *netdev);
 extern char ixgb_driver_name[];
-extern const char ixgb_driver_version[];
 
-extern void ixgb_set_speed_duplex(struct net_device *netdev);
+void ixgb_set_speed_duplex(struct net_device *netdev);
 
-extern int ixgb_up(struct ixgb_adapter *adapter);
-extern void ixgb_down(struct ixgb_adapter *adapter, bool kill_watchdog);
-extern void ixgb_reset(struct ixgb_adapter *adapter);
-extern int ixgb_setup_rx_resources(struct ixgb_adapter *adapter);
-extern int ixgb_setup_tx_resources(struct ixgb_adapter *adapter);
-extern void ixgb_free_rx_resources(struct ixgb_adapter *adapter);
-extern void ixgb_free_tx_resources(struct ixgb_adapter *adapter);
-extern void ixgb_update_stats(struct ixgb_adapter *adapter);
+int ixgb_up(struct ixgb_adapter *adapter);
+void ixgb_down(struct ixgb_adapter *adapter, bool kill_watchdog);
+void ixgb_reset(struct ixgb_adapter *adapter);
+int ixgb_setup_rx_resources(struct ixgb_adapter *adapter);
+int ixgb_setup_tx_resources(struct ixgb_adapter *adapter);
+void ixgb_free_rx_resources(struct ixgb_adapter *adapter);
+void ixgb_free_tx_resources(struct ixgb_adapter *adapter);
+void ixgb_update_stats(struct ixgb_adapter *adapter);
 
 
 #endif /* _IXGB_H_ */

@@ -1,35 +1,137 @@
+// SPDX-License-Identifier: GPL-2.0
 /* For general debugging purposes */
 
-#include "../perf.h"
-
+#include <inttypes.h>
 #include <string.h>
 #include <stdarg.h>
 #include <stdio.h>
-
-#include "cache.h"
+#include <stdlib.h>
+#include <sys/wait.h>
+#include <api/debug.h>
+#include <linux/kernel.h>
+#include <linux/time64.h>
+#include <sys/time.h>
+#ifdef HAVE_BACKTRACE_SUPPORT
+#include <execinfo.h>
+#endif
 #include "color.h"
 #include "event.h"
 #include "debug.h"
-#include "util.h"
+#include "print_binary.h"
+#include "target.h"
+#include "ui/helpline.h"
+#include "ui/ui.h"
+#include "util/parse-sublevel-options.h"
+
+#include <linux/ctype.h>
 
 int verbose;
+int debug_peo_args;
 bool dump_trace = false, quiet = false;
+int debug_ordered_events;
+static int redirect_to_stderr;
+int debug_data_convert;
+static FILE *debug_file;
+bool debug_display_time;
 
-int eprintf(int level, const char *fmt, ...)
+void debug_set_file(FILE *file)
 {
-	va_list args;
+	debug_file = file;
+}
+
+void debug_set_display_time(bool set)
+{
+	debug_display_time = set;
+}
+
+static int fprintf_time(FILE *file)
+{
+	struct timeval tod;
+	struct tm ltime;
+	char date[64];
+
+	if (!debug_display_time)
+		return 0;
+
+	if (gettimeofday(&tod, NULL) != 0)
+		return 0;
+
+	if (localtime_r(&tod.tv_sec, &ltime) == NULL)
+		return 0;
+
+	strftime(date, sizeof(date),  "%F %H:%M:%S", &ltime);
+	return fprintf(file, "[%s.%06lu] ", date, (long)tod.tv_usec);
+}
+
+int veprintf(int level, int var, const char *fmt, va_list args)
+{
 	int ret = 0;
 
-	if (verbose >= level) {
+	if (var >= level) {
+		if (use_browser >= 1 && !redirect_to_stderr) {
+			ui_helpline__vshow(fmt, args);
+		} else {
+			ret = fprintf_time(debug_file);
+			ret += vfprintf(debug_file, fmt, args);
+		}
+	}
+
+	return ret;
+}
+
+int eprintf(int level, int var, const char *fmt, ...)
+{
+	va_list args;
+	int ret;
+
+	va_start(args, fmt);
+	ret = veprintf(level, var, fmt, args);
+	va_end(args);
+
+	return ret;
+}
+
+static int veprintf_time(u64 t, const char *fmt, va_list args)
+{
+	int ret = 0;
+	u64 secs, usecs, nsecs = t;
+
+	secs   = nsecs / NSEC_PER_SEC;
+	nsecs -= secs  * NSEC_PER_SEC;
+	usecs  = nsecs / NSEC_PER_USEC;
+
+	ret = fprintf(stderr, "[%13" PRIu64 ".%06" PRIu64 "] ",
+		      secs, usecs);
+	ret += vfprintf(stderr, fmt, args);
+	return ret;
+}
+
+int eprintf_time(int level, int var, u64 t, const char *fmt, ...)
+{
+	int ret = 0;
+	va_list args;
+
+	if (var >= level) {
 		va_start(args, fmt);
-		if (use_browser > 0)
-			ret = ui_helpline__show_help(fmt, args);
-		else
-			ret = vfprintf(stderr, fmt, args);
+		ret = veprintf_time(t, fmt, args);
 		va_end(args);
 	}
 
 	return ret;
+}
+
+/*
+ * Overloading libtraceevent standard info print
+ * function, display with -v in perf.
+ */
+void pr_stat(const char *fmt, ...)
+{
+	va_list args;
+
+	va_start(args, fmt);
+	veprintf(1, verbose, fmt, args);
+	va_end(args);
+	eprintf(1, verbose, "\n");
 }
 
 int dump_printf(const char *fmt, ...)
@@ -46,60 +148,147 @@ int dump_printf(const char *fmt, ...)
 	return ret;
 }
 
-#ifdef NO_NEWT_SUPPORT
-int ui__warning(const char *format, ...)
+static int trace_event_printer(enum binary_printer_ops op,
+			       unsigned int val, void *extra, FILE *fp)
 {
-	va_list args;
+	const char *color = PERF_COLOR_BLUE;
+	union perf_event *event = (union perf_event *)extra;
+	unsigned char ch = (unsigned char)val;
+	int printed = 0;
 
-	va_start(args, format);
-	vfprintf(stderr, format, args);
-	va_end(args);
-	return 0;
-}
-#endif
+	switch (op) {
+	case BINARY_PRINT_DATA_BEGIN:
+		printed += fprintf(fp, ".");
+		printed += color_fprintf(fp, color, "\n. ... raw event: size %d bytes\n",
+					 event->header.size);
+		break;
+	case BINARY_PRINT_LINE_BEGIN:
+		printed += fprintf(fp, ".");
+		break;
+	case BINARY_PRINT_ADDR:
+		printed += color_fprintf(fp, color, "  %04x: ", val);
+		break;
+	case BINARY_PRINT_NUM_DATA:
+		printed += color_fprintf(fp, color, " %02x", val);
+		break;
+	case BINARY_PRINT_NUM_PAD:
+		printed += color_fprintf(fp, color, "   ");
+		break;
+	case BINARY_PRINT_SEP:
+		printed += color_fprintf(fp, color, "  ");
+		break;
+	case BINARY_PRINT_CHAR_DATA:
+		printed += color_fprintf(fp, color, "%c",
+			      isprint(ch) && isascii(ch) ? ch : '.');
+		break;
+	case BINARY_PRINT_CHAR_PAD:
+		printed += color_fprintf(fp, color, " ");
+		break;
+	case BINARY_PRINT_LINE_END:
+		printed += color_fprintf(fp, color, "\n");
+		break;
+	case BINARY_PRINT_DATA_END:
+		printed += fprintf(fp, "\n");
+		break;
+	default:
+		break;
+	}
 
-int ui__error_paranoid(void)
-{
-	return ui__error("Permission error - are you root?\n"
-		    "Consider tweaking /proc/sys/kernel/perf_event_paranoid:\n"
-		    " -1 - Not paranoid at all\n"
-		    "  0 - Disallow raw tracepoint access for unpriv\n"
-		    "  1 - Disallow cpu events for unpriv\n"
-		    "  2 - Disallow kernel profiling for unpriv\n");
+	return printed;
 }
 
 void trace_event(union perf_event *event)
 {
 	unsigned char *raw_event = (void *)event;
-	const char *color = PERF_COLOR_BLUE;
-	int i, j;
 
 	if (!dump_trace)
 		return;
 
-	printf(".");
-	color_fprintf(stdout, color, "\n. ... raw event: size %d bytes\n",
-		      event->header.size);
+	print_binary(raw_event, event->header.size, 16,
+		     trace_event_printer, event);
+}
 
-	for (i = 0; i < event->header.size; i++) {
-		if ((i & 15) == 0) {
-			printf(".");
-			color_fprintf(stdout, color, "  %04x: ", i);
-		}
+static struct sublevel_option debug_opts[] = {
+	{ .name = "verbose",		.value_ptr = &verbose },
+	{ .name = "ordered-events",	.value_ptr = &debug_ordered_events},
+	{ .name = "stderr",		.value_ptr = &redirect_to_stderr},
+	{ .name = "data-convert",	.value_ptr = &debug_data_convert },
+	{ .name = "perf-event-open",	.value_ptr = &debug_peo_args },
+	{ .name = NULL, }
+};
 
-		color_fprintf(stdout, color, " %02x", raw_event[i]);
+int perf_debug_option(const char *str)
+{
+	int ret;
 
-		if (((i & 15) == 15) || i == event->header.size-1) {
-			color_fprintf(stdout, color, "  ");
-			for (j = 0; j < 15-(i & 15); j++)
-				color_fprintf(stdout, color, "   ");
-			for (j = i & ~15; j <= i; j++) {
-				color_fprintf(stdout, color, "%c",
-					      isprint(raw_event[j]) ?
-					      raw_event[j] : '.');
-			}
-			color_fprintf(stdout, color, "\n");
-		}
+	ret = perf_parse_sublevel_options(str, debug_opts);
+	if (ret)
+		return ret;
+
+	/* Allow only verbose value in range (0, 10), otherwise set 0. */
+	verbose = (verbose < 0) || (verbose > 10) ? 0 : verbose;
+
+	return 0;
+}
+
+int perf_quiet_option(void)
+{
+	struct sublevel_option *opt = &debug_opts[0];
+
+	/* disable all debug messages */
+	while (opt->name) {
+		*opt->value_ptr = -1;
+		opt++;
 	}
-	printf(".\n");
+
+	return 0;
+}
+
+#define DEBUG_WRAPPER(__n, __l)				\
+static int pr_ ## __n ## _wrapper(const char *fmt, ...)	\
+{							\
+	va_list args;					\
+	int ret;					\
+							\
+	va_start(args, fmt);				\
+	ret = veprintf(__l, verbose, fmt, args);	\
+	va_end(args);					\
+	return ret;					\
+}
+
+DEBUG_WRAPPER(warning, 0);
+DEBUG_WRAPPER(debug, 1);
+
+void perf_debug_setup(void)
+{
+	debug_set_file(stderr);
+	libapi_set_print(pr_warning_wrapper, pr_warning_wrapper, pr_debug_wrapper);
+}
+
+/* Obtain a backtrace and print it to stdout. */
+#ifdef HAVE_BACKTRACE_SUPPORT
+void dump_stack(void)
+{
+	void *array[16];
+	size_t size = backtrace(array, ARRAY_SIZE(array));
+	char **strings = backtrace_symbols(array, size);
+	size_t i;
+
+	printf("Obtained %zd stack frames.\n", size);
+
+	for (i = 0; i < size; i++)
+		printf("%s\n", strings[i]);
+
+	free(strings);
+}
+#else
+void dump_stack(void) {}
+#endif
+
+void sighandler_dump_stack(int sig)
+{
+	psignal(sig, "perf");
+	dump_stack();
+	signal(sig, SIG_DFL);
+	raise(sig);
 }

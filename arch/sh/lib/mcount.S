@@ -1,12 +1,9 @@
-/*
+/* SPDX-License-Identifier: GPL-2.0
+ *
  * arch/sh/lib/mcount.S
  *
  *  Copyright (C) 2008, 2009  Paul Mundt
  *  Copyright (C) 2008, 2009  Matt Fleming
- *
- * This file is subject to the terms and conditions of the GNU General Public
- * License.  See the file "COPYING" in the main directory of this archive
- * for more details.
  */
 #include <asm/ftrace.h>
 #include <asm/thread_info.h>
@@ -39,7 +36,7 @@
  *
  * Make sure the stack pointer contains a valid address. Valid
  * addresses for kernel stacks are anywhere after the bss
- * (after _ebss) and anywhere in init_thread_union (init_stack).
+ * (after __bss_stop) and anywhere in init_thread_union (init_stack).
  */
 #define STACK_CHECK()					\
 	mov	#(THREAD_SIZE >> 10), r0;		\
@@ -60,7 +57,7 @@
 	cmp/hi	r2, r1;					\
 	bf	stack_panic;				\
 							\
-	/* If sp > _ebss then we're OK. */		\
+	/* If sp > __bss_stop then we're OK. */		\
 	mov.l	.L_ebss, r1;				\
 	cmp/hi	r1, r15;				\
 	bt	1f;					\
@@ -70,7 +67,7 @@
 	cmp/hs	r1, r15;				\
 	bf	stack_panic;				\
 							\
-	/* If sp > init_stack && sp < _ebss, not OK. */	\
+	/* If sp > init_stack && sp < __bss_stop, not OK. */	\
 	add	r0, r1;					\
 	cmp/hs	r1, r15;				\
 	bt	stack_panic;				\
@@ -92,13 +89,6 @@ mcount:
 	rts
 	 nop
 #else
-#ifndef CONFIG_DYNAMIC_FTRACE
-	mov.l	.Lfunction_trace_stop, r0
-	mov.l	@r0, r0
-	tst	r0, r0
-	bf	ftrace_stub
-#endif
-
 	MCOUNT_ENTER()
 
 #ifdef CONFIG_DYNAMIC_FTRACE
@@ -174,11 +164,6 @@ ftrace_graph_call:
 
 	.globl ftrace_caller
 ftrace_caller:
-	mov.l	.Lfunction_trace_stop, r0
-	mov.l	@r0, r0
-	tst	r0, r0
-	bf	ftrace_stub
-
 	MCOUNT_ENTER()
 
 	.globl ftrace_call
@@ -196,8 +181,6 @@ ftrace_call:
 #endif /* CONFIG_DYNAMIC_FTRACE */
 
 	.align 2
-.Lfunction_trace_stop:
-	.long	function_trace_stop
 
 /*
  * NOTE: From here on the locations of the .Lftrace_stub label and
@@ -217,12 +200,7 @@ ftrace_stub:
 #ifdef CONFIG_FUNCTION_GRAPH_TRACER
 	.globl	ftrace_graph_caller
 ftrace_graph_caller:
-	mov.l	2f, r0
-	mov.l	@r0, r0
-	tst	r0, r0
-	bt	1f
-
-	mov.l	3f, r1
+	mov.l	2f, r1
 	jmp	@r1
 	 nop
 1:
@@ -242,8 +220,7 @@ ftrace_graph_caller:
 	MCOUNT_LEAVE()
 
 	.align 2
-2:	.long	function_trace_stop
-3:	.long	skip_trace
+2:	.long	skip_trace
 .Lprepare_ftrace_return:
 	.long	prepare_ftrace_return
 
@@ -292,10 +269,10 @@ stack_panic:
 	 nop
 
 	.align 2
-.L_ebss:
-	.long	_ebss
 .L_init_thread_union:
 	.long	init_thread_union
+.L_ebss:
+	.long	__bss_stop
 .Lpanic:
 	.long	panic
 .Lpanic_s:

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /* linux/drivers/hwmon/s3c-hwmon.c
  *
  * Copyright (C) 2005, 2008, 2009 Simtec Electronics
@@ -5,24 +6,10 @@
  *	Ben Dooks <ben@simtec.co.uk>
  *
  * S3C24XX/S3C64XX ADC hwmon support
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 */
 
 #include <linux/module.h>
 #include <linux/slab.h>
-#include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/init.h>
 #include <linux/err.h>
@@ -33,8 +20,8 @@
 #include <linux/hwmon.h>
 #include <linux/hwmon-sysfs.h>
 
-#include <plat/adc.h>
-#include <plat/hwmon.h>
+#include <linux/soc/samsung/s3c-adc.h>
+#include <linux/platform_data/hwmon-s3c.h>
 
 struct s3c_hwmon_attr {
 	struct sensor_device_attribute	in;
@@ -99,7 +86,7 @@ static int s3c_hwmon_read_ch(struct device *dev,
 static ssize_t s3c_hwmon_show_raw(struct device *dev,
 				  struct device_attribute *attr, char *buf)
 {
-	struct s3c_hwmon *adc = platform_get_drvdata(to_platform_device(dev));
+	struct s3c_hwmon *adc = dev_get_drvdata(dev);
 	struct sensor_device_attribute *sa = to_sensor_dev_attr(attr);
 	int ret;
 
@@ -108,17 +95,14 @@ static ssize_t s3c_hwmon_show_raw(struct device *dev,
 	return  (ret < 0) ? ret : snprintf(buf, PAGE_SIZE, "%d\n", ret);
 }
 
-#define DEF_ADC_ATTR(x)	\
-	static SENSOR_DEVICE_ATTR(adc##x##_raw, S_IRUGO, s3c_hwmon_show_raw, NULL, x)
-
-DEF_ADC_ATTR(0);
-DEF_ADC_ATTR(1);
-DEF_ADC_ATTR(2);
-DEF_ADC_ATTR(3);
-DEF_ADC_ATTR(4);
-DEF_ADC_ATTR(5);
-DEF_ADC_ATTR(6);
-DEF_ADC_ATTR(7);
+static SENSOR_DEVICE_ATTR(adc0_raw, S_IRUGO, s3c_hwmon_show_raw, NULL, 0);
+static SENSOR_DEVICE_ATTR(adc1_raw, S_IRUGO, s3c_hwmon_show_raw, NULL, 1);
+static SENSOR_DEVICE_ATTR(adc2_raw, S_IRUGO, s3c_hwmon_show_raw, NULL, 2);
+static SENSOR_DEVICE_ATTR(adc3_raw, S_IRUGO, s3c_hwmon_show_raw, NULL, 3);
+static SENSOR_DEVICE_ATTR(adc4_raw, S_IRUGO, s3c_hwmon_show_raw, NULL, 4);
+static SENSOR_DEVICE_ATTR(adc5_raw, S_IRUGO, s3c_hwmon_show_raw, NULL, 5);
+static SENSOR_DEVICE_ATTR(adc6_raw, S_IRUGO, s3c_hwmon_show_raw, NULL, 6);
+static SENSOR_DEVICE_ATTR(adc7_raw, S_IRUGO, s3c_hwmon_show_raw, NULL, 7);
 
 static struct attribute *s3c_hwmon_attrs[9] = {
 	&sensor_dev_attr_adc0_raw.dev_attr.attr,
@@ -168,8 +152,8 @@ static ssize_t s3c_hwmon_ch_show(struct device *dev,
 				 char *buf)
 {
 	struct sensor_device_attribute *sen_attr = to_sensor_dev_attr(attr);
-	struct s3c_hwmon *hwmon = platform_get_drvdata(to_platform_device(dev));
-	struct s3c_hwmon_pdata *pdata = dev->platform_data;
+	struct s3c_hwmon *hwmon = dev_get_drvdata(dev);
+	struct s3c_hwmon_pdata *pdata = dev_get_platdata(dev);
 	struct s3c_hwmon_chcfg *cfg;
 	int ret;
 
@@ -182,7 +166,7 @@ static ssize_t s3c_hwmon_ch_show(struct device *dev,
 	ret *= cfg->mult;
 	ret = DIV_ROUND_CLOSEST(ret, cfg->div);
 
-	return snprintf(buf, PAGE_SIZE, "%d\n", ret);
+	return sysfs_emit(buf, "%d\n", ret);
 }
 
 /**
@@ -198,12 +182,12 @@ static ssize_t s3c_hwmon_label_show(struct device *dev,
 				    char *buf)
 {
 	struct sensor_device_attribute *sen_attr = to_sensor_dev_attr(attr);
-	struct s3c_hwmon_pdata *pdata = dev->platform_data;
+	struct s3c_hwmon_pdata *pdata = dev_get_platdata(dev);
 	struct s3c_hwmon_chcfg *cfg;
 
 	cfg = pdata->in[sen_attr->index];
 
-	return snprintf(buf, PAGE_SIZE, "%s\n", cfg->name);
+	return sysfs_emit(buf, "%s\n", cfg->name);
 }
 
 /**
@@ -276,9 +260,9 @@ static void s3c_hwmon_remove_attr(struct device *dev,
  * s3c_hwmon_probe - device probe entry.
  * @dev: The device being probed.
 */
-static int __devinit s3c_hwmon_probe(struct platform_device *dev)
+static int s3c_hwmon_probe(struct platform_device *dev)
 {
-	struct s3c_hwmon_pdata *pdata = dev->dev.platform_data;
+	struct s3c_hwmon_pdata *pdata = dev_get_platdata(&dev->dev);
 	struct s3c_hwmon *hwmon;
 	int ret = 0;
 	int i;
@@ -288,11 +272,9 @@ static int __devinit s3c_hwmon_probe(struct platform_device *dev)
 		return -EINVAL;
 	}
 
-	hwmon = kzalloc(sizeof(struct s3c_hwmon), GFP_KERNEL);
-	if (hwmon == NULL) {
-		dev_err(&dev->dev, "no memory\n");
+	hwmon = devm_kzalloc(&dev->dev, sizeof(struct s3c_hwmon), GFP_KERNEL);
+	if (hwmon == NULL)
 		return -ENOMEM;
-	}
 
 	platform_set_drvdata(dev, hwmon);
 
@@ -303,8 +285,7 @@ static int __devinit s3c_hwmon_probe(struct platform_device *dev)
 	hwmon->client = s3c_adc_register(dev, NULL, NULL, 0);
 	if (IS_ERR(hwmon->client)) {
 		dev_err(&dev->dev, "cannot register adc\n");
-		ret = PTR_ERR(hwmon->client);
-		goto err_mem;
+		return PTR_ERR(hwmon->client);
 	}
 
 	/* add attributes for our adc devices. */
@@ -363,12 +344,10 @@ static int __devinit s3c_hwmon_probe(struct platform_device *dev)
  err_registered:
 	s3c_adc_release(hwmon->client);
 
- err_mem:
-	kfree(hwmon);
 	return ret;
 }
 
-static int __devexit s3c_hwmon_remove(struct platform_device *dev)
+static int s3c_hwmon_remove(struct platform_device *dev)
 {
 	struct s3c_hwmon *hwmon = platform_get_drvdata(dev);
 	int i;
@@ -387,10 +366,9 @@ static int __devexit s3c_hwmon_remove(struct platform_device *dev)
 static struct platform_driver s3c_hwmon_driver = {
 	.driver	= {
 		.name		= "s3c-hwmon",
-		.owner		= THIS_MODULE,
 	},
 	.probe		= s3c_hwmon_probe,
-	.remove		= __devexit_p(s3c_hwmon_remove),
+	.remove		= s3c_hwmon_remove,
 };
 
 module_platform_driver(s3c_hwmon_driver);

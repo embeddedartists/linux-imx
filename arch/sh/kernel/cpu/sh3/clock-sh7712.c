@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * arch/sh/kernel/cpu/sh3/clock-sh7712.c
  *
@@ -7,10 +8,6 @@
  *
  * Based on arch/sh/kernel/cpu/sh3/clock-sh3.c
  *  Copyright (C) 2005  Paul Mundt
- *
- * This file is subject to the terms and conditions of the GNU General Public
- * License.  See the file "COPYING" in the main directory of this archive
- * for more details.
  */
 #include <linux/init.h>
 #include <linux/kernel.h>
@@ -29,7 +26,7 @@ static void master_clk_init(struct clk *clk)
 	clk->rate *= multipliers[idx];
 }
 
-static struct clk_ops sh7712_master_clk_ops = {
+static struct sh_clk_ops sh7712_master_clk_ops = {
 	.init		= master_clk_init,
 };
 
@@ -41,7 +38,7 @@ static unsigned long module_clk_recalc(struct clk *clk)
 	return clk->parent->rate / divisors[idx];
 }
 
-static struct clk_ops sh7712_module_clk_ops = {
+static struct sh_clk_ops sh7712_module_clk_ops = {
 	.recalc		= module_clk_recalc,
 };
 
@@ -53,17 +50,17 @@ static unsigned long cpu_clk_recalc(struct clk *clk)
 	return clk->parent->rate / divisors[idx];
 }
 
-static struct clk_ops sh7712_cpu_clk_ops = {
+static struct sh_clk_ops sh7712_cpu_clk_ops = {
 	.recalc		= cpu_clk_recalc,
 };
 
-static struct clk_ops *sh7712_clk_ops[] = {
+static struct sh_clk_ops *sh7712_clk_ops[] = {
 	&sh7712_master_clk_ops,
 	&sh7712_module_clk_ops,
 	&sh7712_cpu_clk_ops,
 };
 
-void __init arch_init_clk_ops(struct clk_ops **ops, int idx)
+void __init arch_init_clk_ops(struct sh_clk_ops **ops, int idx)
 {
 	if (idx < ARRAY_SIZE(sh7712_clk_ops))
 		*ops = sh7712_clk_ops[idx];

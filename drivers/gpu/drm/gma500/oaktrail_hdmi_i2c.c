@@ -99,7 +99,7 @@ static int xfer_read(struct i2c_adapter *adap, struct i2c_msg *pmsg)
 	i2c_dev->status = I2C_STAT_INIT;
 	i2c_dev->msg = pmsg;
 	i2c_dev->buf_offset = 0;
-	INIT_COMPLETION(i2c_dev->complete);
+	reinit_completion(&i2c_dev->complete);
 
 	/* Enable I2C transaction */
 	temp = ((pmsg->len) << 20) | HI2C_EDID_READ | HI2C_ENABLE_TRANSACTION;
@@ -127,7 +127,7 @@ static int oaktrail_hdmi_i2c_access(struct i2c_adapter *adap,
 {
 	struct oaktrail_hdmi_dev *hdmi_dev = i2c_get_adapdata(adap);
 	struct hdmi_i2c_dev *i2c_dev = hdmi_dev->i2c_dev;
-	int i, err = 0;
+	int i;
 
 	mutex_lock(&i2c_dev->i2c_lock);
 
@@ -139,9 +139,9 @@ static int oaktrail_hdmi_i2c_access(struct i2c_adapter *adap,
 	for (i = 0; i < num; i++) {
 		if (pmsg->len && pmsg->buf) {
 			if (pmsg->flags & I2C_M_RD)
-				err = xfer_read(adap, pmsg);
+				xfer_read(adap, pmsg);
 			else
-				err = xfer_write(adap, pmsg);
+				xfer_write(adap, pmsg);
 		}
 		pmsg++;         /* next message */
 	}
@@ -250,7 +250,7 @@ static irqreturn_t oaktrail_hdmi_i2c_handler(int this_irq, void *dev)
  */
 static void oaktrail_hdmi_i2c_gpio_fix(void)
 {
-	void *base;
+	void __iomem *base;
 	unsigned int gpio_base = 0xff12c000;
 	int gpio_len = 0x1000;
 	u32 temp;
@@ -279,11 +279,8 @@ int oaktrail_hdmi_i2c_init(struct pci_dev *dev)
 	hdmi_dev = pci_get_drvdata(dev);
 
 	i2c_dev = kzalloc(sizeof(struct hdmi_i2c_dev), GFP_KERNEL);
-	if (i2c_dev == NULL) {
-		DRM_ERROR("Can't allocate interface\n");
-		ret = -ENOMEM;
-		goto exit;
-	}
+	if (!i2c_dev)
+		return -ENOMEM;
 
 	i2c_dev->adap = &oaktrail_hdmi_i2c_adapter;
 	i2c_dev->status = I2C_STAT_INIT;
@@ -300,16 +297,23 @@ int oaktrail_hdmi_i2c_init(struct pci_dev *dev)
 			  oaktrail_hdmi_i2c_adapter.name, hdmi_dev);
 	if (ret) {
 		DRM_ERROR("Failed to request IRQ for I2C controller\n");
-		goto err;
+		goto free_dev;
 	}
 
 	/* Adapter registration */
 	ret = i2c_add_numbered_adapter(&oaktrail_hdmi_i2c_adapter);
-	return ret;
+	if (ret) {
+		DRM_ERROR("Failed to add I2C adapter\n");
+		goto free_irq;
+	}
 
-err:
+	return 0;
+
+free_irq:
+	free_irq(dev->irq, hdmi_dev);
+free_dev:
 	kfree(i2c_dev);
-exit:
+
 	return ret;
 }
 
@@ -319,8 +323,7 @@ void oaktrail_hdmi_i2c_exit(struct pci_dev *dev)
 	struct hdmi_i2c_dev *i2c_dev;
 
 	hdmi_dev = pci_get_drvdata(dev);
-	if (i2c_del_adapter(&oaktrail_hdmi_i2c_adapter))
-		DRM_DEBUG_DRIVER("Failed to delete hdmi-i2c adapter\n");
+	i2c_del_adapter(&oaktrail_hdmi_i2c_adapter);
 
 	i2c_dev = hdmi_dev->i2c_dev;
 	kfree(i2c_dev);

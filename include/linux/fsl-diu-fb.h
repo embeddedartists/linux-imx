@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Copyright 2008 Freescale Semiconductor, Inc. All Rights Reserved.
  *
@@ -9,12 +10,6 @@
  *           York Sun <yorksun@freescale.com>
  *
  *   Based on imxfb.c Copyright (C) 2004 S.Hauer, Pengutronix
- *
- * This program is free software; you can redistribute  it and/or modify it
- * under  the terms of  the GNU General  Public License as published by the
- * Free Software Foundation;  either version 2 of the  License, or (at your
- * option) any later version.
- *
  */
 
 #ifndef __FSL_DIU_FB_H__
@@ -47,6 +42,15 @@ struct aoi_display_offset {
 #define MFB_GET_PIXFMT		_IOR('M', 8, __u32)
 
 /*
+ * The MPC5121 BSP comes with a gamma_set utility that initializes the
+ * gamma table.  Unfortunately, it uses bad values for the IOCTL commands,
+ * but there's nothing we can do about it now.  These ioctls are only
+ * supported on the MPC5121.
+ */
+#define MFB_SET_GAMMA		_IOW('M', 1, __u8)
+#define MFB_GET_GAMMA		_IOR('M', 1, __u8)
+
+/*
  * The original definitions of MFB_SET_PIXFMT and MFB_GET_PIXFMT used the
  * wrong value for 'size' field of the ioctl.  The current macros above use the
  * right size, but we still need to provide backwards compatibility, at least
@@ -64,7 +68,7 @@ struct diu_ad {
 	/* Word 0(32-bit) in DDR memory */
 /* 	__u16 comp; */
 /* 	__u16 pixel_s:2; */
-/* 	__u16 pallete:1; */
+/* 	__u16 palette:1; */
 /* 	__u16 red_c:2; */
 /* 	__u16 green_c:2; */
 /* 	__u16 blue_c:2; */
@@ -133,7 +137,7 @@ struct diu_ad {
 struct diu {
 	__be32 desc[3];
 	__be32 gamma;
-	__be32 pallete;
+	__be32 palette;
 	__be32 cursor;
 	__be32 curs_pos;
 	__be32 diu_mode;

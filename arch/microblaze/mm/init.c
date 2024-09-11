@@ -7,10 +7,10 @@
  * for more details.
  */
 
-#include <linux/bootmem.h>
+#include <linux/dma-map-ops.h>
+#include <linux/memblock.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
-#include <linux/memblock.h>
 #include <linux/mm.h> /* mem_init */
 #include <linux/initrd.h>
 #include <linux/pagemap.h>
@@ -24,17 +24,10 @@
 #include <asm/pgalloc.h>
 #include <asm/sections.h>
 #include <asm/tlb.h>
+#include <asm/fixmap.h>
 
 /* Use for MMU and noMMU because of PCI generic code */
 int mem_init_done;
-
-#ifndef CONFIG_MMU
-unsigned int __page_offset;
-EXPORT_SYMBOL(__page_offset);
-
-#else
-static int init_bootmem_done;
-#endif /* CONFIG_MMU */
 
 char *klimit = _end;
 
@@ -44,9 +37,34 @@ char *klimit = _end;
  */
 unsigned long memory_start;
 EXPORT_SYMBOL(memory_start);
-unsigned long memory_end; /* due to mm/nommu.c */
 unsigned long memory_size;
 EXPORT_SYMBOL(memory_size);
+unsigned long lowmem_size;
+
+EXPORT_SYMBOL(min_low_pfn);
+EXPORT_SYMBOL(max_low_pfn);
+
+#ifdef CONFIG_HIGHMEM
+static void __init highmem_init(void)
+{
+	pr_debug("%x\n", (u32)PKMAP_BASE);
+	map_page(PKMAP_BASE, 0, 0);	/* XXX gross */
+	pkmap_page_table = virt_to_kpte(PKMAP_BASE);
+}
+
+static void __meminit highmem_setup(void)
+{
+	unsigned long pfn;
+
+	for (pfn = max_low_pfn; pfn < max_pfn; ++pfn) {
+		struct page *page = pfn_to_page(pfn);
+
+		/* FIXME not sure about */
+		if (!memblock_is_reserved(pfn << PAGE_SHIFT))
+			free_highmem_page(page);
+	}
+}
+#endif /* CONFIG_HIGHMEM */
 
 /*
  * paging_init() sets up the page tables - in fact we've already done this.
@@ -54,57 +72,30 @@ EXPORT_SYMBOL(memory_size);
 static void __init paging_init(void)
 {
 	unsigned long zones_size[MAX_NR_ZONES];
+	int idx;
+
+	/* Setup fixmaps */
+	for (idx = 0; idx < __end_of_fixed_addresses; idx++)
+		clear_fixmap(idx);
 
 	/* Clean every zones */
 	memset(zones_size, 0, sizeof(zones_size));
 
-	/*
-	 * old: we can DMA to/from any address.put all page into ZONE_DMA
-	 * We use only ZONE_NORMAL
-	 */
-	zones_size[ZONE_NORMAL] = max_mapnr;
+#ifdef CONFIG_HIGHMEM
+	highmem_init();
 
+	zones_size[ZONE_DMA] = max_low_pfn;
+	zones_size[ZONE_HIGHMEM] = max_pfn;
+#else
+	zones_size[ZONE_DMA] = max_pfn;
+#endif
+
+	/* We don't have holes in memory map */
 	free_area_init(zones_size);
 }
 
 void __init setup_memory(void)
 {
-	unsigned long map_size;
-	struct memblock_region *reg;
-
-#ifndef CONFIG_MMU
-	u32 kernel_align_start, kernel_align_size;
-
-	/* Find main memory where is the kernel */
-	for_each_memblock(memory, reg) {
-		memory_start = (u32)reg->base;
-		memory_end = (u32) reg->base + reg->size;
-		if ((memory_start <= (u32)_text) &&
-					((u32)_text <= memory_end)) {
-			memory_size = memory_end - memory_start;
-			PAGE_OFFSET = memory_start;
-			printk(KERN_INFO "%s: Main mem: 0x%x-0x%x, "
-				"size 0x%08x\n", __func__, (u32) memory_start,
-					(u32) memory_end, (u32) memory_size);
-			break;
-		}
-	}
-
-	if (!memory_start || !memory_end) {
-		panic("%s: Missing memory setting 0x%08x-0x%08x\n",
-			__func__, (u32) memory_start, (u32) memory_end);
-	}
-
-	/* reservation of region where is the kernel */
-	kernel_align_start = PAGE_DOWN((u32)_text);
-	/* ALIGN can be remove because _end in vmlinux.lds.S is align */
-	kernel_align_size = PAGE_UP((u32)klimit) - kernel_align_start;
-	memblock_reserve(kernel_align_start, kernel_align_size);
-	printk(KERN_INFO "%s: kernel addr=0x%08x-0x%08x size=0x%08x\n",
-		__func__, kernel_align_start, kernel_align_start
-			+ kernel_align_size, kernel_align_size);
-
-#endif
 	/*
 	 * Kernel:
 	 * start: base phys address of kernel - page align
@@ -113,99 +104,36 @@ void __init setup_memory(void)
 	 * min_low_pfn - the first page (mm/bootmem.c - node_boot_start)
 	 * max_low_pfn
 	 * max_mapnr - the first unused page (mm/bootmem.c - node_low_pfn)
-	 * num_physpages - number of all pages
 	 */
 
 	/* memory start is from the kernel end (aligned) to higher addr */
 	min_low_pfn = memory_start >> PAGE_SHIFT; /* minimum for allocation */
 	/* RAM is assumed contiguous */
-	num_physpages = max_mapnr = memory_size >> PAGE_SHIFT;
-	max_pfn = max_low_pfn = memory_end >> PAGE_SHIFT;
+	max_mapnr = memory_size >> PAGE_SHIFT;
+	max_low_pfn = ((u64)memory_start + (u64)lowmem_size) >> PAGE_SHIFT;
+	max_pfn = ((u64)memory_start + (u64)memory_size) >> PAGE_SHIFT;
 
-	printk(KERN_INFO "%s: max_mapnr: %#lx\n", __func__, max_mapnr);
-	printk(KERN_INFO "%s: min_low_pfn: %#lx\n", __func__, min_low_pfn);
-	printk(KERN_INFO "%s: max_low_pfn: %#lx\n", __func__, max_low_pfn);
+	pr_info("%s: max_mapnr: %#lx\n", __func__, max_mapnr);
+	pr_info("%s: min_low_pfn: %#lx\n", __func__, min_low_pfn);
+	pr_info("%s: max_low_pfn: %#lx\n", __func__, max_low_pfn);
+	pr_info("%s: max_pfn: %#lx\n", __func__, max_pfn);
 
-	/*
-	 * Find an area to use for the bootmem bitmap.
-	 * We look for the first area which is at least
-	 * 128kB in length (128kB is enough for a bitmap
-	 * for 4GB of memory, using 4kB pages), plus 1 page
-	 * (in case the address isn't page-aligned).
-	 */
-	map_size = init_bootmem_node(NODE_DATA(0),
-		PFN_UP(TOPHYS((u32)klimit)), min_low_pfn, max_low_pfn);
-	memblock_reserve(PFN_UP(TOPHYS((u32)klimit)) << PAGE_SHIFT, map_size);
-
-	/* free bootmem is whole main memory */
-	free_bootmem(memory_start, memory_size);
-
-	/* reserve allocate blocks */
-	for_each_memblock(reserved, reg) {
-		pr_debug("reserved - 0x%08x-0x%08x\n",
-			 (u32) reg->base, (u32) reg->size);
-		reserve_bootmem(reg->base, reg->size, BOOTMEM_DEFAULT);
-	}
-#ifdef CONFIG_MMU
-	init_bootmem_done = 1;
-#endif
 	paging_init();
-}
-
-void free_init_pages(char *what, unsigned long begin, unsigned long end)
-{
-	unsigned long addr;
-
-	for (addr = begin; addr < end; addr += PAGE_SIZE) {
-		ClearPageReserved(virt_to_page(addr));
-		init_page_count(virt_to_page(addr));
-		free_page(addr);
-		totalram_pages++;
-	}
-	printk(KERN_INFO "Freeing %s: %ldk freed\n", what, (end - begin) >> 10);
-}
-
-#ifdef CONFIG_BLK_DEV_INITRD
-void free_initrd_mem(unsigned long start, unsigned long end)
-{
-	int pages = 0;
-	for (; start < end; start += PAGE_SIZE) {
-		ClearPageReserved(virt_to_page(start));
-		init_page_count(virt_to_page(start));
-		free_page(start);
-		totalram_pages++;
-		pages++;
-	}
-	printk(KERN_NOTICE "Freeing initrd memory: %dk freed\n",
-					(int)(pages * (PAGE_SIZE / 1024)));
-}
-#endif
-
-void free_initmem(void)
-{
-	free_init_pages("unused kernel memory",
-			(unsigned long)(&__init_begin),
-			(unsigned long)(&__init_end));
 }
 
 void __init mem_init(void)
 {
-	high_memory = (void *)__va(memory_end);
-	/* this will put all memory onto the freelists */
-	totalram_pages += free_all_bootmem();
+	high_memory = (void *)__va(memory_start + lowmem_size - 1);
 
-	printk(KERN_INFO "Memory: %luk/%luk available\n",
-	       nr_free_pages() << (PAGE_SHIFT-10),
-	       num_physpages << (PAGE_SHIFT-10));
+	/* this will put all memory onto the freelists */
+	memblock_free_all();
+#ifdef CONFIG_HIGHMEM
+	highmem_setup();
+#endif
+
 	mem_init_done = 1;
 }
 
-#ifndef CONFIG_MMU
-int page_is_ram(unsigned long pfn)
-{
-	return __range_ok(pfn, 0);
-}
-#else
 int page_is_ram(unsigned long pfn)
 {
 	return pfn < max_low_pfn;
@@ -226,7 +154,6 @@ static void mm_cmdline_setup(void)
 		maxmem = memparse(p, &p);
 		if (maxmem && memory_size > maxmem) {
 			memory_size = maxmem;
-			memory_end = memory_start + memory_size;
 			memblock.memory.regions[0].size = memory_size;
 		}
 	}
@@ -266,19 +193,30 @@ asmlinkage void __init mmu_init(void)
 	unsigned int kstart, ksize;
 
 	if (!memblock.reserved.cnt) {
-		printk(KERN_EMERG "Error memory count\n");
+		pr_emerg("Error memory count\n");
 		machine_restart(NULL);
 	}
 
-	if ((u32) memblock.memory.regions[0].size < 0x1000000) {
-		printk(KERN_EMERG "Memory must be greater than 16MB\n");
+	if ((u32) memblock.memory.regions[0].size < 0x400000) {
+		pr_emerg("Memory must be greater than 4MB\n");
 		machine_restart(NULL);
 	}
+
+	if ((u32) memblock.memory.regions[0].size < kernel_tlb) {
+		pr_emerg("Kernel size is greater than memory node\n");
+		machine_restart(NULL);
+	}
+
 	/* Find main memory where the kernel is */
 	memory_start = (u32) memblock.memory.regions[0].base;
-	memory_end = (u32) memblock.memory.regions[0].base +
-				(u32) memblock.memory.regions[0].size;
-	memory_size = memory_end - memory_start;
+	lowmem_size = memory_size = (u32) memblock.memory.regions[0].size;
+
+	if (lowmem_size > CONFIG_LOWMEM_SIZE) {
+		lowmem_size = CONFIG_LOWMEM_SIZE;
+#ifndef CONFIG_HIGHMEM
+		memory_size = lowmem_size;
+#endif
+	}
 
 	mm_cmdline_setup(); /* FIXME parse args from command line - not used */
 
@@ -293,10 +231,11 @@ asmlinkage void __init mmu_init(void)
 
 #if defined(CONFIG_BLK_DEV_INITRD)
 	/* Remove the init RAM disk from the available memory. */
-/*	if (initrd_start) {
-		mem_pieces_remove(&phys_avail, __pa(initrd_start),
-				  initrd_end - initrd_start, 1);
-	}*/
+	if (initrd_start) {
+		unsigned long size;
+		size = initrd_end - initrd_start;
+		memblock_reserve(__virt_to_phys(initrd_start), size);
+	}
 #endif /* CONFIG_BLK_DEV_INITRD */
 
 	/* Initialize the MMU hardware */
@@ -305,54 +244,39 @@ asmlinkage void __init mmu_init(void)
 	/* Map in all of RAM starting at CONFIG_KERNEL_START */
 	mapin_ram();
 
-#ifdef CONFIG_HIGHMEM_START_BOOL
-	ioremap_base = CONFIG_HIGHMEM_START;
+	/* Extend vmalloc and ioremap area as big as possible */
+#ifdef CONFIG_HIGHMEM
+	ioremap_base = ioremap_bot = PKMAP_BASE;
 #else
-	ioremap_base = 0xfe000000UL;	/* for now, could be 0xfffff000 */
-#endif /* CONFIG_HIGHMEM_START_BOOL */
-	ioremap_bot = ioremap_base;
+	ioremap_base = ioremap_bot = FIXADDR_START;
+#endif
 
 	/* Initialize the context management stuff */
 	mmu_context_init();
+
+	/* Shortly after that, the entire linear mapping will be available */
+	/* This will also cause that unflatten device tree will be allocated
+	 * inside 768MB limit */
+	memblock_set_current_limit(memory_start + lowmem_size - 1);
+
+	parse_early_param();
+
+	/* CMA initialization */
+	dma_contiguous_reserve(memory_start + lowmem_size - 1);
 }
 
-/* This is only called until mem_init is done. */
-void __init *early_get_page(void)
-{
-	void *p;
-	if (init_bootmem_done) {
-		p = alloc_bootmem_pages(PAGE_SIZE);
-	} else {
-		/*
-		 * Mem start + 32MB -> here is limit
-		 * because of mem mapping from head.S
-		 */
-		p = __va(memblock_alloc_base(PAGE_SIZE, PAGE_SIZE,
-					memory_start + 0x2000000));
-	}
-	return p;
-}
-
-#endif /* CONFIG_MMU */
-
-void * __init_refok alloc_maybe_bootmem(size_t size, gfp_t mask)
-{
-	if (mem_init_done)
-		return kmalloc(size, mask);
-	else
-		return alloc_bootmem(size);
-}
-
-void * __init_refok zalloc_maybe_bootmem(size_t size, gfp_t mask)
+void * __ref zalloc_maybe_bootmem(size_t size, gfp_t mask)
 {
 	void *p;
 
-	if (mem_init_done)
+	if (mem_init_done) {
 		p = kzalloc(size, mask);
-	else {
-		p = alloc_bootmem(size);
-		if (p)
-			memset(p, 0, size);
+	} else {
+		p = memblock_alloc(size, SMP_CACHE_BYTES);
+		if (!p)
+			panic("%s: Failed to allocate %zu bytes\n",
+			      __func__, size);
 	}
+
 	return p;
 }

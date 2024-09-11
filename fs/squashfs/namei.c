@@ -1,22 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Squashfs - a compressed read only filesystem for Linux
  *
  * Copyright (c) 2002, 2003, 2004, 2005, 2006, 2007, 2008
  * Phillip Lougher <phillip@squashfs.org.uk>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2,
- * or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
  *
  * namei.c
  */
@@ -79,7 +66,8 @@ static int get_dir_index_using_name(struct super_block *sb,
 			int len)
 {
 	struct squashfs_sb_info *msblk = sb->s_fs_info;
-	int i, size, length = 0, err;
+	int i, length = 0, err;
+	unsigned int size;
 	struct squashfs_dir_index *index;
 	char *str;
 
@@ -103,6 +91,8 @@ static int get_dir_index_using_name(struct super_block *sb,
 
 
 		size = le32_to_cpu(index->size) + 1;
+		if (size > SQUASHFS_NAME_LEN)
+			break;
 
 		err = squashfs_read_metadata(sb, index->name, &index_start,
 					&index_offset, size);
@@ -134,7 +124,7 @@ out:
 
 
 static struct dentry *squashfs_lookup(struct inode *dir, struct dentry *dentry,
-				 struct nameidata *nd)
+				 unsigned int flags)
 {
 	const unsigned char *name = dentry->d_name.name;
 	int len = dentry->d_name.len;
@@ -144,7 +134,8 @@ static struct dentry *squashfs_lookup(struct inode *dir, struct dentry *dentry,
 	struct squashfs_dir_entry *dire;
 	u64 block = squashfs_i(dir)->start + msblk->directory_table;
 	int offset = squashfs_i(dir)->offset;
-	int err, length = 0, dir_count, size;
+	int err, length;
+	unsigned int dir_count, size;
 
 	TRACE("Entered squashfs_lookup [%llx:%x]\n", block, offset);
 
@@ -177,8 +168,7 @@ static struct dentry *squashfs_lookup(struct inode *dir, struct dentry *dentry,
 
 		dir_count = le32_to_cpu(dirh.count) + 1;
 
-		/* dir_count should never be larger than 256 */
-		if (dir_count > 256)
+		if (dir_count > SQUASHFS_DIR_COUNT)
 			goto data_error;
 
 		while (dir_count--) {
@@ -244,6 +234,5 @@ failed:
 
 const struct inode_operations squashfs_dir_inode_ops = {
 	.lookup = squashfs_lookup,
-	.getxattr = generic_getxattr,
 	.listxattr = squashfs_listxattr
 };

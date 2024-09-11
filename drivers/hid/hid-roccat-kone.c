@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Roccat Kone driver for Linux
  *
@@ -5,10 +6,6 @@
  */
 
 /*
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the Free
- * Software Foundation; either version 2 of the License, or (at your option)
- * any later version.
  */
 
 /*
@@ -46,6 +43,7 @@ static void kone_profile_activated(struct kone_device *kone, uint new_profile)
 static void kone_profile_report(struct kone_device *kone, uint new_profile)
 {
 	struct kone_roccat_report roccat_report;
+
 	roccat_report.event = kone_mouse_event_switch_profile;
 	roccat_report.value = new_profile;
 	roccat_report.key = 0;
@@ -138,7 +136,7 @@ static int kone_check_write(struct usb_device *usb_dev)
 		return 0;
 
 	/* unknown answer */
-	hid_err(usb_dev, "got retval %d when checking write\n", data);
+	dev_err(&usb_dev->dev, "got retval %d when checking write\n", data);
 	return -EIO;
 }
 
@@ -163,6 +161,7 @@ static int kone_set_settings(struct usb_device *usb_dev,
 		struct kone_settings const *settings)
 {
 	int retval;
+
 	retval = kone_send(usb_dev, kone_command_settings,
 			settings, sizeof(struct kone_settings));
 	if (retval)
@@ -267,8 +266,7 @@ static int kone_get_firmware_version(struct usb_device *usb_dev, int *result)
 static ssize_t kone_sysfs_read_settings(struct file *fp, struct kobject *kobj,
 		struct bin_attribute *attr, char *buf,
 		loff_t off, size_t count) {
-	struct device *dev =
-			container_of(kobj, struct device, kobj)->parent->parent;
+	struct device *dev = kobj_to_dev(kobj)->parent->parent;
 	struct kone_device *kone = hid_get_drvdata(dev_get_drvdata(dev));
 
 	if (off >= sizeof(struct kone_settings))
@@ -292,44 +290,53 @@ static ssize_t kone_sysfs_read_settings(struct file *fp, struct kobject *kobj,
 static ssize_t kone_sysfs_write_settings(struct file *fp, struct kobject *kobj,
 		struct bin_attribute *attr, char *buf,
 		loff_t off, size_t count) {
-	struct device *dev =
-			container_of(kobj, struct device, kobj)->parent->parent;
+	struct device *dev = kobj_to_dev(kobj)->parent->parent;
 	struct kone_device *kone = hid_get_drvdata(dev_get_drvdata(dev));
 	struct usb_device *usb_dev = interface_to_usbdev(to_usb_interface(dev));
 	int retval = 0, difference, old_profile;
+	struct kone_settings *settings = (struct kone_settings *)buf;
 
 	/* I need to get my data in one piece */
 	if (off != 0 || count != sizeof(struct kone_settings))
 		return -EINVAL;
 
 	mutex_lock(&kone->kone_lock);
-	difference = memcmp(buf, &kone->settings, sizeof(struct kone_settings));
+	difference = memcmp(settings, &kone->settings,
+			    sizeof(struct kone_settings));
 	if (difference) {
-		retval = kone_set_settings(usb_dev,
-				(struct kone_settings const *)buf);
-		if (retval) {
-			mutex_unlock(&kone->kone_lock);
-			return retval;
+		if (settings->startup_profile < 1 ||
+		    settings->startup_profile > 5) {
+			retval = -EINVAL;
+			goto unlock;
 		}
 
+		retval = kone_set_settings(usb_dev, settings);
+		if (retval)
+			goto unlock;
+
 		old_profile = kone->settings.startup_profile;
-		memcpy(&kone->settings, buf, sizeof(struct kone_settings));
+		memcpy(&kone->settings, settings, sizeof(struct kone_settings));
 
 		kone_profile_activated(kone, kone->settings.startup_profile);
 
 		if (kone->settings.startup_profile != old_profile)
 			kone_profile_report(kone, kone->settings.startup_profile);
 	}
+unlock:
 	mutex_unlock(&kone->kone_lock);
+
+	if (retval)
+		return retval;
 
 	return sizeof(struct kone_settings);
 }
+static BIN_ATTR(settings, 0660, kone_sysfs_read_settings,
+		kone_sysfs_write_settings, sizeof(struct kone_settings));
 
 static ssize_t kone_sysfs_read_profilex(struct file *fp,
 		struct kobject *kobj, struct bin_attribute *attr,
 		char *buf, loff_t off, size_t count) {
-	struct device *dev =
-			container_of(kobj, struct device, kobj)->parent->parent;
+	struct device *dev = kobj_to_dev(kobj)->parent->parent;
 	struct kone_device *kone = hid_get_drvdata(dev_get_drvdata(dev));
 
 	if (off >= sizeof(struct kone_profile))
@@ -349,8 +356,7 @@ static ssize_t kone_sysfs_read_profilex(struct file *fp,
 static ssize_t kone_sysfs_write_profilex(struct file *fp,
 		struct kobject *kobj, struct bin_attribute *attr,
 		char *buf, loff_t off, size_t count) {
-	struct device *dev =
-			container_of(kobj, struct device, kobj)->parent->parent;
+	struct device *dev = kobj_to_dev(kobj)->parent->parent;
 	struct kone_device *kone = hid_get_drvdata(dev_get_drvdata(dev));
 	struct usb_device *usb_dev = interface_to_usbdev(to_usb_interface(dev));
 	struct kone_profile *profile;
@@ -378,6 +384,19 @@ static ssize_t kone_sysfs_write_profilex(struct file *fp,
 
 	return sizeof(struct kone_profile);
 }
+#define PROFILE_ATTR(number)					\
+static struct bin_attribute bin_attr_profile##number = {	\
+	.attr = { .name = "profile" #number, .mode = 0660 },	\
+	.size = sizeof(struct kone_profile),			\
+	.read = kone_sysfs_read_profilex,			\
+	.write = kone_sysfs_write_profilex,			\
+	.private = &profile_numbers[number-1],			\
+}
+PROFILE_ATTR(1);
+PROFILE_ATTR(2);
+PROFILE_ATTR(3);
+PROFILE_ATTR(4);
+PROFILE_ATTR(5);
 
 static ssize_t kone_sysfs_show_actual_profile(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -386,6 +405,7 @@ static ssize_t kone_sysfs_show_actual_profile(struct device *dev,
 			hid_get_drvdata(dev_get_drvdata(dev->parent->parent));
 	return snprintf(buf, PAGE_SIZE, "%d\n", kone->actual_profile);
 }
+static DEVICE_ATTR(actual_profile, 0440, kone_sysfs_show_actual_profile, NULL);
 
 static ssize_t kone_sysfs_show_actual_dpi(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -394,6 +414,7 @@ static ssize_t kone_sysfs_show_actual_dpi(struct device *dev,
 			hid_get_drvdata(dev_get_drvdata(dev->parent->parent));
 	return snprintf(buf, PAGE_SIZE, "%d\n", kone->actual_dpi);
 }
+static DEVICE_ATTR(actual_dpi, 0440, kone_sysfs_show_actual_dpi, NULL);
 
 /* weight is read each time, since we don't get informed when it's changed */
 static ssize_t kone_sysfs_show_weight(struct device *dev,
@@ -416,6 +437,7 @@ static ssize_t kone_sysfs_show_weight(struct device *dev,
 		return retval;
 	return snprintf(buf, PAGE_SIZE, "%d\n", weight);
 }
+static DEVICE_ATTR(weight, 0440, kone_sysfs_show_weight, NULL);
 
 static ssize_t kone_sysfs_show_firmware_version(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -424,6 +446,8 @@ static ssize_t kone_sysfs_show_firmware_version(struct device *dev,
 			hid_get_drvdata(dev_get_drvdata(dev->parent->parent));
 	return snprintf(buf, PAGE_SIZE, "%d\n", kone->firmware_version);
 }
+static DEVICE_ATTR(firmware_version, 0440, kone_sysfs_show_firmware_version,
+		   NULL);
 
 static ssize_t kone_sysfs_show_tcu(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -436,6 +460,7 @@ static ssize_t kone_sysfs_show_tcu(struct device *dev,
 static int kone_tcu_command(struct usb_device *usb_dev, int number)
 {
 	unsigned char value;
+
 	value = number;
 	return kone_send(usb_dev, kone_command_calibrate, &value, 1);
 }
@@ -456,7 +481,7 @@ static ssize_t kone_sysfs_set_tcu(struct device *dev,
 	kone = hid_get_drvdata(dev_get_drvdata(dev));
 	usb_dev = interface_to_usbdev(to_usb_interface(dev));
 
-	retval = strict_strtoul(buf, 10, &state);
+	retval = kstrtoul(buf, 10, &state);
 	if (retval)
 		return retval;
 
@@ -503,7 +528,7 @@ static ssize_t kone_sysfs_set_tcu(struct device *dev,
 
 		retval = kone_set_settings(usb_dev, &kone->settings);
 		if (retval) {
-			hid_err(usb_dev, "couldn't set tcu state\n");
+			dev_err(&usb_dev->dev, "couldn't set tcu state\n");
 			/*
 			 * try to reread valid settings into buffer overwriting
 			 * first error code
@@ -519,11 +544,12 @@ static ssize_t kone_sysfs_set_tcu(struct device *dev,
 
 	retval = size;
 exit_no_settings:
-	hid_err(usb_dev, "couldn't read settings\n");
+	dev_err(&usb_dev->dev, "couldn't read settings\n");
 exit_unlock:
 	mutex_unlock(&kone->kone_lock);
 	return retval;
 }
+static DEVICE_ATTR(tcu, 0660, kone_sysfs_show_tcu, kone_sysfs_set_tcu);
 
 static ssize_t kone_sysfs_show_startup_profile(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -545,7 +571,7 @@ static ssize_t kone_sysfs_set_startup_profile(struct device *dev,
 	kone = hid_get_drvdata(dev_get_drvdata(dev));
 	usb_dev = interface_to_usbdev(to_usb_interface(dev));
 
-	retval = strict_strtoul(buf, 10, &new_startup_profile);
+	retval = kstrtoul(buf, 10, &new_startup_profile);
 	if (retval)
 		return retval;
 
@@ -570,15 +596,17 @@ static ssize_t kone_sysfs_set_startup_profile(struct device *dev,
 	mutex_unlock(&kone->kone_lock);
 	return size;
 }
+static DEVICE_ATTR(startup_profile, 0660, kone_sysfs_show_startup_profile,
+		   kone_sysfs_set_startup_profile);
 
-static struct device_attribute kone_attributes[] = {
+static struct attribute *kone_attrs[] = {
 	/*
 	 * Read actual dpi settings.
 	 * Returns raw value for further processing. Refer to enum
 	 * kone_polling_rates to get real value.
 	 */
-	__ATTR(actual_dpi, 0440, kone_sysfs_show_actual_dpi, NULL),
-	__ATTR(actual_profile, 0440, kone_sysfs_show_actual_profile, NULL),
+	&dev_attr_actual_dpi.attr,
+	&dev_attr_actual_profile.attr,
 
 	/*
 	 * The mouse can be equipped with one of four supplied weights from 5
@@ -587,7 +615,7 @@ static struct device_attribute kone_attributes[] = {
 	 * by software. Refer to enum kone_weights to get corresponding real
 	 * weight.
 	 */
-	__ATTR(weight, 0440, kone_sysfs_show_weight, NULL),
+	&dev_attr_weight.attr,
 
 	/*
 	 * Prints firmware version stored in mouse as integer.
@@ -595,66 +623,38 @@ static struct device_attribute kone_attributes[] = {
 	 * to get the real version number the decimal point has to be shifted 2
 	 * positions to the left. E.g. a value of 138 means 1.38.
 	 */
-	__ATTR(firmware_version, 0440,
-			kone_sysfs_show_firmware_version, NULL),
+	&dev_attr_firmware_version.attr,
 
 	/*
 	 * Prints state of Tracking Control Unit as number where 0 = off and
 	 * 1 = on. Writing 0 deactivates tcu and writing 1 calibrates and
 	 * activates the tcu
 	 */
-	__ATTR(tcu, 0660, kone_sysfs_show_tcu, kone_sysfs_set_tcu),
+	&dev_attr_tcu.attr,
 
 	/* Prints and takes the number of the profile the mouse starts with */
-	__ATTR(startup_profile, 0660,
-			kone_sysfs_show_startup_profile,
-			kone_sysfs_set_startup_profile),
-	__ATTR_NULL
+	&dev_attr_startup_profile.attr,
+	NULL,
 };
 
-static struct bin_attribute kone_bin_attributes[] = {
-	{
-		.attr = { .name = "settings", .mode = 0660 },
-		.size = sizeof(struct kone_settings),
-		.read = kone_sysfs_read_settings,
-		.write = kone_sysfs_write_settings
-	},
-	{
-		.attr = { .name = "profile1", .mode = 0660 },
-		.size = sizeof(struct kone_profile),
-		.read = kone_sysfs_read_profilex,
-		.write = kone_sysfs_write_profilex,
-		.private = &profile_numbers[0]
-	},
-	{
-		.attr = { .name = "profile2", .mode = 0660 },
-		.size = sizeof(struct kone_profile),
-		.read = kone_sysfs_read_profilex,
-		.write = kone_sysfs_write_profilex,
-		.private = &profile_numbers[1]
-	},
-	{
-		.attr = { .name = "profile3", .mode = 0660 },
-		.size = sizeof(struct kone_profile),
-		.read = kone_sysfs_read_profilex,
-		.write = kone_sysfs_write_profilex,
-		.private = &profile_numbers[2]
-	},
-	{
-		.attr = { .name = "profile4", .mode = 0660 },
-		.size = sizeof(struct kone_profile),
-		.read = kone_sysfs_read_profilex,
-		.write = kone_sysfs_write_profilex,
-		.private = &profile_numbers[3]
-	},
-	{
-		.attr = { .name = "profile5", .mode = 0660 },
-		.size = sizeof(struct kone_profile),
-		.read = kone_sysfs_read_profilex,
-		.write = kone_sysfs_write_profilex,
-		.private = &profile_numbers[4]
-	},
-	__ATTR_NULL
+static struct bin_attribute *kone_bin_attributes[] = {
+	&bin_attr_settings,
+	&bin_attr_profile1,
+	&bin_attr_profile2,
+	&bin_attr_profile3,
+	&bin_attr_profile4,
+	&bin_attr_profile5,
+	NULL,
+};
+
+static const struct attribute_group kone_group = {
+	.attrs = kone_attrs,
+	.bin_attrs = kone_bin_attributes,
+};
+
+static const struct attribute_group *kone_groups[] = {
+	&kone_group,
+	NULL,
 };
 
 static int kone_init_kone_device_struct(struct usb_device *usb_dev,
@@ -702,10 +702,8 @@ static int kone_init_specials(struct hid_device *hdev)
 			== USB_INTERFACE_PROTOCOL_MOUSE) {
 
 		kone = kzalloc(sizeof(*kone), GFP_KERNEL);
-		if (!kone) {
-			hid_err(hdev, "can't alloc device descriptor\n");
+		if (!kone)
 			return -ENOMEM;
-		}
 		hid_set_drvdata(hdev, kone);
 
 		retval = kone_init_kone_device_struct(usb_dev, kone);
@@ -751,6 +749,9 @@ static int kone_probe(struct hid_device *hdev, const struct hid_device_id *id)
 {
 	int retval;
 
+	if (!hid_is_usb(hdev))
+		return -EINVAL;
+
 	retval = hid_parse(hdev);
 	if (retval) {
 		hid_err(hdev, "parse failed\n");
@@ -791,6 +792,7 @@ static void kone_keep_values_up_to_date(struct kone_device *kone,
 	case kone_mouse_event_switch_profile:
 		kone->actual_dpi = kone->profiles[event->value - 1].
 				startup_dpi;
+		fallthrough;
 	case kone_mouse_event_osd_profile:
 		kone->actual_profile = event->value;
 		break;
@@ -818,8 +820,9 @@ static void kone_report_to_chrdev(struct kone_device const *kone,
 				(uint8_t *)&roccat_report);
 		break;
 	case kone_mouse_event_call_overlong_macro:
+	case kone_mouse_event_multimedia:
 		if (event->value == kone_keystroke_action_press) {
-			roccat_report.event = kone_mouse_event_call_overlong_macro;
+			roccat_report.event = event->event;
 			roccat_report.value = kone->actual_profile;
 			roccat_report.key = event->macro_key;
 			roccat_report_event(kone->chrdev_minor,
@@ -890,8 +893,7 @@ static int __init kone_init(void)
 	kone_class = class_create(THIS_MODULE, "kone");
 	if (IS_ERR(kone_class))
 		return PTR_ERR(kone_class);
-	kone_class->dev_attrs = kone_attributes;
-	kone_class->dev_bin_attrs = kone_bin_attributes;
+	kone_class->dev_groups = kone_groups;
 
 	retval = hid_register_driver(&kone_driver);
 	if (retval)

@@ -1,10 +1,7 @@
-menu "Kernel hacking"
-
-source "lib/Kconfig.debug"
+# SPDX-License-Identifier: GPL-2.0
 
 config PPC_DISABLE_WERROR
 	bool "Don't build arch/powerpc code with -Werror"
-	default n
 	help
 	  This option tells the compiler NOT to build the code under
 	  arch/powerpc with the -Werror flag (which means warnings
@@ -27,13 +24,6 @@ config PRINT_STACK_DEPTH
 	  prints in stack traces. This can be useful if your display is
 	  too small and stack traces cause important information to
 	  scroll off the screen.
-
-config DEBUG_STACKOVERFLOW
-	bool "Check for stack overflows"
-	depends on DEBUG_KERNEL
-	help
-	  This option will cause messages to be printed if free stack space
-	  drops below a certain limit.
 
 config HCALL_STATS
 	bool "Hypervisor call instrumentation"
@@ -63,23 +53,47 @@ config PPC_EMULATED_STATS
 	  emulated.
 
 config CODE_PATCHING_SELFTEST
-	bool "Run self-tests of the code-patching code."
+	bool "Run self-tests of the code-patching code"
 	depends on DEBUG_KERNEL
-	default n
+
+config JUMP_LABEL_FEATURE_CHECKS
+	bool "Enable use of jump label for cpu/mmu_has_feature()"
+	depends on JUMP_LABEL
+	default y
+	help
+	  Selecting this options enables use of jump labels for some internal
+	  feature checks. This should generate more optimal code for those
+	  checks.
+
+config JUMP_LABEL_FEATURE_CHECK_DEBUG
+	bool "Do extra check on feature fixup calls"
+	depends on DEBUG_KERNEL && JUMP_LABEL_FEATURE_CHECKS
+	help
+	  This tries to catch incorrect usage of cpu_has_feature() and
+	  mmu_has_feature() in the code.
+
+	  If you don't know what this means, say N.
 
 config FTR_FIXUP_SELFTEST
-	bool "Run self-tests of the feature-fixup code."
+	bool "Run self-tests of the feature-fixup code"
 	depends on DEBUG_KERNEL
-	default n
 
 config MSI_BITMAP_SELFTEST
-	bool "Run self-tests of the MSI bitmap code."
+	bool "Run self-tests of the MSI bitmap code"
 	depends on DEBUG_KERNEL
-	default n
+
+config PPC_IRQ_SOFT_MASK_DEBUG
+	bool "Include extra checks for powerpc irq soft masking"
+	depends on PPC64
+
+config PPC_RFI_SRR_DEBUG
+	bool "Include extra checks for RFI SRR register validity"
+	depends on PPC_BOOK3S_64
 
 config XMON
 	bool "Include xmon kernel debugger"
 	depends on DEBUG_KERNEL
+	select CONSOLE_POLL if SERIAL_CPM_CONSOLE
 	help
 	  Include in-kernel hooks for the xmon kernel monitor/debugger.
 	  Unless you are intending to debug the kernel, say N here.
@@ -109,20 +123,18 @@ config XMON_DISASSEMBLY
 	  to say Y here, unless you're building for a memory-constrained
 	  system.
 
+config XMON_DEFAULT_RO_MODE
+	bool "Restrict xmon to read-only operations by default"
+	depends on XMON
+	default y
+	help
+	  Operate xmon in read-only mode. The cmdline options 'xmon=rw' and
+	  'xmon=ro' override this default.
+
 config DEBUGGER
 	bool
 	depends on KGDB || XMON
 	default y
-
-config VIRQ_DEBUG
-	bool "Expose hardware/virtual IRQ mapping via debugfs"
-	depends on DEBUG_FS
-	help
-	  This option will show the mapping relationship between hardware irq
-	  numbers and virtual irq numbers. The mapping is exposed via debugfs
-	  in the file powerpc/virq_mapping.
-
-	  If you don't know what this means you don't need it.
 
 config BDI_SWITCH
 	bool "Include BDI-2000 user context switcher"
@@ -134,7 +146,7 @@ config BDI_SWITCH
 
 config BOOTX_TEXT
 	bool "Support for early boot text console (BootX or OpenFirmware only)"
-	depends on PPC_OF && PPC_BOOK3S
+	depends on PPC_BOOK3S
 	help
 	  Say Y here to see progress messages from the boot firmware in text
 	  mode. Requires either BootX or Open Firmware.
@@ -157,16 +169,23 @@ choice
 	  enable debugging for the wrong type of machine your kernel
 	  _will not boot_.
 
+config PPC_EARLY_DEBUG_BOOTX
+	bool "BootX or OpenFirmware"
+	depends on BOOTX_TEXT
+	help
+	  Select this to enable early debugging for a machine using BootX
+	  or OpenFirmware.
+
 config PPC_EARLY_DEBUG_LPAR
 	bool "LPAR HV Console"
-	depends on PPC_PSERIES
+	depends on PPC_PSERIES && HVC_CONSOLE
 	help
 	  Select this to enable early debugging for a machine with a HVC
 	  console on vterm 0.
 
 config PPC_EARLY_DEBUG_LPAR_HVSI
 	bool "LPAR HVSI Console"
-	depends on PPC_PSERIES
+	depends on PPC_PSERIES && HVC_CONSOLE
 	help
 	  Select this to enable early debugging for a machine with a HVSI
 	  console on a specified vterm.
@@ -196,13 +215,6 @@ config PPC_EARLY_DEBUG_MAPLE
 	help
 	  Select this to enable early debugging for Maple.
 
-config PPC_EARLY_DEBUG_ISERIES
-	bool "iSeries HV Console"
-	depends on PPC_ISERIES
-	help
-	  Select this to enable early debugging for legacy iSeries. You need
-	  to hit "Ctrl-x Ctrl-x" to see the messages on the console.
-
 config PPC_EARLY_DEBUG_PAS_REALMODE
 	bool "PA Semi real mode"
 	depends on PPC_PASEMI
@@ -210,22 +222,13 @@ config PPC_EARLY_DEBUG_PAS_REALMODE
 	  Select this to enable early debugging for PA Semi.
 	  Output will be on UART0.
 
-config PPC_EARLY_DEBUG_BEAT
-	bool "Beat HV Console"
-	depends on PPC_CELLEB
-	select PPC_UDBG_BEAT
-	help
-	  Select this to enable early debugging for Celleb with Beat.
-
 config PPC_EARLY_DEBUG_44x
 	bool "Early serial debugging for IBM/AMCC 44x CPUs"
-	# PPC_EARLY_DEBUG on 440 leaves AS=1 mappings above the TLB high water
-	# mark, which doesn't work with current 440 KVM.
-	depends on 44x && !KVM
+	depends on 44x
 	help
 	  Select this to enable early debugging for IBM 44x chips via the
 	  inbuilt serial port.  If you enable this, ensure you set
-          PPC_EARLY_DEBUG_44x_PHYSLOW below to suit your target board.
+	  PPC_EARLY_DEBUG_44x_PHYSLOW below to suit your target board.
 
 config PPC_EARLY_DEBUG_40x
 	bool "Early serial debugging for IBM/AMCC 40x CPUs"
@@ -233,12 +236,11 @@ config PPC_EARLY_DEBUG_40x
 	help
 	  Select this to enable early debugging for IBM 40x chips via the
 	  inbuilt serial port. This works on chips with a 16550 compatible
-	  UART. Xilinx chips with uartlite cannot use this option.
+	  UART.
 
 config PPC_EARLY_DEBUG_CPM
 	bool "Early serial debugging for Freescale CPM-based serial ports"
 	depends on SERIAL_CPM
-	select PIN_TLB if PPC_8xx
 	help
 	  Select this to enable early debugging for Freescale chips
 	  using a CPM-based serial port.  This assumes that the bootwrapper
@@ -251,11 +253,6 @@ config PPC_EARLY_DEBUG_USBGECKO
 	help
 	  Select this to enable early debugging for Nintendo GameCube/Wii
 	  consoles via an external USB Gecko adapter.
-
-config PPC_EARLY_DEBUG_WSP
-	bool "Early debugging via WSP's internal UART"
-	depends on PPC_WSP
-	select PPC_UDBG_16550
 
 config PPC_EARLY_DEBUG_PS3GELIC
 	bool "Early debugging through the PS3 Ethernet port"
@@ -279,7 +276,30 @@ config PPC_EARLY_DEBUG_OPAL_HVSI
 	  Select this to enable early debugging for the PowerNV platform
 	  using an "hvsi" console
 
+config PPC_EARLY_DEBUG_MEMCONS
+	bool "In memory console"
+	help
+	  Select this to enable early debugging using an in memory console.
+	  This console provides input and output buffers stored within the
+	  kernel BSS and should be safe to select on any system. A debugger
+	  can then be used to read kernel output or send input to the console.
 endchoice
+
+config PPC_MEMCONS_OUTPUT_SIZE
+	int "In memory console output buffer size"
+	depends on PPC_EARLY_DEBUG_MEMCONS
+	default 4096
+	help
+	  Selects the size of the output buffer (in bytes) of the in memory
+	  console.
+
+config PPC_MEMCONS_INPUT_SIZE
+	int "In memory console input buffer size"
+	depends on PPC_EARLY_DEBUG_MEMCONS
+	default 128
+	help
+	  Selects the size of the input buffer (in bytes) of the in memory
+	  console.
 
 config PPC_EARLY_DEBUG_OPAL
 	def_bool y
@@ -302,7 +322,6 @@ config PPC_EARLY_DEBUG_OPAL_VTERMNO
 	  This correspond to which /dev/hvcN you want to use for early
 	  debug.
 
-	  On OPAL v1 (takeover) this should always be 0
 	  On OPAL v2, this will be 0 for network console and 1 or 2 for
 	  the machine built-in serial ports.
 
@@ -312,7 +331,7 @@ config PPC_EARLY_DEBUG_44x_PHYSLOW
 	default "0x40000200"
 	help
 	  You probably want 0x40000200 for ebony boards and
-          0x40000300 for taishan
+	  0x40000300 for taishan
 
 config PPC_EARLY_DEBUG_44x_PHYSHIGH
 	hex "EPRN of early debug UART physical address"
@@ -336,16 +355,23 @@ config PPC_EARLY_DEBUG_CPM_ADDR
 	  platform probing is done, all platforms selected must
 	  share the same address.
 
-config STRICT_DEVMEM
-	def_bool y
-	prompt "Filter access to /dev/mem"
+config FAIL_IOMMU
+	bool "Fault-injection capability for IOMMU"
+	depends on FAULT_INJECTION
+	depends on PCI || IBMVIO
 	help
-	  This option restricts access to /dev/mem.  If this option is
-	  disabled, you allow userspace access to all memory, including
-	  kernel and userspace memory. Accidental memory access is likely
-	  to be disastrous.
-	  Memory access is required for experts who want to debug the kernel.
+	  Provide fault-injection capability for IOMMU. Each device can
+	  be selectively enabled via the fail_iommu property.
 
-	  If you are unsure, say Y.
+	  If you are unsure, say N.
 
-endmenu
+config PPC_FAST_ENDIAN_SWITCH
+	bool "Deprecated fast endian-switch syscall"
+	depends on DEBUG_KERNEL && PPC_BOOK3S_64
+	help
+	  If you're unsure what this is, say N.
+
+config KASAN_SHADOW_OFFSET
+	hex
+	depends on KASAN
+	default 0xe0000000

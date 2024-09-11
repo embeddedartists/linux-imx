@@ -1,18 +1,14 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  *  Silicon Labs C2 port Linux support
  *
  *  Copyright (c) 2007 Rodolfo Giometti <giometti@linux.it>
  *  Copyright (c) 2007 Eurotech S.p.A. <info@eurotech.it>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 as published by
- * the Free Software Foundation
  */
 
-#include <linux/device.h>
-#include <linux/kmemcheck.h>
-
 #define C2PORT_NAME_LEN			32
+
+struct device;
 
 /*
  * C2 port basic structs
@@ -21,10 +17,8 @@
 /* Main struct */
 struct c2port_ops;
 struct c2port_device {
-	kmemcheck_bitfield_begin(flags);
 	unsigned int access:1;
 	unsigned int flash_access:1;
-	kmemcheck_bitfield_end(flags);
 
 	int id;
 	char name[C2PORT_NAME_LEN];

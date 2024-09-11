@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *	linux/arch/alpha/kernel/sys_sable.c
  *
@@ -16,12 +17,10 @@
 #include <linux/init.h>
 
 #include <asm/ptrace.h>
-#include <asm/system.h>
 #include <asm/dma.h>
 #include <asm/irq.h>
 #include <asm/mmu_context.h>
 #include <asm/io.h>
-#include <asm/pgtable.h>
 #include <asm/core_t2.h>
 #include <asm/tlbflush.h>
 
@@ -193,10 +192,10 @@ sable_init_irq(void)
  * with the values in the irq swizzling tables above.
  */
 
-static int __init
+static int
 sable_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
-	static char irq_tab[9][5] __initdata = {
+	static char irq_tab[9][5] = {
 		/*INT    INTA   INTB   INTC   INTD */
 		{ 32+0,  32+0,  32+0,  32+0,  32+0},  /* IdSel 0,  TULIP  */
 		{ 32+1,  32+1,  32+1,  32+1,  32+1},  /* IdSel 1,  SCSI   */
@@ -375,10 +374,10 @@ lynx_init_irq(void)
  * with the values in the irq swizzling tables above.
  */
 
-static int __init
+static int
 lynx_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
-	static char irq_tab[19][5] __initdata = {
+	static char irq_tab[19][5] = {
 		/*INT    INTA   INTB   INTC   INTD */
 		{   -1,    -1,    -1,    -1,    -1},  /* IdSel 13,  PCEB   */
 		{   -1,    -1,    -1,    -1,    -1},  /* IdSel 14,  PPB    */
@@ -405,7 +404,7 @@ lynx_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 	return COMMON_TABLE_LOOKUP;
 }
 
-static u8 __init
+static u8
 lynx_swizzle(struct pci_dev *dev, u8 *pinp)
 {
 	int slot, pin = *pinp;

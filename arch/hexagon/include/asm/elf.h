@@ -1,21 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * ELF definitions for the Hexagon architecture
  *
- * Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
+ * Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
  */
 
 #ifndef __ASM_ELF_H
@@ -23,11 +10,7 @@
 
 #include <asm/ptrace.h>
 #include <asm/user.h>
-
-/*
- * This should really be in linux/elf-em.h.
- */
-#define EM_HEXAGON	164   /* QUALCOMM Hexagon */
+#include <linux/elf-em.h>
 
 struct elf32_hdr;
 
@@ -104,6 +87,16 @@ typedef unsigned long elf_fpregset_t;
  * Bypass the whole "regsets" thing for now and use the define.
  */
 
+#if CONFIG_HEXAGON_ARCH_VERSION >= 4
+#define CS_COPYREGS(DEST,REGS) \
+do {\
+	DEST.cs0 = REGS->cs0;\
+	DEST.cs1 = REGS->cs1;\
+} while (0)
+#else
+#define CS_COPYREGS(DEST,REGS)
+#endif
+
 #define ELF_CORE_COPY_REGS(DEST, REGS)	\
 do {					\
 	DEST.r0 = REGS->r00;		\
@@ -148,12 +141,11 @@ do {					\
 	DEST.p3_0 = REGS->preds;	\
 	DEST.gp = REGS->gp;		\
 	DEST.ugp = REGS->ugp;		\
-	DEST.pc = pt_elr(REGS);	\
+	CS_COPYREGS(DEST,REGS);		\
+	DEST.pc = pt_elr(REGS);		\
 	DEST.cause = pt_cause(REGS);	\
 	DEST.badva = pt_badva(REGS);	\
 } while (0);
-
-
 
 /*
  * This is used to ensure we don't load something for the wrong architecture.
@@ -168,15 +160,15 @@ do {					\
 #define ELF_DATA	ELFDATA2LSB
 #define ELF_ARCH	EM_HEXAGON
 
-#ifdef CONFIG_HEXAGON_ARCH_V2
+#if CONFIG_HEXAGON_ARCH_VERSION == 2
 #define ELF_CORE_EFLAGS 0x1
 #endif
 
-#ifdef CONFIG_HEXAGON_ARCH_V3
+#if CONFIG_HEXAGON_ARCH_VERSION == 3
 #define ELF_CORE_EFLAGS 0x2
 #endif
 
-#ifdef CONFIG_HEXAGON_ARCH_V4
+#if CONFIG_HEXAGON_ARCH_VERSION == 4
 #define ELF_CORE_EFLAGS 0x3
 #endif
 
@@ -189,11 +181,10 @@ do {					\
  */
 #define ELF_PLAT_INIT(regs, load_addr) do { } while (0)
 
-#define USE_ELF_CORE_DUMP
 #define CORE_DUMP_USE_REGSET
 
 /* Hrm is this going to cause problems for changing PAGE_SIZE?  */
-#define ELF_EXEC_PAGESIZE	4096
+#define ELF_EXEC_PAGESIZE	PAGE_SIZE
 
 /*
  * This is the location that an ET_DYN program is loaded if exec'ed.  Typical
@@ -215,10 +206,6 @@ do {					\
  * intent than poking at uname or /proc/cpuinfo.
  */
 #define ELF_PLATFORM  (NULL)
-
-#ifdef __KERNEL__
-#define SET_PERSONALITY(ex) set_personality(PER_LINUX)
-#endif
 
 #define ARCH_HAS_SETUP_ADDITIONAL_PAGES 1
 struct linux_binprm;

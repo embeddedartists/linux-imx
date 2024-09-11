@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  *  User-space visible declarations for NFS client per-mount
  *  point statistics
@@ -21,7 +22,7 @@
 #ifndef _LINUX_NFS_IOSTAT
 #define _LINUX_NFS_IOSTAT
 
-#define NFS_IOSTAT_VERS		"1.0"
+#define NFS_IOSTAT_VERS		"1.1"
 
 /*
  * NFS byte counters

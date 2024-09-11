@@ -1,8 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
  *
  * Copyright (C) 1996 Mike Shaver (shaver@zeroknowledge.com)
  */
@@ -34,7 +31,7 @@ static int min_reset[]   = {0}, max_reset[]   = {1};
 
 static struct ctl_table_header *nr_table_header;
 
-static ctl_table nr_table[] = {
+static struct ctl_table nr_table[] = {
 	{
 		.procname	= "default_path_quality",
 		.data		= &sysctl_netrom_default_path_quality,
@@ -146,18 +143,15 @@ static ctl_table nr_table[] = {
 	{ }
 };
 
-static struct ctl_path nr_path[] = {
-	{ .procname = "net", },
-	{ .procname = "netrom", },
-	{ }
-};
-
-void __init nr_register_sysctl(void)
+int __init nr_register_sysctl(void)
 {
-	nr_table_header = register_sysctl_paths(nr_path, nr_table);
+	nr_table_header = register_net_sysctl(&init_net, "net/netrom", nr_table);
+	if (!nr_table_header)
+		return -ENOMEM;
+	return 0;
 }
 
 void nr_unregister_sysctl(void)
 {
-	unregister_sysctl_table(nr_table_header);
+	unregister_net_sysctl_table(nr_table_header);
 }

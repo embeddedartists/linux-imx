@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * include/linux/amba/pl022.h
  *
@@ -10,22 +11,12 @@
  *	linux-2.6.17-rc3-mm1/drivers/spi/pxa2xx_spi.c
  * Initial adoption to PL022 by:
  *      Sachin Verma <sachin.verma@st.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #ifndef _SSP_PL022_H
 #define _SSP_PL022_H
 
-#include <linux/device.h>
+#include <linux/types.h>
 
 /**
  * whether SSP is in loopback mode or not
@@ -231,53 +222,42 @@ enum ssp_chip_select {
 struct dma_chan;
 /**
  * struct pl022_ssp_master - device.platform_data for SPI controller devices.
- * @num_chipselect: chipselects are used to distinguish individual
- *     SPI slaves, and are numbered from zero to num_chipselects - 1.
- *     each slave has a chipselect signal, but it's common that not
- *     every chipselect is connected to a slave.
+ * @bus_id: identifier for this bus
  * @enable_dma: if true enables DMA driven transfers.
  * @dma_rx_param: parameter to locate an RX DMA channel.
  * @dma_tx_param: parameter to locate a TX DMA channel.
  * @autosuspend_delay: delay in ms following transfer completion before the
  *     runtime power management system suspends the device. A setting of 0
  *     indicates no delay and the device will be suspended immediately.
+ * @rt: indicates the controller should run the message pump with realtime
+ *     priority to minimise the transfer latency on the bus.
  */
 struct pl022_ssp_controller {
 	u16 bus_id;
-	u8 num_chipselect;
 	u8 enable_dma:1;
 	bool (*dma_filter)(struct dma_chan *chan, void *filter_param);
 	void *dma_rx_param;
 	void *dma_tx_param;
 	int autosuspend_delay;
+	bool rt;
 };
 
 /**
  * struct ssp_config_chip - spi_board_info.controller_data for SPI
  * slave devices, copied to spi_device.controller_data.
  *
- * @lbm: used for test purpose to internally connect RX and TX
  * @iface: Interface type(Motorola, TI, Microwire, Universal)
  * @hierarchy: sets whether interface is master or slave
  * @slave_tx_disable: SSPTXD is disconnected (in slave mode only)
  * @clk_freq: Tune freq parameters of SSP(when in master mode)
- * @endian_rx: Endianess of Data in Rx FIFO
- * @endian_tx: Endianess of Data in Tx FIFO
- * @data_size: Width of data element(4 to 32 bits)
  * @com_mode: communication mode: polling, Interrupt or DMA
  * @rx_lev_trig: Rx FIFO watermark level (for IT & DMA mode)
  * @tx_lev_trig: Tx FIFO watermark level (for IT & DMA mode)
- * @clk_phase: Motorola SPI interface Clock phase
- * @clk_pol: Motorola SPI interface Clock polarity
  * @ctrl_len: Microwire interface: Control length
  * @wait_state: Microwire interface: Wait state
  * @duplex: Microwire interface: Full/Half duplex
  * @clkdelay: on the PL023 variant, the delay in feeback clock cycles
  * before sampling the incoming line
- * @cs_control: function pointer to board-specific function to
- * assert/deassert I/O port to control HW generation of devices chip-select.
- * @dma_xfer_type: Type of DMA xfer (Mem-to-periph or Periph-to-Periph)
- * @dma_config: DMA configuration for SSP controller and peripheral
  */
 struct pl022_config_chip {
 	enum ssp_interface iface;
@@ -291,7 +271,6 @@ struct pl022_config_chip {
 	enum ssp_microwire_wait_state wait_state;
 	enum ssp_duplex duplex;
 	enum ssp_clkdelay clkdelay;
-	void (*cs_control) (u32 control);
 };
 
 #endif /* _SSP_PL022_H */

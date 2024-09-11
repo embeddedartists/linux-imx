@@ -1,22 +1,22 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * linux/arch/arm/mach-pxa/pxa930.c
  *
  * Code specific to PXA930
  *
  * Copyright (C) 2007-2008 Marvell Internation Ltd.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #include <linux/module.h>
 #include <linux/kernel.h>
-#include <linux/platform_device.h>
-#include <linux/irq.h>
 #include <linux/dma-mapping.h>
+#include <linux/irq.h>
+#include <linux/gpio-pxa.h>
+#include <linux/platform_device.h>
 
-#include <mach/pxa930.h>
+#include "pxa930.h"
+
+#include "devices.h"
 
 static struct mfp_addr_map pxa930_mfp_addr_map[] __initdata = {
 
@@ -190,11 +190,21 @@ static struct mfp_addr_map pxa935_mfp_addr_map[] __initdata = {
 	MFP_ADDR_END,
 };
 
+static struct pxa_gpio_platform_data pxa93x_gpio_pdata = {
+	.irq_base	= PXA_GPIO_TO_IRQ(0),
+};
+
 static int __init pxa930_init(void)
 {
+	int ret = 0;
+
 	if (cpu_is_pxa93x()) {
 		mfp_init_base(io_p2v(MFPR_BASE));
 		mfp_init_addr(pxa930_mfp_addr_map);
+		platform_device_add_data(&pxa93x_device_gpio,
+					 &pxa93x_gpio_pdata,
+					 sizeof(pxa93x_gpio_pdata));
+		ret = platform_device_register(&pxa93x_device_gpio);
 	}
 
 	if (cpu_is_pxa935())

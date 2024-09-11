@@ -3,7 +3,7 @@
  *
  * Platform data for uio_pruss driver
  *
- * Copyright (C) 2010-11 Texas Instruments Incorporated - http://www.ti.com/
+ * Copyright (C) 2010-11 Texas Instruments Incorporated - https://www.ti.com/
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -20,6 +20,7 @@
 
 /* To configure the PRUSS INTC base offset for UIO driver */
 struct uio_pruss_pdata {
-	u32	pintc_base;
+	u32		pintc_base;
+	struct gen_pool *sram_pool;
 };
 #endif /* _UIO_PRUSS_H_ */

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *	linux/arch/alpha/kernel/pci.c
  *
@@ -17,10 +18,11 @@
 #include <linux/init.h>
 #include <linux/ioport.h>
 #include <linux/kernel.h>
-#include <linux/bootmem.h>
+#include <linux/memblock.h>
 #include <linux/module.h>
 #include <linux/cache.h>
 #include <linux/slab.h>
+#include <linux/syscalls.h>
 #include <asm/machvec.h>
 
 #include "proto.h"
@@ -43,12 +45,10 @@ const char *const pci_mem_names[] = {
 
 const char pci_hae0_name[] = "HAE0";
 
-/* Indicate whether we respect the PCI setup left by console. */
 /*
- * Make this long-lived  so that we know when shutting down
- * whether we probed only or not.
+ * If PCI_PROBE_ONLY in pci_flags is set, we don't change any PCI resource
+ * assignments.
  */
-int pci_probe_only;
 
 /*
  * The PCI controller list.
@@ -61,15 +61,13 @@ struct pci_controller *pci_isa_hose;
  * Quirks.
  */
 
-static void __init
-quirk_isa_bridge(struct pci_dev *dev)
+static void quirk_isa_bridge(struct pci_dev *dev)
 {
 	dev->class = PCI_CLASS_BRIDGE_ISA << 8;
 }
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82378, quirk_isa_bridge);
 
-static void __init
-quirk_cypress(struct pci_dev *dev)
+static void quirk_cypress(struct pci_dev *dev)
 {
 	/* The Notorious Cy82C693 chip.  */
 
@@ -108,8 +106,7 @@ quirk_cypress(struct pci_dev *dev)
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_CONTAQ, PCI_DEVICE_ID_CONTAQ_82C693, quirk_cypress);
 
 /* Called for each device after PCI setup is done. */
-static void __init
-pcibios_fixup_final(struct pci_dev *dev)
+static void pcibios_fixup_final(struct pci_dev *dev)
 {
 	unsigned int class = dev->class >> 8;
 
@@ -200,22 +197,22 @@ pcibios_init(void)
 
 subsys_initcall(pcibios_init);
 
-char * __devinit
-pcibios_setup(char *str)
-{
-	return str;
-}
-
 #ifdef ALPHA_RESTORE_SRM_SETUP
+/* Store PCI device configuration left by SRM here. */
+struct pdev_srm_saved_conf
+{
+	struct pdev_srm_saved_conf *next;
+	struct pci_dev *dev;
+};
+
 static struct pdev_srm_saved_conf *srm_saved_configs;
 
-void __devinit
-pdev_save_srm_config(struct pci_dev *dev)
+static void pdev_save_srm_config(struct pci_dev *dev)
 {
 	struct pdev_srm_saved_conf *tmp;
 	static int printed = 0;
 
-	if (!alpha_using_srm || pci_probe_only)
+	if (!alpha_using_srm || pci_has_flag(PCI_PROBE_ONLY))
 		return;
 
 	if (!printed) {
@@ -242,7 +239,7 @@ pci_restore_srm_config(void)
 	struct pdev_srm_saved_conf *tmp;
 
 	/* No need to restore if probed only. */
-	if (pci_probe_only)
+	if (pci_has_flag(PCI_PROBE_ONLY))
 		return;
 
 	/* Restore SRM config. */
@@ -250,98 +247,22 @@ pci_restore_srm_config(void)
 		pci_restore_state(tmp->dev);
 	}
 }
+#else
+#define pdev_save_srm_config(dev)	do {} while (0)
 #endif
 
-void __devinit
-pcibios_fixup_resource(struct resource *res, struct resource *root)
-{
-	res->start += root->start;
-	res->end += root->start;
-}
-
-void __devinit
-pcibios_fixup_device_resources(struct pci_dev *dev, struct pci_bus *bus)
-{
-	/* Update device resources.  */
-	struct pci_controller *hose = (struct pci_controller *)bus->sysdata;
-	int i;
-
-	for (i = 0; i < PCI_NUM_RESOURCES; i++) {
-		if (!dev->resource[i].start)
-			continue;
-		if (dev->resource[i].flags & IORESOURCE_IO)
-			pcibios_fixup_resource(&dev->resource[i],
-					       hose->io_space);
-		else if (dev->resource[i].flags & IORESOURCE_MEM)
-			pcibios_fixup_resource(&dev->resource[i],
-					       hose->mem_space);
-	}
-}
-
-void __devinit
-pcibios_fixup_bus(struct pci_bus *bus)
+void pcibios_fixup_bus(struct pci_bus *bus)
 {
 	struct pci_dev *dev = bus->self;
 
-	if (pci_probe_only && dev &&
- 		   (dev->class >> 8) == PCI_CLASS_BRIDGE_PCI) {
- 		pci_read_bridge_bases(bus);
- 		pcibios_fixup_device_resources(dev, bus);
-	} 
+	if (pci_has_flag(PCI_PROBE_ONLY) && dev &&
+	    (dev->class >> 8) == PCI_CLASS_BRIDGE_PCI) {
+		pci_read_bridge_bases(bus);
+	}
 
 	list_for_each_entry(dev, &bus->devices, bus_list) {
 		pdev_save_srm_config(dev);
-		if ((dev->class >> 8) != PCI_CLASS_BRIDGE_PCI)
-			pcibios_fixup_device_resources(dev, bus);
 	}
-}
-
-void __init
-pcibios_update_irq(struct pci_dev *dev, int irq)
-{
-	pci_write_config_byte(dev, PCI_INTERRUPT_LINE, irq);
-}
-
-void
-pcibios_resource_to_bus(struct pci_dev *dev, struct pci_bus_region *region,
-			 struct resource *res)
-{
-	struct pci_controller *hose = (struct pci_controller *)dev->sysdata;
-	unsigned long offset = 0;
-
-	if (res->flags & IORESOURCE_IO)
-		offset = hose->io_space->start;
-	else if (res->flags & IORESOURCE_MEM)
-		offset = hose->mem_space->start;
-
-	region->start = res->start - offset;
-	region->end = res->end - offset;
-}
-
-void pcibios_bus_to_resource(struct pci_dev *dev, struct resource *res,
-			     struct pci_bus_region *region)
-{
-	struct pci_controller *hose = (struct pci_controller *)dev->sysdata;
-	unsigned long offset = 0;
-
-	if (res->flags & IORESOURCE_IO)
-		offset = hose->io_space->start;
-	else if (res->flags & IORESOURCE_MEM)
-		offset = hose->mem_space->start;
-
-	res->start = region->start + offset;
-	res->end = region->end + offset;
-}
-
-#ifdef CONFIG_HOTPLUG
-EXPORT_SYMBOL(pcibios_resource_to_bus);
-EXPORT_SYMBOL(pcibios_bus_to_resource);
-#endif
-
-int
-pcibios_enable_device(struct pci_dev *dev, int mask)
-{
-	return pci_enable_resources(dev, mask);
 }
 
 /*
@@ -374,8 +295,13 @@ pcibios_claim_one_bus(struct pci_bus *b)
 
 			if (r->parent || !r->start || !r->flags)
 				continue;
-			if (pci_probe_only || (r->flags & IORESOURCE_PCI_FIXED))
-				pci_claim_resource(dev, i);
+			if (pci_has_flag(PCI_PROBE_ONLY) ||
+			    (r->flags & IORESOURCE_PCI_FIXED)) {
+				if (pci_claim_resource(dev, i) == 0)
+					continue;
+
+				pci_claim_bridge_resource(dev, i);
+			}
 		}
 	}
 
@@ -397,8 +323,9 @@ common_init_pci(void)
 {
 	struct pci_controller *hose;
 	struct list_head resources;
+	struct pci_host_bridge *bridge;
 	struct pci_bus *bus;
-	int next_busno;
+	int ret, next_busno;
 	int need_domain_info = 0;
 	u32 pci_mem_end;
 	u32 sg_base;
@@ -416,14 +343,32 @@ common_init_pci(void)
 			hose->mem_space->end = end;
 
 		INIT_LIST_HEAD(&resources);
-		pci_add_resource(&resources, hose->io_space);
-		pci_add_resource(&resources, hose->mem_space);
+		pci_add_resource_offset(&resources, hose->io_space,
+					hose->io_space->start);
+		pci_add_resource_offset(&resources, hose->mem_space,
+					hose->mem_space->start);
 
-		bus = pci_scan_root_bus(NULL, next_busno, alpha_mv.pci_ops,
-					hose, &resources);
-		hose->bus = bus;
+		bridge = pci_alloc_host_bridge(0);
+		if (!bridge)
+			continue;
+
+		list_splice_init(&resources, &bridge->windows);
+		bridge->dev.parent = NULL;
+		bridge->sysdata = hose;
+		bridge->busnr = next_busno;
+		bridge->ops = alpha_mv.pci_ops;
+		bridge->swizzle_irq = alpha_mv.pci_swizzle;
+		bridge->map_irq = alpha_mv.pci_map_irq;
+
+		ret = pci_scan_root_bus_bridge(bridge);
+		if (ret) {
+			pci_free_host_bridge(bridge);
+			continue;
+		}
+
+		bus = hose->bus = bridge->bus;
 		hose->need_domain_info = need_domain_info;
-		next_busno = bus->subordinate + 1;
+		next_busno = bus->busn_res.end + 1;
 		/* Don't allow 8-bit bus number overflow inside the hose -
 		   reserve some space for bridges. */ 
 		if (next_busno > 224) {
@@ -435,16 +380,22 @@ common_init_pci(void)
 	pcibios_claim_console_setup();
 
 	pci_assign_unassigned_resources();
-	pci_fixup_irqs(alpha_mv.pci_swizzle, alpha_mv.pci_map_irq);
+	for (hose = hose_head; hose; hose = hose->next) {
+		bus = hose->bus;
+		if (bus)
+			pci_bus_add_devices(bus);
+	}
 }
-
 
 struct pci_controller * __init
 alloc_pci_controller(void)
 {
 	struct pci_controller *hose;
 
-	hose = alloc_bootmem(sizeof(*hose));
+	hose = memblock_alloc(sizeof(*hose), SMP_CACHE_BYTES);
+	if (!hose)
+		panic("%s: Failed to allocate %zu bytes\n", __func__,
+		      sizeof(*hose));
 
 	*hose_tail = hose;
 	hose_tail = &hose->next;
@@ -455,19 +406,21 @@ alloc_pci_controller(void)
 struct resource * __init
 alloc_resource(void)
 {
-	struct resource *res;
+	void *ptr = memblock_alloc(sizeof(struct resource), SMP_CACHE_BYTES);
 
-	res = alloc_bootmem(sizeof(*res));
+	if (!ptr)
+		panic("%s: Failed to allocate %zu bytes\n", __func__,
+		      sizeof(struct resource));
 
-	return res;
+	return ptr;
 }
 
 
 /* Provide information on locations of various I/O regions in physical
    memory.  Do this on a per-card basis so that we choose the right hose.  */
 
-asmlinkage long
-sys_pciconfig_iobase(long which, unsigned long bus, unsigned long dfn)
+SYSCALL_DEFINE3(pciconfig_iobase, long, which, unsigned long, bus,
+		unsigned long, dfn)
 {
 	struct pci_controller *hose;
 	struct pci_dev *dev;
@@ -482,7 +435,7 @@ sys_pciconfig_iobase(long which, unsigned long bus, unsigned long dfn)
 		if (bus == 0 && dfn == 0) {
 			hose = pci_isa_hose;
 		} else {
-			dev = pci_get_bus_and_slot(bus, dfn);
+			dev = pci_get_domain_bus_and_slot(0, bus, dfn);
 			if (!dev)
 				return -ENODEV;
 			hose = dev->sysdata;

@@ -31,9 +31,9 @@
  * SOFTWARE.
  */
 
-#include <linux/init.h>
 
 #include <linux/mlx4/cmd.h>
+#include <linux/mlx4/srq.h>
 #include <linux/export.h>
 #include <linux/gfp.h>
 
@@ -45,29 +45,26 @@ void mlx4_srq_event(struct mlx4_dev *dev, u32 srqn, int event_type)
 	struct mlx4_srq_table *srq_table = &mlx4_priv(dev)->srq_table;
 	struct mlx4_srq *srq;
 
-	spin_lock(&srq_table->lock);
-
+	rcu_read_lock();
 	srq = radix_tree_lookup(&srq_table->tree, srqn & (dev->caps.num_srqs - 1));
+	rcu_read_unlock();
 	if (srq)
-		atomic_inc(&srq->refcount);
-
-	spin_unlock(&srq_table->lock);
-
-	if (!srq) {
+		refcount_inc(&srq->refcount);
+	else {
 		mlx4_warn(dev, "Async event for bogus SRQ %08x\n", srqn);
 		return;
 	}
 
 	srq->event(srq, event_type);
 
-	if (atomic_dec_and_test(&srq->refcount))
+	if (refcount_dec_and_test(&srq->refcount))
 		complete(&srq->free);
 }
 
 static int mlx4_SW2HW_SRQ(struct mlx4_dev *dev, struct mlx4_cmd_mailbox *mailbox,
 			  int srq_num)
 {
-	return mlx4_cmd(dev, mailbox->dma | dev->caps.function, srq_num, 0,
+	return mlx4_cmd(dev, mailbox->dma, srq_num, 0,
 			MLX4_CMD_SW2HW_SRQ, MLX4_CMD_TIME_CLASS_A,
 			MLX4_CMD_WRAPPED);
 }
@@ -116,7 +113,7 @@ err_put:
 	mlx4_table_put(dev, &srq_table->table, *srqn);
 
 err_out:
-	mlx4_bitmap_free(&srq_table->bitmap, *srqn);
+	mlx4_bitmap_free(&srq_table->bitmap, *srqn, MLX4_NO_RR);
 	return err;
 }
 
@@ -144,12 +141,12 @@ void __mlx4_srq_free_icm(struct mlx4_dev *dev, int srqn)
 
 	mlx4_table_put(dev, &srq_table->cmpt_table, srqn);
 	mlx4_table_put(dev, &srq_table->table, srqn);
-	mlx4_bitmap_free(&srq_table->bitmap, srqn);
+	mlx4_bitmap_free(&srq_table->bitmap, srqn, MLX4_NO_RR);
 }
 
 static void mlx4_srq_free_icm(struct mlx4_dev *dev, int srqn)
 {
-	u64 in_param;
+	u64 in_param = 0;
 
 	if (mlx4_is_mfunc(dev)) {
 		set_param_l(&in_param, srqn);
@@ -188,8 +185,6 @@ int mlx4_srq_alloc(struct mlx4_dev *dev, u32 pdn, u32 cqn, u16 xrcd,
 	}
 
 	srq_context = mailbox->buf;
-	memset(srq_context, 0, sizeof *srq_context);
-
 	srq_context->state_logsize_srqn = cpu_to_be32((ilog2(srq->max) << 24) |
 						      srq->srqn);
 	srq_context->logstride          = srq->wqe_shift - 4;
@@ -208,7 +203,7 @@ int mlx4_srq_alloc(struct mlx4_dev *dev, u32 pdn, u32 cqn, u16 xrcd,
 	if (err)
 		goto err_radix;
 
-	atomic_set(&srq->refcount, 1);
+	refcount_set(&srq->refcount, 1);
 	init_completion(&srq->free);
 
 	return 0;
@@ -237,7 +232,7 @@ void mlx4_srq_free(struct mlx4_dev *dev, struct mlx4_srq *srq)
 	radix_tree_delete(&srq_table->tree, srq->srqn);
 	spin_unlock_irq(&srq_table->lock);
 
-	if (atomic_dec_and_test(&srq->refcount))
+	if (refcount_dec_and_test(&srq->refcount))
 		complete(&srq->free);
 	wait_for_completion(&srq->free);
 
@@ -277,19 +272,14 @@ EXPORT_SYMBOL_GPL(mlx4_srq_query);
 int mlx4_init_srq_table(struct mlx4_dev *dev)
 {
 	struct mlx4_srq_table *srq_table = &mlx4_priv(dev)->srq_table;
-	int err;
 
 	spin_lock_init(&srq_table->lock);
 	INIT_RADIX_TREE(&srq_table->tree, GFP_ATOMIC);
 	if (mlx4_is_slave(dev))
 		return 0;
 
-	err = mlx4_bitmap_init(&srq_table->bitmap, dev->caps.num_srqs,
-			       dev->caps.num_srqs - 1, dev->caps.reserved_srqs, 0);
-	if (err)
-		return err;
-
-	return 0;
+	return mlx4_bitmap_init(&srq_table->bitmap, dev->caps.num_srqs,
+				dev->caps.num_srqs - 1, dev->caps.reserved_srqs, 0);
 }
 
 void mlx4_cleanup_srq_table(struct mlx4_dev *dev)
@@ -298,3 +288,17 @@ void mlx4_cleanup_srq_table(struct mlx4_dev *dev)
 		return;
 	mlx4_bitmap_cleanup(&mlx4_priv(dev)->srq_table.bitmap);
 }
+
+struct mlx4_srq *mlx4_srq_lookup(struct mlx4_dev *dev, u32 srqn)
+{
+	struct mlx4_srq_table *srq_table = &mlx4_priv(dev)->srq_table;
+	struct mlx4_srq *srq;
+
+	rcu_read_lock();
+	srq = radix_tree_lookup(&srq_table->tree,
+				srqn & (dev->caps.num_srqs - 1));
+	rcu_read_unlock();
+
+	return srq;
+}
+EXPORT_SYMBOL_GPL(mlx4_srq_lookup);

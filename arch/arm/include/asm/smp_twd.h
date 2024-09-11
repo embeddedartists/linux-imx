@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __ASMARM_SMP_TWD_H
 #define __ASMARM_SMP_TWD_H
 
@@ -17,12 +18,5 @@
 #define TWD_TIMER_CONTROL_ONESHOT	(0 << 1)
 #define TWD_TIMER_CONTROL_PERIODIC	(1 << 1)
 #define TWD_TIMER_CONTROL_IT_ENABLE	(1 << 2)
-
-struct clock_event_device;
-
-extern void __iomem *twd_base;
-
-void twd_timer_setup(struct clock_event_device *);
-void twd_timer_stop(struct clock_event_device *);
 
 #endif

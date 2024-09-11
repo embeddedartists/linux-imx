@@ -4,7 +4,7 @@
 
 /*
  * Robert Jenkin's hash function.
- * http://burtleburtle.net/bob/hash/evahash.html
+ * https://burtleburtle.net/bob/hash/evahash.html
  * This is in the public domain.
  */
 #define mix(a, b, c)						\
@@ -20,7 +20,7 @@
 		c = c - a;  c = c - b;  c = c ^ (b >> 15);	\
 	} while (0)
 
-unsigned ceph_str_hash_rjenkins(const char *str, unsigned length)
+unsigned int ceph_str_hash_rjenkins(const char *str, unsigned int length)
 {
 	const unsigned char *k = (const unsigned char *)str;
 	__u32 a, b, c;  /* the internal state */
@@ -47,28 +47,38 @@ unsigned ceph_str_hash_rjenkins(const char *str, unsigned length)
 
 	/* handle the last 11 bytes */
 	c = c + length;
-	switch (len) {            /* all the case statements fall through */
+	switch (len) {
 	case 11:
 		c = c + ((__u32)k[10] << 24);
+		fallthrough;
 	case 10:
 		c = c + ((__u32)k[9] << 16);
+		fallthrough;
 	case 9:
 		c = c + ((__u32)k[8] << 8);
 		/* the first byte of c is reserved for the length */
+		fallthrough;
 	case 8:
 		b = b + ((__u32)k[7] << 24);
+		fallthrough;
 	case 7:
 		b = b + ((__u32)k[6] << 16);
+		fallthrough;
 	case 6:
 		b = b + ((__u32)k[5] << 8);
+		fallthrough;
 	case 5:
 		b = b + k[4];
+		fallthrough;
 	case 4:
 		a = a + ((__u32)k[3] << 24);
+		fallthrough;
 	case 3:
 		a = a + ((__u32)k[2] << 16);
+		fallthrough;
 	case 2:
 		a = a + ((__u32)k[1] << 8);
+		fallthrough;
 	case 1:
 		a = a + k[0];
 		/* case 0: nothing left to add */
@@ -81,7 +91,7 @@ unsigned ceph_str_hash_rjenkins(const char *str, unsigned length)
 /*
  * linux dcache hash
  */
-unsigned ceph_str_hash_linux(const char *str, unsigned length)
+unsigned int ceph_str_hash_linux(const char *str, unsigned int length)
 {
 	unsigned long hash = 0;
 	unsigned char c;
@@ -94,7 +104,7 @@ unsigned ceph_str_hash_linux(const char *str, unsigned length)
 }
 
 
-unsigned ceph_str_hash(int type, const char *s, unsigned len)
+unsigned int ceph_str_hash(int type, const char *s, unsigned int len)
 {
 	switch (type) {
 	case CEPH_STR_HASH_LINUX:

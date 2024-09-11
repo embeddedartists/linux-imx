@@ -1,21 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * IO definitions for the Hexagon architecture
  *
- * Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
+ * Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
  */
 
 #ifndef _ASM_IO_H
@@ -24,14 +11,9 @@
 #ifdef __KERNEL__
 
 #include <linux/types.h>
-#include <linux/delay.h>
-#include <linux/vmalloc.h>
-#include <asm/string.h>
-#include <asm/mem-layout.h>
 #include <asm/iomap.h>
 #include <asm/page.h>
 #include <asm/cacheflush.h>
-#include <asm/tlbflush.h>
 
 /*
  * We don't have PCI yet.
@@ -40,10 +22,12 @@
 #define IO_SPACE_LIMIT 0xffff
 #define _IO_BASE ((void __iomem *)0xfe000000)
 
+#define IOMEM(x)        ((void __force __iomem *)(x))
+
 extern int remap_area_pages(unsigned long start, unsigned long phys_addr,
 				unsigned long end, unsigned long flags);
 
-extern void __iounmap(const volatile void __iomem *addr);
+extern void iounmap(const volatile void __iomem *addr);
 
 /* Defined in lib/io.c, needed for smc91x driver. */
 extern void __raw_readsw(const void __iomem *addr, void *data, int wordlen);
@@ -80,7 +64,6 @@ static inline void *phys_to_virt(unsigned long address)
  * convert a physical pointer to a virtual kernel pointer for
  * /dev/mem access.
  */
-#define xlate_dev_kmem_ptr(p)    __va(p)
 #define xlate_dev_mem_ptr(p)    __va(p)
 
 /*
@@ -176,20 +159,20 @@ static inline void writel(u32 data, volatile void __iomem *addr)
 #define __raw_readl readl
 
 /*
- * Need an mtype somewhere in here, for cache type deals?
- * This is probably too long for an inline.
+ * http://comments.gmane.org/gmane.linux.ports.arm.kernel/117626
  */
-void __iomem *ioremap_nocache(unsigned long phys_addr, unsigned long size);
 
-static inline void __iomem *ioremap(unsigned long phys_addr, unsigned long size)
-{
-	return ioremap_nocache(phys_addr, size);
-}
+#define readb_relaxed __raw_readb
+#define readw_relaxed __raw_readw
+#define readl_relaxed __raw_readl
 
-static inline void iounmap(volatile void __iomem *addr)
-{
-	__iounmap(addr);
-}
+#define writeb_relaxed __raw_writeb
+#define writew_relaxed __raw_writew
+#define writel_relaxed __raw_writel
+
+void __iomem *ioremap(unsigned long phys_addr, unsigned long size);
+#define ioremap_uc(X, Y) ioremap((X), (Y))
+
 
 #define __raw_writel writel
 
@@ -203,6 +186,12 @@ static inline void memcpy_toio(volatile void __iomem *dst, const void *src,
 	int count)
 {
 	memcpy((void *) dst, src, count);
+}
+
+static inline void memset_io(volatile void __iomem *addr, int value,
+			     size_t size)
+{
+	memset((void __force *)addr, value, size);
 }
 
 #define PCI_IO_ADDR	(volatile void __iomem *)
@@ -318,8 +307,6 @@ static inline void outsl(unsigned long port, const void *buffer, int count)
 		} while (--count);
 	}
 }
-
-#define flush_write_buffers() do { } while (0)
 
 #endif /* __KERNEL__ */
 

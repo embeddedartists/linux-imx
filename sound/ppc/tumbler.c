@@ -1,26 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * PMac Tumbler/Snapper lowlevel functions
  *
  * Copyright (c) by Takashi Iwai <tiwai@suse.de>
  *
- *   This program is free software; you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation; either version 2 of the License, or
- *   (at your option) any later version.
- *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License for more details.
- *
- *   You should have received a copy of the GNU General Public License
- *   along with this program; if not, write to the Free Software
- *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
- *
  *   Rene Rebe <rene.rebe@gmx.net>:
  *     * update from shadow registers on wakeup and headphone plug
  *     * automatically toggle DRC on headphone plug
- *	
  */
 
 
@@ -31,8 +17,9 @@
 #include <linux/slab.h>
 #include <linux/interrupt.h>
 #include <linux/string.h>
+#include <linux/of_irq.h>
+#include <linux/io.h>
 #include <sound/core.h>
-#include <asm/io.h>
 #include <asm/irq.h>
 #include <asm/machdep.h>
 #include <asm/pmac_feature.h>
@@ -119,7 +106,7 @@ struct pmac_tumbler {
 /*
  */
 
-static int send_init_client(struct pmac_keywest *i2c, unsigned int *regs)
+static int send_init_client(struct pmac_keywest *i2c, const unsigned int *regs)
 {
 	while (*regs > 0) {
 		int err, count = 10;
@@ -141,7 +128,7 @@ static int send_init_client(struct pmac_keywest *i2c, unsigned int *regs)
 
 static int tumbler_init_client(struct pmac_keywest *i2c)
 {
-	static unsigned int regs[] = {
+	static const unsigned int regs[] = {
 		/* normal operation, SCLK=64fps, i2s output, i2s input, 16bit width */
 		TAS_REG_MCS, (1<<6)|(2<<4)|(2<<2)|0,
 		0, /* terminator */
@@ -152,7 +139,7 @@ static int tumbler_init_client(struct pmac_keywest *i2c)
 
 static int snapper_init_client(struct pmac_keywest *i2c)
 {
-	static unsigned int regs[] = {
+	static const unsigned int regs[] = {
 		/* normal operation, SCLK=64fps, i2s output, 16bit width */
 		TAS_REG_MCS, (1<<6)|(2<<4)|0,
 		/* normal operation, all-pass mode */
@@ -415,7 +402,8 @@ static int tumbler_get_drc_value(struct snd_kcontrol *kcontrol,
 {
 	struct snd_pmac *chip = snd_kcontrol_chip(kcontrol);
 	struct pmac_tumbler *mix;
-	if (! (mix = chip->mixer_data))
+	mix = chip->mixer_data;
+	if (!mix)
 		return -ENODEV;
 	ucontrol->value.integer.value[0] = mix->drc_range;
 	return 0;
@@ -429,7 +417,8 @@ static int tumbler_put_drc_value(struct snd_kcontrol *kcontrol,
 	unsigned int val;
 	int change;
 
-	if (! (mix = chip->mixer_data))
+	mix = chip->mixer_data;
+	if (!mix)
 		return -ENODEV;
 	val = ucontrol->value.integer.value[0];
 	if (chip->model == PMAC_TUMBLER) {
@@ -455,7 +444,8 @@ static int tumbler_get_drc_switch(struct snd_kcontrol *kcontrol,
 {
 	struct snd_pmac *chip = snd_kcontrol_chip(kcontrol);
 	struct pmac_tumbler *mix;
-	if (! (mix = chip->mixer_data))
+	mix = chip->mixer_data;
+	if (!mix)
 		return -ENODEV;
 	ucontrol->value.integer.value[0] = mix->drc_enable;
 	return 0;
@@ -468,7 +458,8 @@ static int tumbler_put_drc_switch(struct snd_kcontrol *kcontrol,
 	struct pmac_tumbler *mix;
 	int change;
 
-	if (! (mix = chip->mixer_data))
+	mix = chip->mixer_data;
+	if (!mix)
 		return -ENODEV;
 	change = mix->drc_enable != ucontrol->value.integer.value[0];
 	if (change) {
@@ -491,11 +482,11 @@ struct tumbler_mono_vol {
 	int reg;
 	int bytes;
 	unsigned int max;
-	unsigned int *table;
+	const unsigned int *table;
 };
 
 static int tumbler_set_mono_volume(struct pmac_tumbler *mix,
-				   struct tumbler_mono_vol *info)
+				   const struct tumbler_mono_vol *info)
 {
 	unsigned char block[4];
 	unsigned int vol;
@@ -537,7 +528,8 @@ static int tumbler_get_mono(struct snd_kcontrol *kcontrol,
 	struct tumbler_mono_vol *info = (struct tumbler_mono_vol *)kcontrol->private_value;
 	struct snd_pmac *chip = snd_kcontrol_chip(kcontrol);
 	struct pmac_tumbler *mix;
-	if (! (mix = chip->mixer_data))
+	mix = chip->mixer_data;
+	if (!mix)
 		return -ENODEV;
 	ucontrol->value.integer.value[0] = mix->mono_vol[info->index];
 	return 0;
@@ -552,7 +544,8 @@ static int tumbler_put_mono(struct snd_kcontrol *kcontrol,
 	unsigned int vol;
 	int change;
 
-	if (! (mix = chip->mixer_data))
+	mix = chip->mixer_data;
+	if (!mix)
 		return -ENODEV;
 	vol = ucontrol->value.integer.value[0];
 	if (vol >= info->max)
@@ -566,7 +559,7 @@ static int tumbler_put_mono(struct snd_kcontrol *kcontrol,
 }
 
 /* TAS3001c mono volumes */
-static struct tumbler_mono_vol tumbler_pcm_vol_info = {
+static const struct tumbler_mono_vol tumbler_pcm_vol_info = {
 	.index = VOL_IDX_PCM_MONO,
 	.reg = TAS_REG_PCM,
 	.bytes = 3,
@@ -574,7 +567,7 @@ static struct tumbler_mono_vol tumbler_pcm_vol_info = {
 	.table = mixer_volume_table,
 };
 
-static struct tumbler_mono_vol tumbler_bass_vol_info = {
+static const struct tumbler_mono_vol tumbler_bass_vol_info = {
 	.index = VOL_IDX_BASS,
 	.reg = TAS_REG_BASS,
 	.bytes = 1,
@@ -582,7 +575,7 @@ static struct tumbler_mono_vol tumbler_bass_vol_info = {
 	.table = bass_volume_table,
 };
 
-static struct tumbler_mono_vol tumbler_treble_vol_info = {
+static const struct tumbler_mono_vol tumbler_treble_vol_info = {
 	.index = VOL_IDX_TREBLE,
 	.reg = TAS_REG_TREBLE,
 	.bytes = 1,
@@ -591,7 +584,7 @@ static struct tumbler_mono_vol tumbler_treble_vol_info = {
 };
 
 /* TAS3004 mono volumes */
-static struct tumbler_mono_vol snapper_bass_vol_info = {
+static const struct tumbler_mono_vol snapper_bass_vol_info = {
 	.index = VOL_IDX_BASS,
 	.reg = TAS_REG_BASS,
 	.bytes = 1,
@@ -599,7 +592,7 @@ static struct tumbler_mono_vol snapper_bass_vol_info = {
 	.table = snapper_bass_volume_table,
 };
 
-static struct tumbler_mono_vol snapper_treble_vol_info = {
+static const struct tumbler_mono_vol snapper_treble_vol_info = {
 	.index = VOL_IDX_TREBLE,
 	.reg = TAS_REG_TREBLE,
 	.bytes = 1,
@@ -682,7 +675,8 @@ static int snapper_get_mix(struct snd_kcontrol *kcontrol,
 	int idx = (int)kcontrol->private_value;
 	struct snd_pmac *chip = snd_kcontrol_chip(kcontrol);
 	struct pmac_tumbler *mix;
-	if (! (mix = chip->mixer_data))
+	mix = chip->mixer_data;
+	if (!mix)
 		return -ENODEV;
 	ucontrol->value.integer.value[0] = mix->mix_vol[idx][0];
 	ucontrol->value.integer.value[1] = mix->mix_vol[idx][1];
@@ -698,7 +692,8 @@ static int snapper_put_mix(struct snd_kcontrol *kcontrol,
 	unsigned int vol[2];
 	int change;
 
-	if (! (mix = chip->mixer_data))
+	mix = chip->mixer_data;
+	if (!mix)
 		return -ENODEV;
 	vol[0] = ucontrol->value.integer.value[0];
 	vol[1] = ucontrol->value.integer.value[1];
@@ -729,7 +724,8 @@ static int tumbler_get_mute_switch(struct snd_kcontrol *kcontrol,
 	struct snd_pmac *chip = snd_kcontrol_chip(kcontrol);
 	struct pmac_tumbler *mix;
 	struct pmac_gpio *gp;
-	if (! (mix = chip->mixer_data))
+	mix = chip->mixer_data;
+	if (!mix)
 		return -ENODEV;
 	switch(kcontrol->private_value) {
 	case TUMBLER_MUTE_HP:
@@ -758,7 +754,8 @@ static int tumbler_put_mute_switch(struct snd_kcontrol *kcontrol,
 	if (chip->update_automute && chip->auto_mute)
 		return 0; /* don't touch in the auto-mute mode */
 #endif	
-	if (! (mix = chip->mixer_data))
+	mix = chip->mixer_data;
+	if (!mix)
 		return -ENODEV;
 	switch(kcontrol->private_value) {
 	case TUMBLER_MUTE_HP:
@@ -794,16 +791,11 @@ static int snapper_set_capture_source(struct pmac_tumbler *mix)
 static int snapper_info_capture_source(struct snd_kcontrol *kcontrol,
 				       struct snd_ctl_elem_info *uinfo)
 {
-	static char *texts[2] = {
+	static const char * const texts[2] = {
 		"Line", "Mic"
 	};
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_ENUMERATED;
-	uinfo->count = 1;
-	uinfo->value.enumerated.items = 2;
-	if (uinfo->value.enumerated.item > 1)
-		uinfo->value.enumerated.item = 1;
-	strcpy(uinfo->value.enumerated.name, texts[uinfo->value.enumerated.item]);
-	return 0;
+
+	return snd_ctl_enum_info(uinfo, 1, 2, texts);
 }
 
 static int snapper_get_capture_source(struct snd_kcontrol *kcontrol,
@@ -844,7 +836,7 @@ static int snapper_put_capture_source(struct snd_kcontrol *kcontrol,
 
 /*
  */
-static struct snd_kcontrol_new tumbler_mixers[] __devinitdata = {
+static const struct snd_kcontrol_new tumbler_mixers[] = {
 	{ .iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 	  .name = "Master Playback Volume",
 	  .info = tumbler_info_master_volume,
@@ -868,7 +860,7 @@ static struct snd_kcontrol_new tumbler_mixers[] __devinitdata = {
 	},
 };
 
-static struct snd_kcontrol_new snapper_mixers[] __devinitdata = {
+static const struct snd_kcontrol_new snapper_mixers[] = {
 	{ .iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 	  .name = "Master Playback Volume",
 	  .info = tumbler_info_master_volume,
@@ -901,7 +893,7 @@ static struct snd_kcontrol_new snapper_mixers[] __devinitdata = {
 	},
 };
 
-static struct snd_kcontrol_new tumbler_hp_sw __devinitdata = {
+static const struct snd_kcontrol_new tumbler_hp_sw = {
 	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 	.name = "Headphone Playback Switch",
 	.info = snd_pmac_boolean_mono_info,
@@ -909,7 +901,7 @@ static struct snd_kcontrol_new tumbler_hp_sw __devinitdata = {
 	.put = tumbler_put_mute_switch,
 	.private_value = TUMBLER_MUTE_HP,
 };
-static struct snd_kcontrol_new tumbler_speaker_sw __devinitdata = {
+static const struct snd_kcontrol_new tumbler_speaker_sw = {
 	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 	.name = "Speaker Playback Switch",
 	.info = snd_pmac_boolean_mono_info,
@@ -917,7 +909,7 @@ static struct snd_kcontrol_new tumbler_speaker_sw __devinitdata = {
 	.put = tumbler_put_mute_switch,
 	.private_value = TUMBLER_MUTE_AMP,
 };
-static struct snd_kcontrol_new tumbler_lineout_sw __devinitdata = {
+static const struct snd_kcontrol_new tumbler_lineout_sw = {
 	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 	.name = "Line Out Playback Switch",
 	.info = snd_pmac_boolean_mono_info,
@@ -925,7 +917,7 @@ static struct snd_kcontrol_new tumbler_lineout_sw __devinitdata = {
 	.put = tumbler_put_mute_switch,
 	.private_value = TUMBLER_MUTE_LINE,
 };
-static struct snd_kcontrol_new tumbler_drc_sw __devinitdata = {
+static const struct snd_kcontrol_new tumbler_drc_sw = {
 	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 	.name = "DRC Switch",
 	.info = snd_pmac_boolean_mono_info,
@@ -1276,7 +1268,7 @@ static void tumbler_resume(struct snd_pmac *chip)
 #endif
 
 /* initialize tumbler */
-static int __devinit tumbler_init(struct snd_pmac *chip)
+static int tumbler_init(struct snd_pmac *chip)
 {
 	int irq;
 	struct pmac_tumbler *mix = chip->mixer_data;
@@ -1307,19 +1299,19 @@ static int __devinit tumbler_init(struct snd_pmac *chip)
 				    &mix->line_mute, 1);
 	irq = tumbler_find_device("headphone-detect",
 				  NULL, &mix->hp_detect, 0);
-	if (irq <= NO_IRQ)
+	if (irq <= 0)
 		irq = tumbler_find_device("headphone-detect",
 					  NULL, &mix->hp_detect, 1);
-	if (irq <= NO_IRQ)
+	if (irq <= 0)
 		irq = tumbler_find_device("keywest-gpio15",
 					  NULL, &mix->hp_detect, 1);
 	mix->headphone_irq = irq;
  	irq = tumbler_find_device("line-output-detect",
 				  NULL, &mix->line_detect, 0);
- 	if (irq <= NO_IRQ)
+	if (irq <= 0)
 		irq = tumbler_find_device("line-output-detect",
 					  NULL, &mix->line_detect, 1);
-	if (IS_G4DA && irq <= NO_IRQ)
+	if (IS_G4DA && irq <= 0)
 		irq = tumbler_find_device("keywest-gpio16",
 					  NULL, &mix->line_detect, 1);
 	mix->lineout_irq = irq;
@@ -1349,7 +1341,7 @@ static void tumbler_cleanup(struct snd_pmac *chip)
 }
 
 /* exported */
-int __devinit snd_pmac_tumbler_init(struct snd_pmac *chip)
+int snd_pmac_tumbler_init(struct snd_pmac *chip)
 {
 	int i, err;
 	struct pmac_tumbler *mix;
@@ -1369,16 +1361,18 @@ int __devinit snd_pmac_tumbler_init(struct snd_pmac *chip)
 	mix->anded_reset = 0;
 	mix->reset_on_sleep = 1;
 
-	for (np = chip->node->child; np; np = np->sibling) {
-		if (!strcmp(np->name, "sound")) {
+	for_each_child_of_node(chip->node, np) {
+		if (of_node_name_eq(np, "sound")) {
 			if (of_get_property(np, "has-anded-reset", NULL))
 				mix->anded_reset = 1;
 			if (of_get_property(np, "layout-id", NULL))
 				mix->reset_on_sleep = 0;
+			of_node_put(np);
 			break;
 		}
 	}
-	if ((err = tumbler_init(chip)) < 0)
+	err = tumbler_init(chip);
+	if (err < 0)
 		return err;
 
 	/* set up TAS */
@@ -1409,7 +1403,8 @@ int __devinit snd_pmac_tumbler_init(struct snd_pmac *chip)
 		chipname = "Snapper";
 	}
 
-	if ((err = snd_pmac_keywest_init(&mix->i2c)) < 0)
+	err = snd_pmac_keywest_init(&mix->i2c);
+	if (err < 0)
 		return err;
 
 	/*
@@ -1419,28 +1414,34 @@ int __devinit snd_pmac_tumbler_init(struct snd_pmac *chip)
 
 	if (chip->model == PMAC_TUMBLER) {
 		for (i = 0; i < ARRAY_SIZE(tumbler_mixers); i++) {
-			if ((err = snd_ctl_add(chip->card, snd_ctl_new1(&tumbler_mixers[i], chip))) < 0)
+			err = snd_ctl_add(chip->card, snd_ctl_new1(&tumbler_mixers[i], chip));
+			if (err < 0)
 				return err;
 		}
 	} else {
 		for (i = 0; i < ARRAY_SIZE(snapper_mixers); i++) {
-			if ((err = snd_ctl_add(chip->card, snd_ctl_new1(&snapper_mixers[i], chip))) < 0)
+			err = snd_ctl_add(chip->card, snd_ctl_new1(&snapper_mixers[i], chip));
+			if (err < 0)
 				return err;
 		}
 	}
 	chip->master_sw_ctl = snd_ctl_new1(&tumbler_hp_sw, chip);
-	if ((err = snd_ctl_add(chip->card, chip->master_sw_ctl)) < 0)
+	err = snd_ctl_add(chip->card, chip->master_sw_ctl);
+	if (err < 0)
 		return err;
 	chip->speaker_sw_ctl = snd_ctl_new1(&tumbler_speaker_sw, chip);
-	if ((err = snd_ctl_add(chip->card, chip->speaker_sw_ctl)) < 0)
+	err = snd_ctl_add(chip->card, chip->speaker_sw_ctl);
+	if (err < 0)
 		return err;
 	if (mix->line_mute.addr != 0) {
 		chip->lineout_sw_ctl = snd_ctl_new1(&tumbler_lineout_sw, chip);
-		if ((err = snd_ctl_add(chip->card, chip->lineout_sw_ctl)) < 0)
+		err = snd_ctl_add(chip->card, chip->lineout_sw_ctl);
+		if (err < 0)
 			return err;
 	}
 	chip->drc_sw_ctl = snd_ctl_new1(&tumbler_drc_sw, chip);
-	if ((err = snd_ctl_add(chip->card, chip->drc_sw_ctl)) < 0)
+	err = snd_ctl_add(chip->card, chip->drc_sw_ctl);
+	if (err < 0)
 		return err;
 
 	/* set initial DRC range to 60% */
@@ -1463,9 +1464,11 @@ int __devinit snd_pmac_tumbler_init(struct snd_pmac *chip)
 	device_change_chip = chip;
 
 #ifdef PMAC_SUPPORT_AUTOMUTE
-	if ((mix->headphone_irq >=0 || mix->lineout_irq >= 0)
-	    && (err = snd_pmac_add_automute(chip)) < 0)
-		return err;
+	if (mix->headphone_irq >= 0 || mix->lineout_irq >= 0) {
+		err = snd_pmac_add_automute(chip);
+		if (err < 0)
+			return err;
+	}
 	chip->detect_headphone = tumbler_detect_headphone;
 	chip->update_automute = tumbler_update_automute;
 	tumbler_update_automute(chip, 0); /* update the status only */
@@ -1473,8 +1476,9 @@ int __devinit snd_pmac_tumbler_init(struct snd_pmac *chip)
 	/* activate headphone status interrupts */
   	if (mix->headphone_irq >= 0) {
 		unsigned char val;
-		if ((err = request_irq(mix->headphone_irq, headphone_intr, 0,
-				       "Sound Headphone Detection", chip)) < 0)
+		err = request_irq(mix->headphone_irq, headphone_intr, 0,
+				  "Sound Headphone Detection", chip);
+		if (err < 0)
 			return 0;
 		/* activate headphone status interrupts */
 		val = do_gpio_read(&mix->hp_detect);
@@ -1482,8 +1486,9 @@ int __devinit snd_pmac_tumbler_init(struct snd_pmac *chip)
 	}
   	if (mix->lineout_irq >= 0) {
 		unsigned char val;
-		if ((err = request_irq(mix->lineout_irq, headphone_intr, 0,
-				       "Sound Lineout Detection", chip)) < 0)
+		err = request_irq(mix->lineout_irq, headphone_intr, 0,
+				  "Sound Lineout Detection", chip);
+		if (err < 0)
 			return 0;
 		/* activate headphone status interrupts */
 		val = do_gpio_read(&mix->line_detect);

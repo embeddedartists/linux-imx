@@ -16,7 +16,6 @@
 #include <linux/initrd.h>
 #include <linux/of_platform.h>
 
-#include <asm/system.h>
 #include <asm/time.h>
 #include <asm/prom.h>
 #include <asm/mpic.h>
@@ -25,7 +24,7 @@
 #include "mpc10x.h"
 
 
-static __initdata struct of_device_id storcenter_of_bus[] = {
+static const struct of_device_id storcenter_of_bus[] __initconst = {
 	{ .name = "soc", },
 	{},
 };
@@ -45,7 +44,7 @@ static int __init storcenter_add_bridge(struct device_node *dev)
 	struct pci_controller *hose;
 	const int *bus_range;
 
-	printk("Adding PCI host bridge %s\n", dev->full_name);
+	printk("Adding PCI host bridge %pOF\n", dev);
 
 	hose = pcibios_alloc_controller(dev);
 	if (hose == NULL)
@@ -67,13 +66,16 @@ static int __init storcenter_add_bridge(struct device_node *dev)
 
 static void __init storcenter_setup_arch(void)
 {
+	printk(KERN_INFO "IOMEGA StorCenter\n");
+}
+
+static void __init storcenter_setup_pci(void)
+{
 	struct device_node *np;
 
 	/* Lookup PCI host bridges */
 	for_each_compatible_node(np, "pci", "mpc10x-pci")
 		storcenter_add_bridge(np);
-
-	printk(KERN_INFO "IOMEGA StorCenter\n");
 }
 
 /*
@@ -84,8 +86,7 @@ static void __init storcenter_init_IRQ(void)
 {
 	struct mpic *mpic;
 
-	mpic = mpic_alloc(NULL, 0, MPIC_WANTS_RESET,
-			16, 32, " OpenPIC  ");
+	mpic = mpic_alloc(NULL, 0, 0, 16, 0, " OpenPIC  ");
 	BUG_ON(mpic == NULL);
 
 	/*
@@ -98,12 +99,13 @@ static void __init storcenter_init_IRQ(void)
 	mpic_init(mpic);
 }
 
-static void storcenter_restart(char *cmd)
+static void __noreturn storcenter_restart(char *cmd)
 {
 	local_irq_disable();
 
 	/* Set exception prefix high - to the firmware */
-	_nmask_and_or_msr(0, MSR_IP);
+	mtmsr(mfmsr() | MSR_IP);
+	isync();
 
 	/* Wait for reset to happen */
 	for (;;) ;
@@ -111,15 +113,14 @@ static void storcenter_restart(char *cmd)
 
 static int __init storcenter_probe(void)
 {
-	unsigned long root = of_get_flat_dt_root();
-
-	return of_flat_dt_is_compatible(root, "iomega,storcenter");
+	return of_machine_is_compatible("iomega,storcenter");
 }
 
 define_machine(storcenter){
 	.name 			= "IOMEGA StorCenter",
 	.probe 			= storcenter_probe,
 	.setup_arch 		= storcenter_setup_arch,
+	.discover_phbs 		= storcenter_setup_pci,
 	.init_IRQ 		= storcenter_init_IRQ,
 	.get_irq 		= mpic_get_irq,
 	.restart 		= storcenter_restart,

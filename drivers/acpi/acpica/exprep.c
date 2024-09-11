@@ -1,52 +1,18 @@
-
+// SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0
 /******************************************************************************
  *
- * Module Name: exprep - ACPI AML (p-code) execution - field prep utilities
+ * Module Name: exprep - ACPI AML field prep utilities
+ *
+ * Copyright (C) 2000 - 2021, Intel Corp.
  *
  *****************************************************************************/
-
-/*
- * Copyright (C) 2000 - 2011, Intel Corp.
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions, and the following disclaimer,
- *    without modification.
- * 2. Redistributions in binary form must reproduce at minimum a disclaimer
- *    substantially similar to the "NO WARRANTY" disclaimer below
- *    ("Disclaimer") and any redistribution must be conditioned upon
- *    including a substantially similar Disclaimer requirement for further
- *    binary redistribution.
- * 3. Neither the names of the above-listed copyright holders nor the names
- *    of any contributors may be used to endorse or promote products derived
- *    from this software without specific prior written permission.
- *
- * Alternatively, this software may be distributed under the terms of the
- * GNU General Public License ("GPL") version 2 as published by the Free
- * Software Foundation.
- *
- * NO WARRANTY
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * HOLDERS OR CONTRIBUTORS BE LIABLE FOR SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
- * IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGES.
- */
 
 #include <acpi/acpi.h>
 #include "accommon.h"
 #include "acinterp.h"
 #include "amlcode.h"
 #include "acnamesp.h"
+#include "acdispat.h"
 
 #define _COMPONENT          ACPI_EXECUTER
 ACPI_MODULE_NAME("exprep")
@@ -77,8 +43,8 @@ acpi_ex_generate_access(u32 field_bit_offset,
  *              any_acc keyword.
  *
  * NOTE: Need to have the region_length in order to check for boundary
- *       conditions (end-of-region).  However, the region_length is a deferred
- *       operation.  Therefore, to complete this implementation, the generation
+ *       conditions (end-of-region). However, the region_length is a deferred
+ *       operation. Therefore, to complete this implementation, the generation
  *       of this access width must be deferred until the region length has
  *       been evaluated.
  *
@@ -103,8 +69,10 @@ acpi_ex_generate_access(u32 field_bit_offset,
 	/* Round Field start offset and length to "minimal" byte boundaries */
 
 	field_byte_offset = ACPI_DIV_8(ACPI_ROUND_DOWN(field_bit_offset, 8));
-	field_byte_end_offset = ACPI_DIV_8(ACPI_ROUND_UP(field_bit_length +
-							 field_bit_offset, 8));
+
+	field_byte_end_offset =
+	    ACPI_DIV_8(ACPI_ROUND_UP(field_bit_length + field_bit_offset, 8));
+
 	field_byte_length = field_byte_end_offset - field_byte_offset;
 
 	ACPI_DEBUG_PRINT((ACPI_DB_BFIELD,
@@ -159,7 +127,8 @@ acpi_ex_generate_access(u32 field_bit_offset,
 
 			if (accesses <= 1) {
 				ACPI_DEBUG_PRINT((ACPI_DB_BFIELD,
-						  "Entire field can be accessed with one operation of size %u\n",
+						  "Entire field can be accessed "
+						  "with one operation of size %u\n",
 						  access_byte_width));
 				return_VALUE(access_byte_width);
 			}
@@ -202,6 +171,7 @@ acpi_ex_generate_access(u32 field_bit_offset,
 	 */
 	ACPI_DEBUG_PRINT((ACPI_DB_BFIELD,
 			  "Cannot access field in one operation, using width 8\n"));
+
 	return_VALUE(8);
 }
 #endif				/* ACPI_UNDER_DEVELOPMENT */
@@ -253,29 +223,35 @@ acpi_ex_decode_field_access(union acpi_operand_object *obj_desc,
 
 	case AML_FIELD_ACCESS_BYTE:
 	case AML_FIELD_ACCESS_BUFFER:	/* ACPI 2.0 (SMBus Buffer) */
+
 		byte_alignment = 1;
 		bit_length = 8;
 		break;
 
 	case AML_FIELD_ACCESS_WORD:
+
 		byte_alignment = 2;
 		bit_length = 16;
 		break;
 
 	case AML_FIELD_ACCESS_DWORD:
+
 		byte_alignment = 4;
 		bit_length = 32;
 		break;
 
 	case AML_FIELD_ACCESS_QWORD:	/* ACPI 2.0 */
+
 		byte_alignment = 8;
 		bit_length = 64;
 		break;
 
 	default:
+
 		/* Invalid field access type */
 
 		ACPI_ERROR((AE_INFO, "Unknown field access type 0x%X", access));
+
 		return_UINT32(0);
 	}
 
@@ -307,7 +283,7 @@ acpi_ex_decode_field_access(union acpi_operand_object *obj_desc,
  * RETURN:      Status
  *
  * DESCRIPTION: Initialize the areas of the field object that are common
- *              to the various types of fields.  Note: This is very "sensitive"
+ *              to the various types of fields. Note: This is very "sensitive"
  *              code because we are solving the general case for field
  *              alignment.
  *
@@ -335,13 +311,13 @@ acpi_ex_prep_common_field_object(union acpi_operand_object *obj_desc,
 	obj_desc->common_field.bit_length = field_bit_length;
 
 	/*
-	 * Decode the access type so we can compute offsets.  The access type gives
+	 * Decode the access type so we can compute offsets. The access type gives
 	 * two pieces of information - the width of each field access and the
 	 * necessary byte_alignment (address granularity) of the access.
 	 *
 	 * For any_acc, the access_bit_width is the largest width that is both
 	 * necessary and possible in an attempt to access the whole field in one
-	 * I/O operation.  However, for any_acc, the byte_alignment is always one
+	 * I/O operation. However, for any_acc, the byte_alignment is always one
 	 * byte.
 	 *
 	 * For all Buffer Fields, the byte_alignment is always one byte.
@@ -349,8 +325,8 @@ acpi_ex_prep_common_field_object(union acpi_operand_object *obj_desc,
 	 * For all other access types (Byte, Word, Dword, Qword), the Bitwidth is
 	 * the same (equivalent) as the byte_alignment.
 	 */
-	access_bit_width = acpi_ex_decode_field_access(obj_desc, field_flags,
-						       &byte_alignment);
+	access_bit_width =
+	    acpi_ex_decode_field_access(obj_desc, field_flags, &byte_alignment);
 	if (!access_bit_width) {
 		return_ACPI_STATUS(AE_AML_OPERAND_VALUE);
 	}
@@ -362,7 +338,7 @@ acpi_ex_prep_common_field_object(union acpi_operand_object *obj_desc,
 
 	/*
 	 * base_byte_offset is the address of the start of the field within the
-	 * region.  It is the byte address of the first *datum* (field-width data
+	 * region. It is the byte address of the first *datum* (field-width data
 	 * unit) of the field. (i.e., the first datum that contains at least the
 	 * first *bit* of the field.)
 	 *
@@ -390,12 +366,12 @@ acpi_ex_prep_common_field_object(union acpi_operand_object *obj_desc,
  *
  * FUNCTION:    acpi_ex_prep_field_value
  *
- * PARAMETERS:  Info    - Contains all field creation info
+ * PARAMETERS:  info    - Contains all field creation info
  *
  * RETURN:      Status
  *
- * DESCRIPTION: Construct a union acpi_operand_object of type def_field and
- *              connect it to the parent Node.
+ * DESCRIPTION: Construct an object of type union acpi_operand_object with a
+ *              subtype of def_field and connect it to the parent Node.
  *
  ******************************************************************************/
 
@@ -455,6 +431,32 @@ acpi_status acpi_ex_prep_field_value(struct acpi_create_field_info *info)
 		obj_desc->field.region_obj =
 		    acpi_ns_get_attached_object(info->region_node);
 
+		/* Fields specific to generic_serial_bus fields */
+
+		obj_desc->field.access_length = info->access_length;
+
+		if (info->connection_node) {
+			second_desc = info->connection_node->object;
+			if (!(second_desc->common.flags & AOPOBJ_DATA_VALID)) {
+				status =
+				    acpi_ds_get_buffer_arguments(second_desc);
+				if (ACPI_FAILURE(status)) {
+					acpi_ut_delete_object_desc(obj_desc);
+					return_ACPI_STATUS(status);
+				}
+			}
+
+			obj_desc->field.resource_buffer =
+			    second_desc->buffer.pointer;
+			obj_desc->field.resource_length =
+			    (u16)second_desc->buffer.length;
+		} else if (info->resource_buffer) {
+			obj_desc->field.resource_buffer = info->resource_buffer;
+			obj_desc->field.resource_length = info->resource_length;
+		}
+
+		obj_desc->field.pin_number_index = info->pin_number_index;
+
 		/* Allow full data read from EC address space */
 
 		if ((obj_desc->field.region_obj->region.space_id ==
@@ -471,10 +473,6 @@ acpi_status acpi_ex_prep_field_value(struct acpi_create_field_info *info)
 				    (u8)access_byte_width;
 			}
 		}
-		/* An additional reference for the container */
-
-		acpi_ut_add_reference(obj_desc->field.region_obj);
-
 		ACPI_DEBUG_PRINT((ACPI_DB_BFIELD,
 				  "RegionField: BitOff %X, Off %X, Gran %X, Region %p\n",
 				  obj_desc->field.start_field_bit_offset,
@@ -564,7 +562,8 @@ acpi_status acpi_ex_prep_field_value(struct acpi_create_field_info *info)
 					  access_byte_width);
 
 		ACPI_DEBUG_PRINT((ACPI_DB_BFIELD,
-				  "IndexField: BitOff %X, Off %X, Value %X, Gran %X, Index %p, Data %p\n",
+				  "IndexField: BitOff %X, Off %X, Value %X, "
+				  "Gran %X, Index %p, Data %p\n",
 				  obj_desc->index_field.start_field_bit_offset,
 				  obj_desc->index_field.base_byte_offset,
 				  obj_desc->index_field.value,
@@ -574,7 +573,9 @@ acpi_status acpi_ex_prep_field_value(struct acpi_create_field_info *info)
 		break;
 
 	default:
+
 		/* No other types should get here */
+
 		break;
 	}
 
@@ -582,8 +583,9 @@ acpi_status acpi_ex_prep_field_value(struct acpi_create_field_info *info)
 	 * Store the constructed descriptor (obj_desc) into the parent Node,
 	 * preserving the current type of that named_obj.
 	 */
-	status = acpi_ns_attach_object(info->field_node, obj_desc,
-				       acpi_ns_get_type(info->field_node));
+	status =
+	    acpi_ns_attach_object(info->field_node, obj_desc,
+				  acpi_ns_get_type(info->field_node));
 
 	ACPI_DEBUG_PRINT((ACPI_DB_BFIELD,
 			  "Set NamedObj %p [%4.4s], ObjDesc %p\n",

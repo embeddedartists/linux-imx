@@ -14,34 +14,26 @@
 #include <asm/processor.h>
 #include <asm/types.h>
 #include <asm/cache.h>
-#include <platform/hardware.h>
-
-/*
- * Fixed TLB translations in the processor.
- */
-
-#define XCHAL_KSEG_CACHED_VADDR 0xd0000000
-#define XCHAL_KSEG_BYPASS_VADDR 0xd8000000
-#define XCHAL_KSEG_PADDR        0x00000000
-#define XCHAL_KSEG_SIZE         0x08000000
+#include <asm/kmem_layout.h>
 
 /*
  * PAGE_SHIFT determines the page size
  */
 
-#define PAGE_SHIFT		12
-#define PAGE_SIZE		(__XTENSA_UL_CONST(1) << PAGE_SHIFT)
-#define PAGE_MASK		(~(PAGE_SIZE-1))
+#define PAGE_SHIFT	12
+#define PAGE_SIZE	(__XTENSA_UL_CONST(1) << PAGE_SHIFT)
+#define PAGE_MASK	(~(PAGE_SIZE-1))
 
 #ifdef CONFIG_MMU
-#define PAGE_OFFSET		XCHAL_KSEG_CACHED_VADDR
-#define MAX_MEM_PFN		XCHAL_KSEG_SIZE
+#define PAGE_OFFSET	XCHAL_KSEG_CACHED_VADDR
+#define PHYS_OFFSET	XCHAL_KSEG_PADDR
+#define MAX_LOW_PFN	(PHYS_PFN(XCHAL_KSEG_PADDR) + \
+			 PHYS_PFN(XCHAL_KSEG_SIZE))
 #else
-#define PAGE_OFFSET		0
-#define MAX_MEM_PFN		(PLATFORM_DEFAULT_MEM_START + PLATFORM_DEFAULT_MEM_SIZE)
+#define PAGE_OFFSET	_AC(CONFIG_DEFAULT_MEM_START, UL)
+#define PHYS_OFFSET	_AC(CONFIG_DEFAULT_MEM_START, UL)
+#define MAX_LOW_PFN	PHYS_PFN(0xfffffffful)
 #endif
-
-#define PGTABLE_START		0x80000000
 
 /*
  * Cache aliasing:
@@ -78,7 +70,9 @@
 # define DCACHE_ALIAS_EQ(a,b)	((((a) ^ (b)) & DCACHE_ALIAS_MASK) == 0)
 #else
 # define DCACHE_ALIAS_ORDER	0
+# define DCACHE_ALIAS(a)	((void)(a), 0)
 #endif
+#define DCACHE_N_COLORS		(1 << DCACHE_ALIAS_ORDER)
 
 #if ICACHE_WAY_SIZE > PAGE_SIZE
 # define ICACHE_ALIAS_ORDER	(ICACHE_WAY_SHIFT - PAGE_SHIFT)
@@ -134,6 +128,7 @@ static inline __attribute_const__ int get_order(unsigned long size)
 #endif
 
 struct page;
+struct vm_area_struct;
 extern void clear_page(void *page);
 extern void copy_page(void *to, void *from);
 
@@ -142,9 +137,16 @@ extern void copy_page(void *to, void *from);
  * some extra work
  */
 
-#if DCACHE_WAY_SIZE > PAGE_SIZE
-extern void clear_user_page(void*, unsigned long, struct page*);
-extern void copy_user_page(void*, void*, unsigned long, struct page*);
+#if defined(CONFIG_MMU) && DCACHE_WAY_SIZE > PAGE_SIZE
+extern void clear_page_alias(void *vaddr, unsigned long paddr);
+extern void copy_page_alias(void *to, void *from,
+			    unsigned long to_paddr, unsigned long from_paddr);
+
+#define clear_user_highpage clear_user_highpage
+void clear_user_highpage(struct page *page, unsigned long vaddr);
+#define __HAVE_ARCH_COPY_USER_HIGHPAGE
+void copy_user_highpage(struct page *to, struct page *from,
+			unsigned long vaddr, struct vm_area_struct *vma);
 #else
 # define clear_user_page(page, vaddr, pg)	clear_page(page)
 # define copy_user_page(to, from, vaddr, pg)	copy_page(to, from)
@@ -157,14 +159,38 @@ extern void copy_user_page(void*, void*, unsigned long, struct page*);
  * addresses.
  */
 
-#define ARCH_PFN_OFFSET		(PLATFORM_DEFAULT_MEM_START >> PAGE_SHIFT)
+#define ARCH_PFN_OFFSET		(PHYS_OFFSET >> PAGE_SHIFT)
 
-#define __pa(x)			((unsigned long) (x) - PAGE_OFFSET)
-#define __va(x)			((void *)((unsigned long) (x) + PAGE_OFFSET))
-#define pfn_valid(pfn)		((pfn) >= ARCH_PFN_OFFSET && ((pfn) - ARCH_PFN_OFFSET) < max_mapnr)
-#ifdef CONFIG_DISCONTIGMEM
-# error CONFIG_DISCONTIGMEM not supported
+#ifdef CONFIG_MMU
+static inline unsigned long ___pa(unsigned long va)
+{
+	unsigned long off = va - PAGE_OFFSET;
+
+	if (off >= XCHAL_KSEG_SIZE)
+		off -= XCHAL_KSEG_SIZE;
+
+#ifndef CONFIG_XIP_KERNEL
+	return off + PHYS_OFFSET;
+#else
+	if (off < XCHAL_KSEG_SIZE)
+		return off + PHYS_OFFSET;
+
+	off -= XCHAL_KSEG_SIZE;
+	if (off >= XCHAL_KIO_SIZE)
+		off -= XCHAL_KIO_SIZE;
+
+	return off + XCHAL_KIO_PADDR;
 #endif
+}
+#define __pa(x)	___pa((unsigned long)(x))
+#else
+#define __pa(x)	\
+	((unsigned long) (x) - PAGE_OFFSET + PHYS_OFFSET)
+#endif
+#define __va(x)	\
+	((void *)((unsigned long) (x) - PHYS_OFFSET + PAGE_OFFSET))
+#define pfn_valid(pfn) \
+	((pfn) >= ARCH_PFN_OFFSET && ((pfn) - ARCH_PFN_OFFSET) < max_mapnr)
 
 #define virt_to_page(kaddr)	pfn_to_page(__pa(kaddr) >> PAGE_SHIFT)
 #define page_to_virt(page)	__va(page_to_pfn(page) << PAGE_SHIFT)
@@ -172,9 +198,6 @@ extern void copy_user_page(void*, void*, unsigned long, struct page*);
 #define page_to_phys(page)	(page_to_pfn(page) << PAGE_SHIFT)
 
 #endif /* __ASSEMBLY__ */
-
-#define VM_DATA_DEFAULT_FLAGS	(VM_READ | VM_WRITE | VM_EXEC | \
-				 VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC)
 
 #include <asm-generic/memory_model.h>
 #endif /* _XTENSA_PAGE_H */

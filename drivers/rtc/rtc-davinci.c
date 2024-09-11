@@ -1,23 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * DaVinci Power Management and Real Time Clock Driver for TI platforms
  *
  * Copyright (C) 2009 Texas Instruments, Inc
  *
  * Author: Miguel Aguilar <miguel.aguilar@ridgerun.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -117,10 +104,8 @@
 static DEFINE_SPINLOCK(davinci_rtc_lock);
 
 struct davinci_rtc {
-	struct rtc_device 		*rtc;
+	struct rtc_device		*rtc;
 	void __iomem			*base;
-	resource_size_t			pbase;
-	size_t				base_size;
 	int				irq;
 };
 
@@ -242,7 +227,7 @@ davinci_rtc_ioctl(struct device *dev, unsigned int cmd, unsigned long arg)
 	return ret;
 }
 
-static int convertfromdays(u16 days, struct rtc_time *tm)
+static void convertfromdays(u16 days, struct rtc_time *tm)
 {
 	int tmp_days, year, mon;
 
@@ -265,24 +250,17 @@ static int convertfromdays(u16 days, struct rtc_time *tm)
 			break;
 		}
 	}
-	return 0;
 }
 
-static int convert2days(u16 *days, struct rtc_time *tm)
+static void convert2days(u16 *days, struct rtc_time *tm)
 {
 	int i;
 	*days = 0;
-
-	/* epoch == 1900 */
-	if (tm->tm_year < 100 || tm->tm_year > 199)
-		return -EINVAL;
 
 	for (i = 2000; i < 1900 + tm->tm_year; i++)
 		*days += rtc_year_days(1, 12, i);
 
 	*days += rtc_year_days(tm->tm_mday, tm->tm_mon, 1900 + tm->tm_year);
-
-	return 0;
 }
 
 static int davinci_rtc_read_time(struct device *dev, struct rtc_time *tm)
@@ -315,8 +293,7 @@ static int davinci_rtc_read_time(struct device *dev, struct rtc_time *tm)
 	days <<= 8;
 	days |= day0;
 
-	if (convertfromdays(days, tm) < 0)
-		return -EINVAL;
+	convertfromdays(days, tm);
 
 	return 0;
 }
@@ -328,8 +305,7 @@ static int davinci_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	u8 rtc_cctrl;
 	unsigned long flags;
 
-	if (convert2days(&days, tm) < 0)
-		return -EINVAL;
+	convert2days(&days, tm);
 
 	spin_lock_irqsave(&davinci_rtc_lock, flags);
 
@@ -390,6 +366,8 @@ static int davinci_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alm)
 	u8 day0, day1;
 	unsigned long flags;
 
+	alm->time.tm_sec = 0;
+
 	spin_lock_irqsave(&davinci_rtc_lock, flags);
 
 	davinci_rtcss_calendar_wait(davinci_rtc);
@@ -409,8 +387,7 @@ static int davinci_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alm)
 	days <<= 8;
 	days |= day0;
 
-	if (convertfromdays(days, &alm->time) < 0)
-		return -EINVAL;
+	convertfromdays(days, &alm->time);
 
 	alm->pending = !!(rtcss_read(davinci_rtc,
 			  PRTCSS_RTC_CCTRL) &
@@ -426,29 +403,7 @@ static int davinci_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alm)
 	unsigned long flags;
 	u16 days;
 
-	if (alm->time.tm_mday <= 0 && alm->time.tm_mon < 0
-	    && alm->time.tm_year < 0) {
-		struct rtc_time tm;
-		unsigned long now, then;
-
-		davinci_rtc_read_time(dev, &tm);
-		rtc_tm_to_time(&tm, &now);
-
-		alm->time.tm_mday = tm.tm_mday;
-		alm->time.tm_mon = tm.tm_mon;
-		alm->time.tm_year = tm.tm_year;
-		rtc_tm_to_time(&alm->time, &then);
-
-		if (then < now) {
-			rtc_time_to_tm(now + 24 * 60 * 60, &tm);
-			alm->time.tm_mday = tm.tm_mday;
-			alm->time.tm_mon = tm.tm_mon;
-			alm->time.tm_year = tm.tm_year;
-		}
-	}
-
-	if (convert2days(&days, &alm->time) < 0)
-		return -EINVAL;
+	convert2days(&days, &alm->time);
 
 	spin_lock_irqsave(&davinci_rtc_lock, flags);
 
@@ -469,7 +424,7 @@ static int davinci_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alm)
 	return 0;
 }
 
-static struct rtc_class_ops davinci_rtc_ops = {
+static const struct rtc_class_ops davinci_rtc_ops = {
 	.ioctl			= davinci_rtc_ioctl,
 	.read_time		= davinci_rtc_read_time,
 	.set_time		= davinci_rtc_set_time,
@@ -482,57 +437,29 @@ static int __init davinci_rtc_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct davinci_rtc *davinci_rtc;
-	struct resource *res, *mem;
 	int ret = 0;
 
-	davinci_rtc = kzalloc(sizeof(struct davinci_rtc), GFP_KERNEL);
-	if (!davinci_rtc) {
-		dev_dbg(dev, "could not allocate memory for private data\n");
+	davinci_rtc = devm_kzalloc(&pdev->dev, sizeof(struct davinci_rtc), GFP_KERNEL);
+	if (!davinci_rtc)
 		return -ENOMEM;
-	}
 
 	davinci_rtc->irq = platform_get_irq(pdev, 0);
-	if (davinci_rtc->irq < 0) {
-		dev_err(dev, "no RTC irq\n");
-		ret = davinci_rtc->irq;
-		goto fail1;
-	}
+	if (davinci_rtc->irq < 0)
+		return davinci_rtc->irq;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!res) {
-		dev_err(dev, "no mem resource\n");
-		ret = -EINVAL;
-		goto fail1;
-	}
-
-	davinci_rtc->pbase = res->start;
-	davinci_rtc->base_size = resource_size(res);
-
-	mem = request_mem_region(davinci_rtc->pbase, davinci_rtc->base_size,
-				 pdev->name);
-	if (!mem) {
-		dev_err(dev, "RTC registers at %08x are not free\n",
-			davinci_rtc->pbase);
-		ret = -EBUSY;
-		goto fail1;
-	}
-
-	davinci_rtc->base = ioremap(davinci_rtc->pbase, davinci_rtc->base_size);
-	if (!davinci_rtc->base) {
-		dev_err(dev, "unable to ioremap MEM resource\n");
-		ret = -ENOMEM;
-		goto fail2;
-	}
+	davinci_rtc->base = devm_platform_ioremap_resource(pdev, 0);
+	if (IS_ERR(davinci_rtc->base))
+		return PTR_ERR(davinci_rtc->base);
 
 	platform_set_drvdata(pdev, davinci_rtc);
 
-	davinci_rtc->rtc = rtc_device_register(pdev->name, &pdev->dev,
-				    &davinci_rtc_ops, THIS_MODULE);
-	if (IS_ERR(davinci_rtc->rtc)) {
-		dev_err(dev, "unable to register RTC device, err %ld\n",
-				PTR_ERR(davinci_rtc->rtc));
-		goto fail3;
-	}
+	davinci_rtc->rtc = devm_rtc_allocate_device(&pdev->dev);
+	if (IS_ERR(davinci_rtc->rtc))
+		return PTR_ERR(davinci_rtc->rtc);
+
+	davinci_rtc->rtc->ops = &davinci_rtc_ops;
+	davinci_rtc->rtc->range_min = RTC_TIMESTAMP_BEGIN_2000;
+	davinci_rtc->rtc->range_max = RTC_TIMESTAMP_BEGIN_2000 + (1 << 16) * 86400ULL - 1;
 
 	rtcif_write(davinci_rtc, PRTCIF_INTFLG_RTCSS, PRTCIF_INTFLG);
 	rtcif_write(davinci_rtc, 0, PRTCIF_INTEN);
@@ -541,11 +468,11 @@ static int __init davinci_rtc_probe(struct platform_device *pdev)
 	rtcss_write(davinci_rtc, 0, PRTCSS_RTC_CTRL);
 	rtcss_write(davinci_rtc, 0, PRTCSS_RTC_CCTRL);
 
-	ret = request_irq(davinci_rtc->irq, davinci_rtc_interrupt,
-			  IRQF_DISABLED, "davinci_rtc", davinci_rtc);
+	ret = devm_request_irq(dev, davinci_rtc->irq, davinci_rtc_interrupt,
+			  0, "davinci_rtc", davinci_rtc);
 	if (ret < 0) {
 		dev_err(dev, "unable to register davinci RTC interrupt\n");
-		goto fail4;
+		return ret;
 	}
 
 	/* Enable interrupts */
@@ -557,22 +484,10 @@ static int __init davinci_rtc_probe(struct platform_device *pdev)
 
 	device_init_wakeup(&pdev->dev, 0);
 
-	return 0;
-
-fail4:
-	rtc_device_unregister(davinci_rtc->rtc);
-fail3:
-	platform_set_drvdata(pdev, NULL);
-	iounmap(davinci_rtc->base);
-fail2:
-	release_mem_region(davinci_rtc->pbase, davinci_rtc->base_size);
-fail1:
-	kfree(davinci_rtc);
-
-	return ret;
+	return devm_rtc_register_device(davinci_rtc->rtc);
 }
 
-static int __devexit davinci_rtc_remove(struct platform_device *pdev)
+static int __exit davinci_rtc_remove(struct platform_device *pdev)
 {
 	struct davinci_rtc *davinci_rtc = platform_get_drvdata(pdev);
 
@@ -580,40 +495,17 @@ static int __devexit davinci_rtc_remove(struct platform_device *pdev)
 
 	rtcif_write(davinci_rtc, 0, PRTCIF_INTEN);
 
-	free_irq(davinci_rtc->irq, davinci_rtc);
-
-	rtc_device_unregister(davinci_rtc->rtc);
-
-	iounmap(davinci_rtc->base);
-	release_mem_region(davinci_rtc->pbase, davinci_rtc->base_size);
-
-	platform_set_drvdata(pdev, NULL);
-
-	kfree(davinci_rtc);
-
 	return 0;
 }
 
 static struct platform_driver davinci_rtc_driver = {
-	.probe		= davinci_rtc_probe,
-	.remove		= __devexit_p(davinci_rtc_remove),
+	.remove		= __exit_p(davinci_rtc_remove),
 	.driver		= {
 		.name = "rtc_davinci",
-		.owner = THIS_MODULE,
 	},
 };
 
-static int __init rtc_init(void)
-{
-	return platform_driver_probe(&davinci_rtc_driver, davinci_rtc_probe);
-}
-module_init(rtc_init);
-
-static void __exit rtc_exit(void)
-{
-	platform_driver_unregister(&davinci_rtc_driver);
-}
-module_exit(rtc_exit);
+module_platform_driver_probe(davinci_rtc_driver, davinci_rtc_probe);
 
 MODULE_AUTHOR("Miguel Aguilar <miguel.aguilar@ridgerun.com>");
 MODULE_DESCRIPTION("Texas Instruments DaVinci PRTC Driver");

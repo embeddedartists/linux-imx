@@ -1,12 +1,12 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Copyright (C) 2001, 2002 Jeff Dike (jdike@karaya.com)
- * Licensed under the GPL
  */
 
 #ifndef __MCONSOLE_KERN_H__
 #define __MCONSOLE_KERN_H__
 
-#include "linux/list.h"
+#include <linux/list.h>
 #include "mconsole.h"
 
 struct mconsole_entry {

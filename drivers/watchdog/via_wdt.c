@@ -1,8 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * VIA Chipset Watchdog Driver
  *
  * Copyright (C) 2011 Sigfox
- * License terms: GNU General Public License (GPL) version 2
  * Author: Marc Vertes <marc.vertes@sigfox.com>
  * Based on a preliminary version from Harald Welte <HaraldWelte@viatech.com>
  * Timer code by Wim Van Sebroeck <wim@iguana.be>
@@ -10,6 +10,9 @@
  * Caveat: PnP must be enabled in BIOS to allow full access to watchdog
  * control registers. If not, the watchdog must be configured in BIOS manually.
  */
+
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/device.h>
 #include <linux/io.h>
 #include <linux/jiffies.h>
@@ -27,7 +30,7 @@
 #define VIA_WDT_CONF_MMIO	0x02	/* 1: enable watchdog MMIO */
 
 /*
- * The MMIO region contains the watchog control register and the
+ * The MMIO region contains the watchdog control register and the
  * hardware timer counter.
  */
 #define VIA_WDT_MMIO_LEN	8	/* MMIO region length in bytes */
@@ -55,8 +58,8 @@ module_param(timeout, int, 0);
 MODULE_PARM_DESC(timeout, "Watchdog timeout in seconds, between 1 and 1023 "
 	"(default = " __MODULE_STRING(WDT_TIMEOUT) ")");
 
-static int nowayout = WATCHDOG_NOWAYOUT;
-module_param(nowayout, int, 0);
+static bool nowayout = WATCHDOG_NOWAYOUT;
+module_param(nowayout, bool, 0);
 MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started "
 	"(default = " __MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
 
@@ -64,8 +67,8 @@ static struct watchdog_device wdt_dev;
 static struct resource wdt_res;
 static void __iomem *wdt_mem;
 static unsigned int mmio;
-static void wdt_timer_tick(unsigned long data);
-static DEFINE_TIMER(timer, wdt_timer_tick, 0, 0);
+static void wdt_timer_tick(struct timer_list *unused);
+static DEFINE_TIMER(timer, wdt_timer_tick);
 					/* The timer that pings the watchdog */
 static unsigned long next_heartbeat;	/* the next_heartbeat for the timer */
 
@@ -79,16 +82,16 @@ static inline void wdt_reset(void)
 /*
  * Timer tick: the timer will make sure that the watchdog timer hardware
  * is being reset in time. The conditions to do this are:
- *  1) the watchog timer has been started and /dev/watchdog is open
+ *  1) the watchdog timer has been started and /dev/watchdog is open
  *     and there is still time left before userspace should send the
  *     next heartbeat/ping. (note: the internal heartbeat is much smaller
  *     then the external/userspace heartbeat).
  *  2) the watchdog timer has been stopped by userspace.
  */
-static void wdt_timer_tick(unsigned long data)
+static void wdt_timer_tick(struct timer_list *unused)
 {
 	if (time_before(jiffies, next_heartbeat) ||
-	   (!test_bit(WDOG_ACTIVE, &wdt_dev.status))) {
+	   (!watchdog_active(&wdt_dev))) {
 		wdt_reset();
 		mod_timer(&timer, jiffies + WDT_HEARTBEAT);
 	} else
@@ -98,7 +101,7 @@ static void wdt_timer_tick(unsigned long data)
 static int wdt_ping(struct watchdog_device *wdd)
 {
 	/* calculate when the next userspace timeout will be */
-	next_heartbeat = jiffies + timeout * HZ;
+	next_heartbeat = jiffies + wdd->timeout * HZ;
 	return 0;
 }
 
@@ -106,7 +109,7 @@ static int wdt_start(struct watchdog_device *wdd)
 {
 	unsigned int ctl = readl(wdt_mem);
 
-	writel(timeout, wdt_mem + VIA_WDT_COUNT);
+	writel(wdd->timeout, wdt_mem + VIA_WDT_COUNT);
 	writel(ctl | VIA_WDT_RUNNING | VIA_WDT_TRIGGER, wdt_mem);
 	wdt_ping(wdd);
 	mod_timer(&timer, jiffies + WDT_HEARTBEAT);
@@ -124,10 +127,8 @@ static int wdt_stop(struct watchdog_device *wdd)
 static int wdt_set_timeout(struct watchdog_device *wdd,
 			   unsigned int new_timeout)
 {
-	if (new_timeout < 1 || new_timeout > WDT_TIMEOUT_MAX)
-		return -EINVAL;
 	writel(new_timeout, wdt_mem + VIA_WDT_COUNT);
-	timeout = new_timeout;
+	wdd->timeout = new_timeout;
 	return 0;
 }
 
@@ -150,9 +151,11 @@ static const struct watchdog_ops wdt_ops = {
 static struct watchdog_device wdt_dev = {
 	.info =		&wdt_info,
 	.ops =		&wdt_ops,
+	.min_timeout =	1,
+	.max_timeout =	WDT_TIMEOUT_MAX,
 };
 
-static int __devinit wdt_probe(struct pci_dev *pdev,
+static int wdt_probe(struct pci_dev *pdev,
 			       const struct pci_device_id *ent)
 {
 	unsigned char conf;
@@ -199,7 +202,11 @@ static int __devinit wdt_probe(struct pci_dev *pdev,
 		goto err_out_release;
 	}
 
+	if (timeout < 1 || timeout > WDT_TIMEOUT_MAX)
+		timeout = WDT_TIMEOUT;
+
 	wdt_dev.timeout = timeout;
+	wdt_dev.parent = &pdev->dev;
 	watchdog_set_nowayout(&wdt_dev, nowayout);
 	if (readl(wdt_mem) & VIA_WDT_FIRED)
 		wdt_dev.bootstatus |= WDIOF_CARDRESET;
@@ -223,17 +230,17 @@ err_out_disable_device:
 	return ret;
 }
 
-static void __devexit wdt_remove(struct pci_dev *pdev)
+static void wdt_remove(struct pci_dev *pdev)
 {
 	watchdog_unregister_device(&wdt_dev);
-	del_timer(&timer);
+	del_timer_sync(&timer);
 	iounmap(wdt_mem);
 	release_mem_region(mmio, VIA_WDT_MMIO_LEN);
 	release_resource(&wdt_res);
 	pci_disable_device(pdev);
 }
 
-DEFINE_PCI_DEVICE_TABLE(wdt_pci_table) = {
+static const struct pci_device_id wdt_pci_table[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_VIA, PCI_DEVICE_ID_VIA_CX700) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_VIA, PCI_DEVICE_ID_VIA_VX800) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_VIA, PCI_DEVICE_ID_VIA_VX855) },
@@ -244,23 +251,10 @@ static struct pci_driver wdt_driver = {
 	.name		= "via_wdt",
 	.id_table	= wdt_pci_table,
 	.probe		= wdt_probe,
-	.remove		= __devexit_p(wdt_remove),
+	.remove		= wdt_remove,
 };
 
-static int __init wdt_init(void)
-{
-	if (timeout < 1 || timeout > WDT_TIMEOUT_MAX)
-		timeout = WDT_TIMEOUT;
-	return pci_register_driver(&wdt_driver);
-}
-
-static void __exit wdt_exit(void)
-{
-	pci_unregister_driver(&wdt_driver);
-}
-
-module_init(wdt_init);
-module_exit(wdt_exit);
+module_pci_driver(wdt_driver);
 
 MODULE_AUTHOR("Marc Vertes");
 MODULE_DESCRIPTION("Driver for watchdog timer on VIA chipset");

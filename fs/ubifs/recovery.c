@@ -1,20 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * This file is part of UBIFS.
  *
  * Copyright (C) 2006-2008 Nokia Corporation
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 as published by
- * the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc., 51
- * Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  *
  * Authors: Adrian Hunter
  *          Artem Bityutskiy (Битюцкий Артём)
@@ -212,11 +200,14 @@ static int write_rcvrd_mst_node(struct ubifs_info *c,
 	save_flags = mst->flags;
 	mst->flags |= cpu_to_le32(UBIFS_MST_RCVRY);
 
-	ubifs_prepare_node(c, mst, UBIFS_MST_NODE_SZ, 1);
-	err = ubifs_leb_change(c, lnum, mst, sz, UBI_SHORTTERM);
+	err = ubifs_prepare_node_hmac(c, mst, UBIFS_MST_NODE_SZ,
+				      offsetof(struct ubifs_mst_node, hmac), 1);
 	if (err)
 		goto out;
-	err = ubifs_leb_change(c, lnum + 1, mst, sz, UBI_SHORTTERM);
+	err = ubifs_leb_change(c, lnum, mst, sz);
+	if (err)
+		goto out;
+	err = ubifs_leb_change(c, lnum + 1, mst, sz);
 	if (err)
 		goto out;
 out:
@@ -264,9 +255,7 @@ int ubifs_recover_master_node(struct ubifs_info *c)
 			offs2 = (void *)mst2 - buf2;
 			if (offs1 == offs2) {
 				/* Same offset, so must be the same */
-				if (memcmp((void *)mst1 + UBIFS_CH_SZ,
-					   (void *)mst2 + UBIFS_CH_SZ,
-					   UBIFS_MST_NODE_SZ - UBIFS_CH_SZ))
+				if (ubifs_compare_master_node(c, mst1, mst2))
 					goto out_err;
 				mst = mst1;
 			} else if (offs2 + sz == offs1) {
@@ -305,7 +294,7 @@ int ubifs_recover_master_node(struct ubifs_info *c)
 		mst = mst2;
 	}
 
-	ubifs_msg("recovered master node from LEB %d",
+	ubifs_msg(c, "recovered master node from LEB %d",
 		  (mst == mst1 ? UBIFS_MST_LNUM : UBIFS_MST_LNUM + 1));
 
 	memcpy(c->mst_node, mst, UBIFS_MST_NODE_SZ);
@@ -360,14 +349,14 @@ int ubifs_recover_master_node(struct ubifs_info *c)
 out_err:
 	err = -EINVAL;
 out_free:
-	ubifs_err("failed to recover master node");
+	ubifs_err(c, "failed to recover master node");
 	if (mst1) {
-		dbg_err("dumping first master node");
-		dbg_dump_node(c, mst1);
+		ubifs_err(c, "dumping first master node");
+		ubifs_dump_node(c, mst1, c->leb_size - ((void *)mst1 - buf1));
 	}
 	if (mst2) {
-		dbg_err("dumping second master node");
-		dbg_dump_node(c, mst2);
+		ubifs_err(c, "dumping second master node");
+		ubifs_dump_node(c, mst2, c->leb_size - ((void *)mst2 - buf2));
 	}
 	vfree(buf2);
 	vfree(buf1);
@@ -442,10 +431,9 @@ static void clean_buf(const struct ubifs_info *c, void **buf, int lnum,
 {
 	int empty_offs, pad_len;
 
-	lnum = lnum;
 	dbg_rcvry("cleaning corruption at %d:%d", lnum, *offs);
 
-	ubifs_assert(!(*offs & 7));
+	ubifs_assert(c, !(*offs & 7));
 	empty_offs = ALIGN(*offs, c->min_io_size);
 	pad_len = empty_offs - *offs;
 	ubifs_pad(c, *buf, pad_len);
@@ -481,7 +469,7 @@ static int no_more_nodes(const struct ubifs_info *c, void *buf, int len,
 	 * The area after the common header size is not empty, so the common
 	 * header must be intact. Check it.
 	 */
-	if (ubifs_check_node(c, buf, lnum, offs, 1, 0) != -EUCLEAN) {
+	if (ubifs_check_node(c, buf, len, lnum, offs, 1, 0) != -EUCLEAN) {
 		dbg_rcvry("unexpected bad common header at %d:%d", lnum, offs);
 		return 0;
 	}
@@ -555,8 +543,7 @@ static int fix_unclean_leb(struct ubifs_info *c, struct ubifs_scan_leb *sleb,
 					ubifs_pad(c, buf, pad_len);
 				}
 			}
-			err = ubifs_leb_change(c, lnum, sleb->buf, len,
-					       UBI_UNKNOWN);
+			err = ubifs_leb_change(c, lnum, sleb->buf, len);
 			if (err)
 				return err;
 		}
@@ -597,7 +584,6 @@ static void drop_last_group(struct ubifs_scan_leb *sleb, int *offs)
  * drop_last_node - drop the last node.
  * @sleb: scanned LEB information
  * @offs: offset of dropped nodes is returned here
- * @grouped: non-zero if whole group of nodes have to be dropped
  *
  * This is a helper function for 'ubifs_recover_leb()' which drops the last
  * node of the scanned LEB.
@@ -610,7 +596,8 @@ static void drop_last_node(struct ubifs_scan_leb *sleb, int *offs)
 		snod = list_entry(sleb->nodes.prev, struct ubifs_scan_node,
 				  list);
 
-		dbg_rcvry("dropping last node at %d:%d", sleb->lnum, snod->offs);
+		dbg_rcvry("dropping last node at %d:%d",
+			  sleb->lnum, snod->offs);
 		*offs = snod->offs;
 		list_del(&snod->list);
 		kfree(snod);
@@ -629,8 +616,8 @@ static void drop_last_node(struct ubifs_scan_leb *sleb, int *offs)
  *
  * This function does a scan of a LEB, but caters for errors that might have
  * been caused by the unclean unmount from which we are attempting to recover.
- * Returns %0 in case of success, %-EUCLEAN if an unrecoverable corruption is
- * found, and a negative error code in case of failure.
+ * Returns the scanned information on success and a negative error code on
+ * failure.
  */
 struct ubifs_scan_leb *ubifs_recover_leb(struct ubifs_info *c, int lnum,
 					 int offs, void *sbuf, int jhead)
@@ -646,7 +633,7 @@ struct ubifs_scan_leb *ubifs_recover_leb(struct ubifs_info *c, int lnum,
 	if (IS_ERR(sleb))
 		return sleb;
 
-	ubifs_assert(len >= 8);
+	ubifs_assert(c, len >= 8);
 	while (len >= 8) {
 		dbg_scan("look at LEB %d:%d (%d bytes left)",
 			 lnum, offs, len);
@@ -679,10 +666,11 @@ struct ubifs_scan_leb *ubifs_recover_leb(struct ubifs_info *c, int lnum,
 			   ret == SCANNED_GARBAGE     ||
 			   ret == SCANNED_A_BAD_PAD_NODE ||
 			   ret == SCANNED_A_CORRUPT_NODE) {
-			dbg_rcvry("found corruption - %d", ret);
+			dbg_rcvry("found corruption (%d) at %d:%d",
+				  ret, lnum, offs);
 			break;
 		} else {
-			dbg_err("unexpected return value %d", ret);
+			ubifs_err(c, "unexpected return value %d", ret);
 			err = -EINVAL;
 			goto error;
 		}
@@ -702,8 +690,8 @@ struct ubifs_scan_leb *ubifs_recover_leb(struct ubifs_info *c, int lnum,
 			 * See header comment for this file for more
 			 * explanations about the reasons we have this check.
 			 */
-			ubifs_err("corrupt empty space LEB %d:%d, corruption "
-				  "starts at %d", lnum, offs, corruption);
+			ubifs_err(c, "corrupt empty space LEB %d:%d, corruption starts at %d",
+				  lnum, offs, corruption);
 			/* Make sure we dump interesting non-0xFF data */
 			offs += corruption;
 			buf += corruption;
@@ -788,13 +776,13 @@ struct ubifs_scan_leb *ubifs_recover_leb(struct ubifs_info *c, int lnum,
 
 corrupted_rescan:
 	/* Re-scan the corrupted data with verbose messages */
-	dbg_err("corruptio %d", ret);
-	ubifs_scan_a_node(c, buf, len, lnum, offs, 1);
+	ubifs_err(c, "corruption %d", ret);
+	ubifs_scan_a_node(c, buf, len, lnum, offs, 0);
 corrupted:
 	ubifs_scanned_corruption(c, lnum, offs, buf);
 	err = -EUCLEAN;
 error:
-	ubifs_err("LEB %d scanning failed", lnum);
+	ubifs_err(c, "LEB %d scanning failed", lnum);
 	ubifs_scan_destroy(sleb);
 	return ERR_PTR(err);
 }
@@ -826,17 +814,17 @@ static int get_cs_sqnum(struct ubifs_info *c, int lnum, int offs,
 		goto out_free;
 	ret = ubifs_scan_a_node(c, cs_node, UBIFS_CS_NODE_SZ, lnum, offs, 0);
 	if (ret != SCANNED_A_NODE) {
-		dbg_err("Not a valid node");
+		ubifs_err(c, "Not a valid node");
 		goto out_err;
 	}
 	if (cs_node->ch.node_type != UBIFS_CS_NODE) {
-		dbg_err("Node a CS node, type is %d", cs_node->ch.node_type);
+		ubifs_err(c, "Not a CS node, type is %d", cs_node->ch.node_type);
 		goto out_err;
 	}
 	if (le64_to_cpu(cs_node->cmt_no) != c->cmt_no) {
-		dbg_err("CS node cmt_no %llu != current cmt_no %llu",
-			(unsigned long long)le64_to_cpu(cs_node->cmt_no),
-			c->cmt_no);
+		ubifs_err(c, "CS node cmt_no %llu != current cmt_no %llu",
+			  (unsigned long long)le64_to_cpu(cs_node->cmt_no),
+			  c->cmt_no);
 		goto out_err;
 	}
 	*cs_sqnum = le64_to_cpu(cs_node->ch.sqnum);
@@ -847,7 +835,7 @@ static int get_cs_sqnum(struct ubifs_info *c, int lnum, int offs,
 out_err:
 	err = -EINVAL;
 out_free:
-	ubifs_err("failed to get CS sqnum");
+	ubifs_err(c, "failed to get CS sqnum");
 	kfree(cs_node);
 	return err;
 }
@@ -899,8 +887,8 @@ struct ubifs_scan_leb *ubifs_recover_log_leb(struct ubifs_info *c, int lnum,
 				}
 			}
 			if (snod->sqnum > cs_sqnum) {
-				ubifs_err("unrecoverable log corruption "
-					  "in LEB %d", lnum);
+				ubifs_err(c, "unrecoverable log corruption in LEB %d",
+					  lnum);
 				ubifs_scan_destroy(sleb);
 				return ERR_PTR(-EUCLEAN);
 			}
@@ -940,7 +928,7 @@ static int recover_head(struct ubifs_info *c, int lnum, int offs, void *sbuf)
 		err = ubifs_leb_read(c, lnum, sbuf, 0, offs, 1);
 		if (err)
 			return err;
-		return ubifs_leb_change(c, lnum, sbuf, offs, UBI_UNKNOWN);
+		return ubifs_leb_change(c, lnum, sbuf, offs);
 	}
 
 	return 0;
@@ -967,7 +955,7 @@ int ubifs_recover_inl_heads(struct ubifs_info *c, void *sbuf)
 {
 	int err;
 
-	ubifs_assert(!c->ro_mount || c->remounting_rw);
+	ubifs_assert(c, !c->ro_mount || c->remounting_rw);
 
 	dbg_rcvry("checking index head at %d:%d", c->ihead_lnum, c->ihead_offs);
 	err = recover_head(c, c->ihead_lnum, c->ihead_offs, sbuf);
@@ -975,11 +963,8 @@ int ubifs_recover_inl_heads(struct ubifs_info *c, void *sbuf)
 		return err;
 
 	dbg_rcvry("checking LPT head at %d:%d", c->nhead_lnum, c->nhead_offs);
-	err = recover_head(c, c->nhead_lnum, c->nhead_offs, sbuf);
-	if (err)
-		return err;
 
-	return 0;
+	return recover_head(c, c->nhead_lnum, c->nhead_offs, sbuf);
 }
 
 /**
@@ -1004,10 +989,7 @@ static int clean_an_unclean_leb(struct ubifs_info *c,
 
 	if (len == 0) {
 		/* Nothing to read, just unmap it */
-		err = ubifs_leb_unmap(c, lnum);
-		if (err)
-			return err;
-		return 0;
+		return ubifs_leb_unmap(c, lnum);
 	}
 
 	err = ubifs_leb_read(c, lnum, buf, offs, len, 0);
@@ -1043,7 +1025,7 @@ static int clean_an_unclean_leb(struct ubifs_info *c,
 		}
 
 		if (ret == SCANNED_EMPTY_SPACE) {
-			ubifs_err("unexpected empty space at %d:%d",
+			ubifs_err(c, "unexpected empty space at %d:%d",
 				  lnum, offs);
 			return -EUCLEAN;
 		}
@@ -1070,7 +1052,7 @@ static int clean_an_unclean_leb(struct ubifs_info *c,
 	}
 
 	/* Write back the LEB atomically */
-	err = ubifs_leb_change(c, lnum, sbuf, len, UBI_UNKNOWN);
+	err = ubifs_leb_change(c, lnum, sbuf, len);
 	if (err)
 		return err;
 
@@ -1137,9 +1119,9 @@ static int grab_empty_leb(struct ubifs_info *c)
 	 */
 	lnum = ubifs_find_free_leb_for_idx(c);
 	if (lnum < 0) {
-		dbg_err("could not find an empty LEB");
-		dbg_dump_lprops(c);
-		dbg_dump_budg(c, &c->bi);
+		ubifs_err(c, "could not find an empty LEB");
+		ubifs_dump_lprops(c);
+		ubifs_dump_budg(c, &c->bi);
 		return lnum;
 	}
 
@@ -1194,8 +1176,8 @@ int ubifs_rcvry_gc_commit(struct ubifs_info *c)
 		return grab_empty_leb(c);
 	}
 
-	ubifs_assert(!(lp.flags & LPROPS_INDEX));
-	ubifs_assert(lp.free + lp.dirty >= wbuf->offs);
+	ubifs_assert(c, !(lp.flags & LPROPS_INDEX));
+	ubifs_assert(c, lp.free + lp.dirty >= wbuf->offs);
 
 	/*
 	 * We run the commit before garbage collection otherwise subsequent
@@ -1217,13 +1199,13 @@ int ubifs_rcvry_gc_commit(struct ubifs_info *c)
 	}
 	mutex_unlock(&wbuf->io_mutex);
 	if (err < 0) {
-		dbg_err("GC failed, error %d", err);
+		ubifs_err(c, "GC failed, error %d", err);
 		if (err == -EAGAIN)
 			err = -EINVAL;
 		return err;
 	}
 
-	ubifs_assert(err == LEB_RETAINED);
+	ubifs_assert(c, err == LEB_RETAINED);
 	if (err != LEB_RETAINED)
 		return -EINVAL;
 
@@ -1334,29 +1316,13 @@ static void remove_ino(struct ubifs_info *c, ino_t inum)
  */
 void ubifs_destroy_size_tree(struct ubifs_info *c)
 {
-	struct rb_node *this = c->size_tree.rb_node;
-	struct size_entry *e;
+	struct size_entry *e, *n;
 
-	while (this) {
-		if (this->rb_left) {
-			this = this->rb_left;
-			continue;
-		} else if (this->rb_right) {
-			this = this->rb_right;
-			continue;
-		}
-		e = rb_entry(this, struct size_entry, rb);
-		if (e->inode)
-			iput(e->inode);
-		this = rb_parent(this);
-		if (this) {
-			if (this->rb_left == &e->rb)
-				this->rb_left = NULL;
-			else
-				this->rb_right = NULL;
-		}
+	rbtree_postorder_for_each_entry_safe(e, n, &c->size_tree, rb) {
+		iput(e->inode);
 		kfree(e);
 	}
+
 	c->size_tree = RB_ROOT;
 }
 
@@ -1471,7 +1437,7 @@ static int fix_size_in_place(struct ubifs_info *c, struct size_entry *e)
 		len -= 1;
 	len = ALIGN(len + 1, c->min_io_size);
 	/* Atomically write the fixed LEB back again */
-	err = ubifs_leb_change(c, lnum, c->sbuf, len, UBI_UNKNOWN);
+	err = ubifs_leb_change(c, lnum, c->sbuf, len);
 	if (err)
 		goto out;
 	dbg_rcvry("inode %lu at %d:%d size %lld -> %lld",
@@ -1479,21 +1445,87 @@ static int fix_size_in_place(struct ubifs_info *c, struct size_entry *e)
 	return 0;
 
 out:
-	ubifs_warn("inode %lu failed to fix size %lld -> %lld error %d",
+	ubifs_warn(c, "inode %lu failed to fix size %lld -> %lld error %d",
 		   (unsigned long)e->inum, e->i_size, e->d_size, err);
 	return err;
 }
 
 /**
+ * inode_fix_size - fix inode size
+ * @c: UBIFS file-system description object
+ * @e: inode size information for recovery
+ */
+static int inode_fix_size(struct ubifs_info *c, struct size_entry *e)
+{
+	struct inode *inode;
+	struct ubifs_inode *ui;
+	int err;
+
+	if (c->ro_mount)
+		ubifs_assert(c, !e->inode);
+
+	if (e->inode) {
+		/* Remounting rw, pick up inode we stored earlier */
+		inode = e->inode;
+	} else {
+		inode = ubifs_iget(c->vfs_sb, e->inum);
+		if (IS_ERR(inode))
+			return PTR_ERR(inode);
+
+		if (inode->i_size >= e->d_size) {
+			/*
+			 * The original inode in the index already has a size
+			 * big enough, nothing to do
+			 */
+			iput(inode);
+			return 0;
+		}
+
+		dbg_rcvry("ino %lu size %lld -> %lld",
+			  (unsigned long)e->inum,
+			  inode->i_size, e->d_size);
+
+		ui = ubifs_inode(inode);
+
+		inode->i_size = e->d_size;
+		ui->ui_size = e->d_size;
+		ui->synced_i_size = e->d_size;
+
+		e->inode = inode;
+	}
+
+	/*
+	 * In readonly mode just keep the inode pinned in memory until we go
+	 * readwrite. In readwrite mode write the inode to the journal with the
+	 * fixed size.
+	 */
+	if (c->ro_mount)
+		return 0;
+
+	err = ubifs_jnl_write_inode(c, inode);
+
+	iput(inode);
+
+	if (err)
+		return err;
+
+	rb_erase(&e->rb, &c->size_tree);
+	kfree(e);
+
+	return 0;
+}
+
+/**
  * ubifs_recover_size - recover inode size.
  * @c: UBIFS file-system description object
+ * @in_place: If true, do a in-place size fixup
  *
  * This function attempts to fix inode size discrepancies identified by the
  * 'ubifs_recover_size_accum()' function.
  *
  * This functions returns %0 on success and a negative error code on failure.
  */
-int ubifs_recover_size(struct ubifs_info *c)
+int ubifs_recover_size(struct ubifs_info *c, bool in_place)
 {
 	struct rb_node *this = rb_first(&c->size_tree);
 
@@ -1502,6 +1534,9 @@ int ubifs_recover_size(struct ubifs_info *c)
 		int err;
 
 		e = rb_entry(this, struct size_entry, rb);
+
+		this = rb_next(this);
+
 		if (!e->exists) {
 			union ubifs_key key;
 
@@ -1525,41 +1560,26 @@ int ubifs_recover_size(struct ubifs_info *c)
 		}
 
 		if (e->exists && e->i_size < e->d_size) {
-			if (c->ro_mount) {
-				/* Fix the inode size and pin it in memory */
-				struct inode *inode;
-				struct ubifs_inode *ui;
+			ubifs_assert(c, !(c->ro_mount && in_place));
 
-				ubifs_assert(!e->inode);
+			/*
+			 * We found data that is outside the found inode size,
+			 * fixup the inode size
+			 */
 
-				inode = ubifs_iget(c->vfs_sb, e->inum);
-				if (IS_ERR(inode))
-					return PTR_ERR(inode);
-
-				ui = ubifs_inode(inode);
-				if (inode->i_size < e->d_size) {
-					dbg_rcvry("ino %lu size %lld -> %lld",
-						  (unsigned long)e->inum,
-						  inode->i_size, e->d_size);
-					inode->i_size = e->d_size;
-					ui->ui_size = e->d_size;
-					ui->synced_i_size = e->d_size;
-					e->inode = inode;
-					this = rb_next(this);
-					continue;
-				}
-				iput(inode);
-			} else {
-				/* Fix the size in place */
+			if (in_place) {
 				err = fix_size_in_place(c, e);
 				if (err)
 					return err;
-				if (e->inode)
-					iput(e->inode);
+				iput(e->inode);
+			} else {
+				err = inode_fix_size(c, e);
+				if (err)
+					return err;
+				continue;
 			}
 		}
 
-		this = rb_next(this);
 		rb_erase(&e->rb, &c->size_tree);
 		kfree(e);
 	}

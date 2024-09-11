@@ -1,12 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Battery and Power Management code for the Sharp SL-C7xx
  *
  * Copyright (c) 2005 Richard Purdie
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
  */
 
 #include <linux/module.h>
@@ -19,6 +15,7 @@
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
 #include <linux/apm-emulation.h>
+#include <linux/io.h>
 
 #include <asm/irq.h>
 #include <asm/mach-types.h>
@@ -26,7 +23,7 @@
 
 #include <mach/corgi.h>
 #include <mach/pxa2xx-regs.h>
-#include <mach/sharpsl_pm.h>
+#include "sharpsl_pm.h"
 
 #include "generic.h"
 
@@ -130,16 +127,11 @@ static int corgi_should_wakeup(unsigned int resume_on_alarm)
 	return is_resume;
 }
 
-static unsigned long corgi_charger_wakeup(void)
+static bool corgi_charger_wakeup(void)
 {
-	unsigned long ret;
-
-	ret = (!gpio_get_value(CORGI_GPIO_AC_IN) << GPIO_bit(CORGI_GPIO_AC_IN))
-		| (!gpio_get_value(CORGI_GPIO_KEY_INT)
-		<< GPIO_bit(CORGI_GPIO_KEY_INT))
-		| (!gpio_get_value(CORGI_GPIO_WAKEUP)
-		<< GPIO_bit(CORGI_GPIO_WAKEUP));
-	return ret;
+	return !gpio_get_value(CORGI_GPIO_AC_IN) ||
+		!gpio_get_value(CORGI_GPIO_KEY_INT) ||
+		!gpio_get_value(CORGI_GPIO_WAKEUP);
 }
 
 unsigned long corgipm_read_devdata(int type)
@@ -197,7 +189,7 @@ static struct sharpsl_charger_machinfo corgi_pm_machinfo = {
 
 static struct platform_device *corgipm_device;
 
-static int __devinit corgipm_init(void)
+static int corgipm_init(void)
 {
 	int ret;
 

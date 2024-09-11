@@ -1,13 +1,13 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2007 Luca Bigliardi (shammash@artha.org).
- * Licensed under the GPL.
  */
 
 #include <stddef.h>
 #include <errno.h>
 #include <libvdeplug.h>
-#include "net_user.h"
-#include "um_malloc.h"
+#include <net_user.h>
+#include <um_malloc.h>
 #include "vde.h"
 
 static int vde_user_init(void *data, void *dev)

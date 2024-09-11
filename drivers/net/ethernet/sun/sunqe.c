@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /* sunqe.c: Sparc QuadEthernet 10baseT SBUS card driver.
  *          Once again I am out to prove that every ethernet
  *          controller out there can be most efficiently programmed
@@ -27,8 +28,8 @@
 #include <linux/dma-mapping.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
+#include <linux/pgtable.h>
 
-#include <asm/system.h>
 #include <asm/io.h>
 #include <asm/dma.h>
 #include <asm/byteorder.h>
@@ -36,7 +37,6 @@
 #include <asm/openprom.h>
 #include <asm/oplib.h>
 #include <asm/auxio.h>
-#include <asm/pgtable.h>
 #include <asm/irq.h>
 
 #include "sunqe.h"
@@ -125,7 +125,7 @@ static void qe_init_rings(struct sunqe *qep)
 {
 	struct qe_init_block *qb = qep->qe_block;
 	struct sunqe_buffers *qbufs = qep->buffers;
-	__u32 qbufs_dvma = qep->buffers_dvma;
+	__u32 qbufs_dvma = (__u32)qep->buffers_dvma;
 	int i;
 
 	qep->rx_new = qep->rx_old = qep->tx_new = qep->tx_old = 0;
@@ -145,6 +145,7 @@ static int qe_init(struct sunqe *qep, int from_irq)
 	void __iomem *mregs = qep->mregs;
 	void __iomem *gregs = qecp->gregs;
 	unsigned char *e = &qep->dev->dev_addr[0];
+	__u32 qblk_dvma = (__u32)qep->qblock_dvma;
 	u32 tmp;
 	int i;
 
@@ -153,8 +154,8 @@ static int qe_init(struct sunqe *qep, int from_irq)
 		return -EAGAIN;
 
 	/* Setup initial rx/tx init block pointers. */
-	sbus_writel(qep->qblock_dvma + qib_offset(qe_rxd, 0), cregs + CREG_RXDS);
-	sbus_writel(qep->qblock_dvma + qib_offset(qe_txd, 0), cregs + CREG_TXDS);
+	sbus_writel(qblk_dvma + qib_offset(qe_rxd, 0), cregs + CREG_RXDS);
+	sbus_writel(qblk_dvma + qib_offset(qe_txd, 0), cregs + CREG_TXDS);
 
 	/* Enable/mask the various irq's. */
 	sbus_writel(0, cregs + CREG_RIMASK);
@@ -414,8 +415,8 @@ static void qe_rx(struct sunqe *qep)
 	struct net_device *dev = qep->dev;
 	struct qe_rxd *this;
 	struct sunqe_buffers *qbufs = qep->buffers;
-	__u32 qbufs_dvma = qep->buffers_dvma;
-	int elem = qep->rx_new, drops = 0;
+	__u32 qbufs_dvma = (__u32)qep->buffers_dvma;
+	int elem = qep->rx_new;
 	u32 flags;
 
 	this = &rxbase[elem];
@@ -435,14 +436,13 @@ static void qe_rx(struct sunqe *qep)
 			dev->stats.rx_length_errors++;
 			dev->stats.rx_dropped++;
 		} else {
-			skb = dev_alloc_skb(len + 2);
+			skb = netdev_alloc_skb(dev, len + 2);
 			if (skb == NULL) {
-				drops++;
 				dev->stats.rx_dropped++;
 			} else {
 				skb_reserve(skb, 2);
 				skb_put(skb, len);
-				skb_copy_to_linear_data(skb, (unsigned char *) this_qbuf,
+				skb_copy_to_linear_data(skb, this_qbuf,
 						 len);
 				skb->protocol = eth_type_trans(skb, qep->dev);
 				netif_rx(skb);
@@ -457,8 +457,6 @@ static void qe_rx(struct sunqe *qep)
 		this = &rxbase[elem];
 	}
 	qep->rx_new = elem;
-	if (drops)
-		printk(KERN_NOTICE "%s: Memory squeeze, deferring packet.\n", qep->dev->name);
 }
 
 static void qe_tx_reclaim(struct sunqe *qep);
@@ -546,7 +544,7 @@ static void qe_tx_reclaim(struct sunqe *qep)
 	qep->tx_old = elem;
 }
 
-static void qe_tx_timeout(struct net_device *dev)
+static void qe_tx_timeout(struct net_device *dev, unsigned int txqueue)
 {
 	struct sunqe *qep = netdev_priv(dev);
 	int tx_full;
@@ -572,11 +570,11 @@ out:
 }
 
 /* Get a packet queued to go onto the wire. */
-static int qe_start_xmit(struct sk_buff *skb, struct net_device *dev)
+static netdev_tx_t qe_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct sunqe *qep = netdev_priv(dev);
 	struct sunqe_buffers *qbufs = qep->buffers;
-	__u32 txbuf_dvma, qbufs_dvma = qep->buffers_dvma;
+	__u32 txbuf_dvma, qbufs_dvma = (__u32)qep->buffers_dvma;
 	unsigned char *txbuf;
 	int len, entry;
 
@@ -686,13 +684,14 @@ static void qe_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *info)
 	struct sunqe *qep = netdev_priv(dev);
 	struct platform_device *op;
 
-	strcpy(info->driver, "sunqe");
-	strcpy(info->version, "3.0");
+	strlcpy(info->driver, "sunqe", sizeof(info->driver));
+	strlcpy(info->version, "3.0", sizeof(info->version));
 
 	op = qep->op;
 	regs = of_get_property(op->dev.of_node, "reg", NULL);
 	if (regs)
-		sprintf(info->bus_info, "SBUS:%d", regs->which_io);
+		snprintf(info->bus_info, sizeof(info->bus_info), "SBUS:%d",
+			 regs->which_io);
 
 }
 
@@ -745,7 +744,7 @@ static void qec_init_once(struct sunqec *qecp, struct platform_device *op)
 		    qecp->gregs + GLOB_RSIZE);
 }
 
-static u8 __devinit qec_get_burst(struct device_node *dp)
+static u8 qec_get_burst(struct device_node *dp)
 {
 	u8 bsizes, bsizes_more;
 
@@ -765,12 +764,12 @@ static u8 __devinit qec_get_burst(struct device_node *dp)
 	return bsizes;
 }
 
-static struct sunqec * __devinit get_qec(struct platform_device *child)
+static struct sunqec *get_qec(struct platform_device *child)
 {
 	struct platform_device *op = to_platform_device(child->dev.parent);
 	struct sunqec *qecp;
 
-	qecp = dev_get_drvdata(&op->dev);
+	qecp = platform_get_drvdata(op);
 	if (!qecp) {
 		qecp = kzalloc(sizeof(struct sunqec), GFP_KERNEL);
 		if (qecp) {
@@ -804,7 +803,7 @@ static struct sunqec * __devinit get_qec(struct platform_device *child)
 				goto fail;
 			}
 
-			dev_set_drvdata(&op->dev, qecp);
+			platform_set_drvdata(op, qecp);
 
 			qecp->next_module = root_qec_dev;
 			root_qec_dev = qecp;
@@ -826,12 +825,11 @@ static const struct net_device_ops qec_ops = {
 	.ndo_start_xmit		= qe_start_xmit,
 	.ndo_set_rx_mode	= qe_set_multicast,
 	.ndo_tx_timeout		= qe_tx_timeout,
-	.ndo_change_mtu		= eth_change_mtu,
 	.ndo_set_mac_address	= eth_mac_addr,
 	.ndo_validate_addr	= eth_validate_addr,
 };
 
-static int __devinit qec_ether_init(struct platform_device *op)
+static int qec_ether_init(struct platform_device *op)
 {
 	static unsigned version_printed;
 	struct net_device *dev;
@@ -846,7 +844,7 @@ static int __devinit qec_ether_init(struct platform_device *op)
 	if (!dev)
 		return -ENOMEM;
 
-	memcpy(dev->dev_addr, idprom->id_ethaddr, 6);
+	memcpy(dev->dev_addr, idprom->id_ethaddr, ETH_ALEN);
 
 	qe = netdev_priv(dev);
 
@@ -905,16 +903,10 @@ static int __devinit qec_ether_init(struct platform_device *op)
 	if (res)
 		goto fail;
 
-	dev_set_drvdata(&op->dev, qe);
+	platform_set_drvdata(op, qe);
 
-	printk(KERN_INFO "%s: qe channel[%d] ", dev->name, qe->channel);
-	for (i = 0; i < 6; i++)
-		printk ("%2.2x%c",
-			dev->dev_addr[i],
-			i == 5 ? ' ': ':');
-	printk("\n");
-
-
+	printk(KERN_INFO "%s: qe channel[%d] %pM\n", dev->name, qe->channel,
+	       dev->dev_addr);
 	return 0;
 
 fail:
@@ -936,14 +928,14 @@ fail:
 	return res;
 }
 
-static int __devinit qec_sbus_probe(struct platform_device *op)
+static int qec_sbus_probe(struct platform_device *op)
 {
 	return qec_ether_init(op);
 }
 
-static int __devexit qec_sbus_remove(struct platform_device *op)
+static int qec_sbus_remove(struct platform_device *op)
 {
-	struct sunqe *qp = dev_get_drvdata(&op->dev);
+	struct sunqe *qp = platform_get_drvdata(op);
 	struct net_device *net_dev = qp->dev;
 
 	unregister_netdev(net_dev);
@@ -956,8 +948,6 @@ static int __devexit qec_sbus_remove(struct platform_device *op)
 			  qp->buffers, qp->buffers_dvma);
 
 	free_netdev(net_dev);
-
-	dev_set_drvdata(&op->dev, NULL);
 
 	return 0;
 }
@@ -974,11 +964,10 @@ MODULE_DEVICE_TABLE(of, qec_sbus_match);
 static struct platform_driver qec_sbus_driver = {
 	.driver = {
 		.name = "qec",
-		.owner = THIS_MODULE,
 		.of_match_table = qec_sbus_match,
 	},
 	.probe		= qec_sbus_probe,
-	.remove		= __devexit_p(qec_sbus_remove),
+	.remove		= qec_sbus_remove,
 };
 
 static int __init qec_init(void)

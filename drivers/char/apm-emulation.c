@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * bios-less APM driver for ARM Linux
  *  Jamey Hicks <jamey@crl.dec.com>
@@ -30,14 +31,6 @@
 #include <linux/completion.h>
 #include <linux/kthread.h>
 #include <linux/delay.h>
-
-#include <asm/system.h>
-
-/*
- * The apm_bios device is one of the misc char devices.
- * This is its minor number.
- */
-#define APM_MINOR_DEV	134
 
 /*
  * One option can be changed at boot time as follows:
@@ -244,12 +237,12 @@ static ssize_t apm_read(struct file *fp, char __user *buf, size_t count, loff_t 
 	return ret;
 }
 
-static unsigned int apm_poll(struct file *fp, poll_table * wait)
+static __poll_t apm_poll(struct file *fp, poll_table * wait)
 {
 	struct apm_user *as = fp->private_data;
 
 	poll_wait(fp, &apm_waitqueue, wait);
-	return queue_empty(&as->queue) ? 0 : POLLIN | POLLRDNORM;
+	return queue_empty(&as->queue) ? 0 : EPOLLIN | EPOLLRDNORM;
 }
 
 /*
@@ -302,7 +295,7 @@ apm_ioctl(struct file *filp, u_int cmd, u_long arg)
 			 * anything critical, chill a bit on each iteration.
 			 */
 			while (wait_event_freezable(apm_suspend_waitqueue,
-					as->suspend_state == SUSPEND_DONE))
+					as->suspend_state != SUSPEND_ACKED))
 				msleep(10);
 			break;
 		case SUSPEND_ACKTO:
@@ -469,19 +462,6 @@ static int proc_apm_show(struct seq_file *m, void *v)
 
 	return 0;
 }
-
-static int proc_apm_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, proc_apm_show, NULL);
-}
-
-static const struct file_operations apm_proc_fops = {
-	.owner		= THIS_MODULE,
-	.open		= proc_apm_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
 #endif
 
 static int kapmd(void *arg)
@@ -532,6 +512,7 @@ static int apm_suspend_notifier(struct notifier_block *nb,
 {
 	struct apm_user *as;
 	int err;
+	unsigned long apm_event;
 
 	/* short-cut emergency suspends */
 	if (atomic_read(&userspace_notification_inhibit))
@@ -539,6 +520,9 @@ static int apm_suspend_notifier(struct notifier_block *nb,
 
 	switch (event) {
 	case PM_SUSPEND_PREPARE:
+	case PM_HIBERNATION_PREPARE:
+		apm_event = (event == PM_SUSPEND_PREPARE) ?
+			APM_USER_SUSPEND : APM_USER_HIBERNATION;
 		/*
 		 * Queue an event to all "writer" users that we want
 		 * to suspend and need their ack.
@@ -551,7 +535,7 @@ static int apm_suspend_notifier(struct notifier_block *nb,
 			    as->writer && as->suser) {
 				as->suspend_state = SUSPEND_PENDING;
 				atomic_inc(&suspend_acks_pending);
-				queue_add_event(&as->queue, APM_USER_SUSPEND);
+				queue_add_event(&as->queue, apm_event);
 			}
 		}
 
@@ -602,11 +586,14 @@ static int apm_suspend_notifier(struct notifier_block *nb,
 		return notifier_from_errno(err);
 
 	case PM_POST_SUSPEND:
+	case PM_POST_HIBERNATION:
+		apm_event = (event == PM_POST_SUSPEND) ?
+			APM_NORMAL_RESUME : APM_HIBERNATION_RESUME;
 		/*
 		 * Anyone on the APM queues will think we're still suspended.
 		 * Send a message so everyone knows we're now awake again.
 		 */
-		queue_event(APM_NORMAL_RESUME);
+		queue_event(apm_event);
 
 		/*
 		 * Finally, wake up anyone who is sleeping on the suspend.
@@ -658,7 +645,7 @@ static int __init apm_init(void)
 	wake_up_process(kapmd_tsk);
 
 #ifdef CONFIG_PROC_FS
-	proc_create("apm", 0, NULL, &apm_proc_fops);
+	proc_create_single("apm", 0, NULL, proc_apm_show);
 #endif
 
 	ret = misc_register(&apm_device);

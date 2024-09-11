@@ -1,14 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
 ** mux.c:
 **	serial driver for the Mux console found in some PA-RISC servers.
 **
 **	(c) Copyright 2002 Ryan Bradetich
 **	(c) Copyright 2002 Hewlett-Packard Company
-**
-** This program is free software; you can redistribute it and/or modify
-** it under the terms of the GNU General Public License as published by
-** the Free Software Foundation; either version 2 of the License, or
-** (at your option) any later version.
 **
 ** This Driver currently only supports the console (port 0) on the MUX.
 ** Additional work will be needed on this driver to enable the full
@@ -17,7 +13,6 @@
 */
 
 #include <linux/module.h>
-#include <linux/tty.h>
 #include <linux/ioport.h>
 #include <linux/init.h>
 #include <linux/serial.h>
@@ -26,15 +21,11 @@
 #include <linux/console.h>
 #include <linux/delay.h> /* for udelay */
 #include <linux/device.h>
-#include <asm/io.h>
+#include <linux/io.h>
 #include <asm/irq.h>
 #include <asm/parisc-device.h>
 
-#ifdef CONFIG_MAGIC_SYSRQ
 #include <linux/sysrq.h>
-#define SUPPORT_SYSRQ
-#endif
-
 #include <linux/serial_core.h>
 
 #define MUX_OFFSET 0x800
@@ -170,16 +161,6 @@ static void mux_stop_rx(struct uart_port *port)
 }
 
 /**
- * mux_enable_ms - Enable modum status interrupts.
- * @port: Ptr to the uart_port.
- *
- * The Serial Mux does not support this function.
- */
-static void mux_enable_ms(struct uart_port *port)
-{
-}
-
-/**
  * mux_break_ctl - Control the transmitssion of a break signal.
  * @port: Ptr to the uart_port.
  * @break_state: Raise/Lower the break signal.
@@ -243,8 +224,8 @@ static void mux_write(struct uart_port *port)
  */
 static void mux_read(struct uart_port *port)
 {
+	struct tty_port *tport = &port->state->port;
 	int data;
-	struct tty_struct *tty = port->state->port.tty;
 	__u32 start_count = port->icount.rx;
 
 	while(1) {
@@ -267,12 +248,11 @@ static void mux_read(struct uart_port *port)
 		if (uart_handle_sysrq_char(port, data & 0xffu))
 			continue;
 
-		tty_insert_flip_char(tty, data & 0xFF, TTY_NORMAL);
+		tty_insert_flip_char(tport, data & 0xFF, TTY_NORMAL);
 	}
 	
-	if (start_count != port->icount.rx) {
-		tty_flip_buffer_push(tty);
-	}
+	if (start_count != port->icount.rx)
+		tty_flip_buffer_push(tport);
 }
 
 /**
@@ -387,7 +367,7 @@ static int mux_verify_port(struct uart_port *port, struct serial_struct *ser)
  *
  * This function periodically polls the Serial MUX to check for new data.
  */
-static void mux_poll(unsigned long unused)
+static void mux_poll(struct timer_list *unused)
 {  
 	int i;
 
@@ -424,19 +404,14 @@ static int mux_console_setup(struct console *co, char *options)
         return 0;
 }
 
-struct tty_driver *mux_console_device(struct console *co, int *index)
-{
-        *index = co->index;
-	return mux_driver.tty_driver;
-}
-
 static struct console mux_console = {
 	.name =		"ttyB",
 	.write =	mux_console_write,
-	.device =	mux_console_device,
+	.device =	uart_console_device,
 	.setup =	mux_console_setup,
 	.flags =	CON_ENABLED | CON_PRINTBUFFER,
 	.index =	0,
+	.data =		&mux_driver,
 };
 
 #define MUX_CONSOLE	&mux_console
@@ -444,14 +419,13 @@ static struct console mux_console = {
 #define MUX_CONSOLE	NULL
 #endif
 
-static struct uart_ops mux_pops = {
+static const struct uart_ops mux_pops = {
 	.tx_empty =		mux_tx_empty,
 	.set_mctrl =		mux_set_mctrl,
 	.get_mctrl =		mux_get_mctrl,
 	.stop_tx =		mux_stop_tx,
 	.start_tx =		mux_start_tx,
 	.stop_rx =		mux_stop_rx,
-	.enable_ms =		mux_enable_ms,
 	.break_ctl =		mux_break_ctl,
 	.startup =		mux_startup,
 	.shutdown =		mux_shutdown,
@@ -496,15 +470,16 @@ static int __init mux_probe(struct parisc_device *dev)
 		port->iobase	= 0;
 		port->mapbase	= dev->hpa.start + MUX_OFFSET +
 						(i * MUX_LINE_OFFSET);
-		port->membase	= ioremap_nocache(port->mapbase, MUX_LINE_OFFSET);
+		port->membase	= ioremap(port->mapbase, MUX_LINE_OFFSET);
 		port->iotype	= UPIO_MEM;
 		port->type	= PORT_MUX;
-		port->irq	= NO_IRQ;
+		port->irq	= 0;
 		port->uartclk	= 0;
 		port->fifosize	= MUX_FIFO_SIZE;
 		port->ops	= &mux_pops;
 		port->flags	= UPF_BOOT_AUTOCONF;
 		port->line	= port_cnt;
+		port->has_sysrq = IS_ENABLED(CONFIG_SERIAL_MUX_CONSOLE);
 
 		/* The port->timeout needs to match what is present in
 		 * uart_wait_until_sent in serial_core.c.  Otherwise
@@ -521,7 +496,7 @@ static int __init mux_probe(struct parisc_device *dev)
 	return 0;
 }
 
-static int __devexit mux_remove(struct parisc_device *dev)
+static void __exit mux_remove(struct parisc_device *dev)
 {
 	int i, j;
 	int port_count = (long)dev_get_drvdata(&dev->dev);
@@ -543,7 +518,6 @@ static int __devexit mux_remove(struct parisc_device *dev)
 	}
 
 	release_mem_region(dev->hpa.start + MUX_OFFSET, port_count * MUX_LINE_OFFSET);
-	return 0;
 }
 
 /* Hack.  This idea was taken from the 8250_gsc.c on how to properly order
@@ -554,13 +528,13 @@ static int __devexit mux_remove(struct parisc_device *dev)
  * This table only contains the parisc_device_id of known builtin mux
  * devices.  All other mux cards will be detected by the generic mux_tbl.
  */
-static struct parisc_device_id builtin_mux_tbl[] = {
+static const struct parisc_device_id builtin_mux_tbl[] __initconst = {
 	{ HPHW_A_DIRECT, HVERSION_REV_ANY_ID, 0x15, 0x0000D }, /* All K-class */
 	{ HPHW_A_DIRECT, HVERSION_REV_ANY_ID, 0x44, 0x0000D }, /* E35, E45, and E55 */
 	{ 0, }
 };
 
-static struct parisc_device_id mux_tbl[] = {
+static const struct parisc_device_id mux_tbl[] __initconst = {
 	{ HPHW_A_DIRECT, HVERSION_REV_ANY_ID, HVERSION_ANY_ID, 0x0000D },
 	{ 0, }
 };
@@ -568,18 +542,18 @@ static struct parisc_device_id mux_tbl[] = {
 MODULE_DEVICE_TABLE(parisc, builtin_mux_tbl);
 MODULE_DEVICE_TABLE(parisc, mux_tbl);
 
-static struct parisc_driver builtin_serial_mux_driver = {
+static struct parisc_driver builtin_serial_mux_driver __refdata = {
 	.name =		"builtin_serial_mux",
 	.id_table =	builtin_mux_tbl,
 	.probe =	mux_probe,
-	.remove =       __devexit_p(mux_remove),
+	.remove =       __exit_p(mux_remove),
 };
 
-static struct parisc_driver serial_mux_driver = {
+static struct parisc_driver serial_mux_driver __refdata = {
 	.name =		"serial_mux",
 	.id_table =	mux_tbl,
 	.probe =	mux_probe,
-	.remove =       __devexit_p(mux_remove),
+	.remove =       __exit_p(mux_remove),
 };
 
 /**
@@ -594,8 +568,7 @@ static int __init mux_init(void)
 
 	if(port_cnt > 0) {
 		/* Start the Mux timer */
-		init_timer(&mux_timer);
-		mux_timer.function = mux_poll;
+		timer_setup(&mux_timer, mux_poll, 0);
 		mod_timer(&mux_timer, jiffies + MUX_POLL_DELAY);
 
 #ifdef CONFIG_SERIAL_MUX_CONSOLE
@@ -615,7 +588,7 @@ static void __exit mux_exit(void)
 {
 	/* Delete the Mux timer. */
 	if(port_cnt > 0) {
-		del_timer(&mux_timer);
+		del_timer_sync(&mux_timer);
 #ifdef CONFIG_SERIAL_MUX_CONSOLE
 		unregister_console(&mux_console);
 #endif

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * arch/arm/mach-iop32x/iq31244.c
  *
@@ -7,11 +8,6 @@
  * Copyright (C) 2002 Rory Bolt
  * Copyright 2003 (c) MontaVista, Software, Inc.
  * Copyright (C) 2004 Intel Corp.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
- * option) any later version.
  */
 
 #include <linux/mm.h>
@@ -26,7 +22,7 @@
 #include <linux/mtd/physmap.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
-#include <mach/hardware.h>
+#include <linux/gpio/machine.h>
 #include <asm/cputype.h>
 #include <asm/irq.h>
 #include <asm/mach/arch.h>
@@ -35,8 +31,10 @@
 #include <asm/mach/time.h>
 #include <asm/mach-types.h>
 #include <asm/page.h>
-#include <asm/pgtable.h>
-#include <mach/time.h>
+
+#include "hardware.h"
+#include "irqs.h"
+#include "gpio-iop32x.h"
 
 /*
  * Until March of 2007 iq31244 platforms and ep80219 platforms shared the
@@ -74,10 +72,6 @@ static void __init iq31244_timer_init(void)
 		iop_init_time(198000000);
 	}
 }
-
-static struct sys_timer iq31244_timer = {
-	.init		= iq31244_timer_init,
-};
 
 
 /*
@@ -130,11 +124,10 @@ ep80219_pci_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 }
 
 static struct hw_pci ep80219_pci __initdata = {
-	.swizzle	= pci_std_swizzle,
 	.nr_controllers = 1,
+	.ops		= &iop3xx_ops,
 	.setup		= iop3xx_pci_setup,
 	.preinit	= iop3xx_pci_preinit,
-	.scan		= iop3xx_pci_scan_bus,
 	.map_irq	= ep80219_pci_map_irq,
 };
 
@@ -166,11 +159,10 @@ iq31244_pci_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 }
 
 static struct hw_pci iq31244_pci __initdata = {
-	.swizzle	= pci_std_swizzle,
 	.nr_controllers = 1,
+	.ops		= &iop3xx_ops,
 	.setup		= iop3xx_pci_setup,
 	.preinit	= iop3xx_pci_preinit,
-	.scan		= iop3xx_pci_scan_bus,
 	.map_irq	= iq31244_pci_map_irq,
 };
 
@@ -289,6 +281,9 @@ void ep80219_power_off(void)
 
 static void __init iq31244_init_machine(void)
 {
+	register_iop32x_gpio();
+	gpiod_add_lookup_table(&iop3xx_i2c0_gpio_lookup);
+	gpiod_add_lookup_table(&iop3xx_i2c1_gpio_lookup);
 	platform_device_register(&iop3xx_i2c0_device);
 	platform_device_register(&iop3xx_i2c1_device);
 	platform_device_register(&iq31244_flash_device);
@@ -316,7 +311,7 @@ MACHINE_START(IQ31244, "Intel IQ31244")
 	.atag_offset	= 0x100,
 	.map_io		= iq31244_map_io,
 	.init_irq	= iop32x_init_irq,
-	.timer		= &iq31244_timer,
+	.init_time	= iq31244_timer_init,
 	.init_machine	= iq31244_init_machine,
 	.restart	= iop3xx_restart,
 MACHINE_END
@@ -331,7 +326,7 @@ MACHINE_START(EP80219, "Intel EP80219")
 	.atag_offset	= 0x100,
 	.map_io		= iq31244_map_io,
 	.init_irq	= iop32x_init_irq,
-	.timer		= &iq31244_timer,
+	.init_time	= iq31244_timer_init,
 	.init_machine	= iq31244_init_machine,
 	.restart	= iop3xx_restart,
 MACHINE_END

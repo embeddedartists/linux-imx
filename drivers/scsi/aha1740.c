@@ -53,7 +53,6 @@
 #include <linux/gfp.h>
 
 #include <asm/dma.h>
-#include <asm/system.h>
 #include <asm/io.h>
 
 #include "scsi.h"
@@ -107,33 +106,14 @@ static inline dma_addr_t ecb_cpu_to_dma (struct Scsi_Host *host, void *cpu)
 	return hdata->ecb_dma_addr + offset;
 }
 
-static int aha1740_proc_info(struct Scsi_Host *shpnt, char *buffer,
-			     char **start, off_t offset,
-			     int length, int inout)
+static int aha1740_show_info(struct seq_file *m, struct Scsi_Host *shpnt)
 {
-	int len;
-	struct aha1740_hostdata *host;
-
-	if (inout)
-		return-ENOSYS;
-
-	host = HOSTDATA(shpnt);
-
-	len = sprintf(buffer, "aha174x at IO:%lx, IRQ %d, SLOT %d.\n"
+	struct aha1740_hostdata *host = HOSTDATA(shpnt);
+	seq_printf(m, "aha174x at IO:%lx, IRQ %d, SLOT %d.\n"
 		      "Extended translation %sabled.\n",
 		      shpnt->io_port, shpnt->irq, host->edev->slot,
 		      host->translation ? "en" : "dis");
-
-	if (offset > len) {
-		*start = buffer;
-		return 0;
-	}
-
-	*start = buffer + offset;
-	len -= offset;
-	if (len > length)
-		len = length;
-	return len;
+	return 0;
 }
 
 static int aha1740_makecode(unchar *sense, unchar *status)
@@ -172,6 +152,7 @@ static int aha1740_makecode(unchar *sense, unchar *status)
 					retval=DID_ERROR; /* It's an Overrun */
 				/* If not overrun, assume underrun and
 				 * ignore it! */
+				break;
 			case 0x00: /* No info, assume no error, should
 				    * not occur */
 				break;
@@ -227,11 +208,11 @@ static int aha1740_test_port(unsigned int base)
 static irqreturn_t aha1740_intr_handle(int irq, void *dev_id)
 {
 	struct Scsi_Host *host = (struct Scsi_Host *) dev_id;
-        void (*my_done)(Scsi_Cmnd *);
+        void (*my_done)(struct scsi_cmnd *);
 	int errstatus, adapstat;
 	int number_serviced;
 	struct ecb *ecbptr;
-	Scsi_Cmnd *SCtmp;
+	struct scsi_cmnd *SCtmp;
 	unsigned int base;
 	unsigned long flags;
 	int handled = 0;
@@ -286,8 +267,11 @@ static irqreturn_t aha1740_intr_handle(int irq, void *dev_id)
 			   guarantee that we will still have it in the
 			   cdb when we come back */
 			if ( (adapstat & G2INTST_MASK) == G2INTST_CCBERROR ) {
-				memcpy(SCtmp->sense_buffer, ecbptr->sense, 
-				       SCSI_SENSE_BUFFERSIZE);
+				memcpy_and_pad(SCtmp->sense_buffer,
+					       SCSI_SENSE_BUFFERSIZE,
+					       ecbptr->sense,
+					       sizeof(ecbptr->sense),
+					       0);
 				errstatus = aha1740_makecode(ecbptr->sense,ecbptr->status);
 			} else
 				errstatus = 0;
@@ -331,7 +315,8 @@ static irqreturn_t aha1740_intr_handle(int irq, void *dev_id)
 	return IRQ_RETVAL(handled);
 }
 
-static int aha1740_queuecommand_lck(Scsi_Cmnd * SCpnt, void (*done)(Scsi_Cmnd *))
+static int aha1740_queuecommand_lck(struct scsi_cmnd * SCpnt,
+				    void (*done)(struct scsi_cmnd *))
 {
 	unchar direction;
 	unchar *cmd = (unchar *) SCpnt->cmnd;
@@ -540,7 +525,7 @@ static int aha1740_biosparam(struct scsi_device *sdev,
 	return 0;
 }
 
-static int aha1740_eh_abort_handler (Scsi_Cmnd *dummy)
+static int aha1740_eh_abort_handler (struct scsi_cmnd *dummy)
 {
 /*
  * From Alan Cox :
@@ -551,21 +536,19 @@ static int aha1740_eh_abort_handler (Scsi_Cmnd *dummy)
  * quiet as possible...
  */
 
-	return 0;
+	return SUCCESS;
 }
 
 static struct scsi_host_template aha1740_template = {
 	.module           = THIS_MODULE,
 	.proc_name        = "aha1740",
-	.proc_info        = aha1740_proc_info,
+	.show_info        = aha1740_show_info,
 	.name             = "Adaptec 174x (EISA)",
 	.queuecommand     = aha1740_queuecommand,
 	.bios_param       = aha1740_biosparam,
 	.can_queue        = AHA1740_ECBS,
 	.this_id          = 7,
 	.sg_tablesize     = AHA1740_SCATTER,
-	.cmd_per_lun      = AHA1740_CMDLUN,
-	.use_clustering   = ENABLE_CLUSTERING,
 	.eh_abort_handler = aha1740_eh_abort_handler,
 };
 
@@ -613,7 +596,6 @@ static int aha1740_probe (struct device *dev)
 					     DMA_BIDIRECTIONAL);
 	if (!host->ecb_dma_addr) {
 		printk (KERN_ERR "aha1740_probe: Couldn't map ECB, giving up\n");
-		scsi_unregister (shpnt);
 		goto err_host_put;
 	}
 	
@@ -647,7 +629,7 @@ static int aha1740_probe (struct device *dev)
 	return -ENODEV;
 }
 
-static __devexit int aha1740_remove (struct device *dev)
+static int aha1740_remove (struct device *dev)
 {
 	struct Scsi_Host *shpnt = dev_get_drvdata(dev);
 	struct aha1740_hostdata *host = HOSTDATA (shpnt);
@@ -678,7 +660,7 @@ static struct eisa_driver aha1740_driver = {
 	.driver   = {
 		.name    = "aha1740",
 		.probe   = aha1740_probe,
-		.remove  = __devexit_p (aha1740_remove),
+		.remove  = aha1740_remove,
 	},
 };
 

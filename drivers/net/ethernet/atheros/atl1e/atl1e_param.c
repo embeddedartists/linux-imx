@@ -1,22 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright(c) 2007 Atheros Corporation. All rights reserved.
  *
  * Derived from Intel e1000 driver
  * Copyright(c) 1999 - 2005 Intel Corporation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the Free
- * Software Foundation; either version 2 of the License, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc., 59
- * Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
 #include <linux/netdevice.h>
@@ -40,7 +27,7 @@
 #define ATL1E_PARAM_INIT { [0 ... ATL1E_MAX_NIC] = OPTION_UNSET }
 
 #define ATL1E_PARAM(x, desc) \
-	static int __devinitdata x[ATL1E_MAX_NIC + 1] = ATL1E_PARAM_INIT; \
+	static int x[ATL1E_MAX_NIC + 1] = ATL1E_PARAM_INIT; \
 	static unsigned int num_##x; \
 	module_param_array_named(x, x, int, &num_##x, 0); \
 	MODULE_PARM_DESC(x, desc);
@@ -116,7 +103,8 @@ struct atl1e_option {
 	} arg;
 };
 
-static int __devinit atl1e_validate_option(int *value, struct atl1e_option *opt, struct atl1e_adapter *adapter)
+static int atl1e_validate_option(int *value, struct atl1e_option *opt,
+				 struct atl1e_adapter *adapter)
 {
 	if (*value == OPTION_UNSET) {
 		*value = opt->def;
@@ -168,7 +156,7 @@ static int __devinit atl1e_validate_option(int *value, struct atl1e_option *opt,
 	return -1;
 }
 
-/*
+/**
  * atl1e_check_options - Range Checking for Command Line Parameters
  * @adapter: board private structure
  *
@@ -177,7 +165,7 @@ static int __devinit atl1e_validate_option(int *value, struct atl1e_option *opt,
  * value exists, a default value is used.  The final value is stored
  * in a variable in the adapter structure.
  */
-void __devinit atl1e_check_options(struct atl1e_adapter *adapter)
+void atl1e_check_options(struct atl1e_adapter *adapter)
 {
 	int bd = adapter->bd_number;
 

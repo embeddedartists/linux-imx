@@ -1,20 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /***************************************************************************
- *   Copyright (C) 2010-2011 Hans de Goede <hdegoede@redhat.com>           *
+ *   Copyright (C) 2010-2012 Hans de Goede <hdegoede@redhat.com>           *
  *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program; if not, write to the                         *
- *   Free Software Foundation, Inc.,                                       *
- *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -26,7 +13,17 @@
 #include <linux/io.h>
 #include <linux/acpi.h>
 #include <linux/delay.h>
+#include <linux/fs.h>
+#include <linux/watchdog.h>
+#include <linux/uaccess.h>
+#include <linux/slab.h>
 #include "sch56xx-common.h"
+
+/* Insmod parameters */
+static bool nowayout = WATCHDOG_NOWAYOUT;
+module_param(nowayout, bool, 0);
+MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default="
+	__MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
 
 #define SIO_SCH56XX_LD_EM	0x0C	/* Embedded uController Logical Dev */
 #define SIO_UNLOCK_KEY		0x55	/* Key to enable Super-I/O */
@@ -40,10 +37,27 @@
 #define SIO_SCH5627_ID		0xC6	/* Chipset ID */
 #define SIO_SCH5636_ID		0xC7	/* Chipset ID */
 
-#define REGION_LENGTH		9
+#define REGION_LENGTH		10
 
 #define SCH56XX_CMD_READ	0x02
 #define SCH56XX_CMD_WRITE	0x03
+
+/* Watchdog registers */
+#define SCH56XX_REG_WDOG_PRESET		0x58B
+#define SCH56XX_REG_WDOG_CONTROL	0x58C
+#define SCH56XX_WDOG_TIME_BASE_SEC	0x01
+#define SCH56XX_REG_WDOG_OUTPUT_ENABLE	0x58E
+#define SCH56XX_WDOG_OUTPUT_ENABLE	0x02
+
+struct sch56xx_watchdog_data {
+	u16 addr;
+	struct mutex *io_lock;
+	struct watchdog_info wdinfo;
+	struct watchdog_device wddev;
+	u8 watchdog_preset;
+	u8 watchdog_control;
+	u8 watchdog_output_enable;
+};
 
 static struct platform_device *sch56xx_pdev;
 
@@ -131,8 +145,8 @@ static int sch56xx_send_cmd(u16 addr, u8 cmd, u16 reg, u8 v)
 			break;
 	}
 	if (i == max_busy_polls + max_lazy_polls) {
-		pr_err("Max retries exceeded reading virtual "
-		       "register 0x%04hx (%d)\n", reg, 1);
+		pr_err("Max retries exceeded reading virtual register 0x%04hx (%d)\n",
+		       reg, 1);
 		return -EIO;
 	}
 
@@ -148,12 +162,12 @@ static int sch56xx_send_cmd(u16 addr, u8 cmd, u16 reg, u8 v)
 			break;
 
 		if (i == 0)
-			pr_warn("EC reports: 0x%02x reading virtual register "
-				"0x%04hx\n", (unsigned int)val, reg);
+			pr_warn("EC reports: 0x%02x reading virtual register 0x%04hx\n",
+				(unsigned int)val, reg);
 	}
 	if (i == max_busy_polls) {
-		pr_err("Max retries exceeded reading virtual "
-		       "register 0x%04hx (%d)\n", reg, 2);
+		pr_err("Max retries exceeded reading virtual register 0x%04hx (%d)\n",
+		       reg, 2);
 		return -EIO;
 	}
 
@@ -224,10 +238,220 @@ int sch56xx_read_virtual_reg12(u16 addr, u16 msb_reg, u16 lsn_reg,
 }
 EXPORT_SYMBOL(sch56xx_read_virtual_reg12);
 
-static int __init sch56xx_find(int sioaddr, unsigned short *address,
-			       const char **name)
+/*
+ * Watchdog routines
+ */
+
+static int watchdog_set_timeout(struct watchdog_device *wddev,
+				unsigned int timeout)
+{
+	struct sch56xx_watchdog_data *data = watchdog_get_drvdata(wddev);
+	unsigned int resolution;
+	u8 control;
+	int ret;
+
+	/* 1 second or 60 second resolution? */
+	if (timeout <= 255)
+		resolution = 1;
+	else
+		resolution = 60;
+
+	if (timeout < resolution || timeout > (resolution * 255))
+		return -EINVAL;
+
+	if (resolution == 1)
+		control = data->watchdog_control | SCH56XX_WDOG_TIME_BASE_SEC;
+	else
+		control = data->watchdog_control & ~SCH56XX_WDOG_TIME_BASE_SEC;
+
+	if (data->watchdog_control != control) {
+		mutex_lock(data->io_lock);
+		ret = sch56xx_write_virtual_reg(data->addr,
+						SCH56XX_REG_WDOG_CONTROL,
+						control);
+		mutex_unlock(data->io_lock);
+		if (ret)
+			return ret;
+
+		data->watchdog_control = control;
+	}
+
+	/*
+	 * Remember new timeout value, but do not write as that (re)starts
+	 * the watchdog countdown.
+	 */
+	data->watchdog_preset = DIV_ROUND_UP(timeout, resolution);
+	wddev->timeout = data->watchdog_preset * resolution;
+
+	return 0;
+}
+
+static int watchdog_start(struct watchdog_device *wddev)
+{
+	struct sch56xx_watchdog_data *data = watchdog_get_drvdata(wddev);
+	int ret;
+	u8 val;
+
+	/*
+	 * The sch56xx's watchdog cannot really be started / stopped
+	 * it is always running, but we can avoid the timer expiring
+	 * from causing a system reset by clearing the output enable bit.
+	 *
+	 * The sch56xx's watchdog will set the watchdog event bit, bit 0
+	 * of the second interrupt source register (at base-address + 9),
+	 * when the timer expires.
+	 *
+	 * This will only cause a system reset if the 0-1 flank happens when
+	 * output enable is true. Setting output enable after the flank will
+	 * not cause a reset, nor will the timer expiring a second time.
+	 * This means we must clear the watchdog event bit in case it is set.
+	 *
+	 * The timer may still be running (after a recent watchdog_stop) and
+	 * mere milliseconds away from expiring, so the timer must be reset
+	 * first!
+	 */
+
+	mutex_lock(data->io_lock);
+
+	/* 1. Reset the watchdog countdown counter */
+	ret = sch56xx_write_virtual_reg(data->addr, SCH56XX_REG_WDOG_PRESET,
+					data->watchdog_preset);
+	if (ret)
+		goto leave;
+
+	/* 2. Enable output */
+	val = data->watchdog_output_enable | SCH56XX_WDOG_OUTPUT_ENABLE;
+	ret = sch56xx_write_virtual_reg(data->addr,
+					SCH56XX_REG_WDOG_OUTPUT_ENABLE, val);
+	if (ret)
+		goto leave;
+
+	data->watchdog_output_enable = val;
+
+	/* 3. Clear the watchdog event bit if set */
+	val = inb(data->addr + 9);
+	if (val & 0x01)
+		outb(0x01, data->addr + 9);
+
+leave:
+	mutex_unlock(data->io_lock);
+	return ret;
+}
+
+static int watchdog_trigger(struct watchdog_device *wddev)
+{
+	struct sch56xx_watchdog_data *data = watchdog_get_drvdata(wddev);
+	int ret;
+
+	/* Reset the watchdog countdown counter */
+	mutex_lock(data->io_lock);
+	ret = sch56xx_write_virtual_reg(data->addr, SCH56XX_REG_WDOG_PRESET,
+					data->watchdog_preset);
+	mutex_unlock(data->io_lock);
+
+	return ret;
+}
+
+static int watchdog_stop(struct watchdog_device *wddev)
+{
+	struct sch56xx_watchdog_data *data = watchdog_get_drvdata(wddev);
+	int ret = 0;
+	u8 val;
+
+	val = data->watchdog_output_enable & ~SCH56XX_WDOG_OUTPUT_ENABLE;
+	mutex_lock(data->io_lock);
+	ret = sch56xx_write_virtual_reg(data->addr,
+					SCH56XX_REG_WDOG_OUTPUT_ENABLE, val);
+	mutex_unlock(data->io_lock);
+	if (ret)
+		return ret;
+
+	data->watchdog_output_enable = val;
+	return 0;
+}
+
+static const struct watchdog_ops watchdog_ops = {
+	.owner		= THIS_MODULE,
+	.start		= watchdog_start,
+	.stop		= watchdog_stop,
+	.ping		= watchdog_trigger,
+	.set_timeout	= watchdog_set_timeout,
+};
+
+void sch56xx_watchdog_register(struct device *parent, u16 addr, u32 revision,
+			       struct mutex *io_lock, int check_enabled)
+{
+	struct sch56xx_watchdog_data *data;
+	int err, control, output_enable;
+
+	/* Cache the watchdog registers */
+	mutex_lock(io_lock);
+	control =
+		sch56xx_read_virtual_reg(addr, SCH56XX_REG_WDOG_CONTROL);
+	output_enable =
+		sch56xx_read_virtual_reg(addr, SCH56XX_REG_WDOG_OUTPUT_ENABLE);
+	mutex_unlock(io_lock);
+
+	if (control < 0)
+		return;
+	if (output_enable < 0)
+		return;
+	if (check_enabled && !(output_enable & SCH56XX_WDOG_OUTPUT_ENABLE)) {
+		pr_warn("Watchdog not enabled by BIOS, not registering\n");
+		return;
+	}
+
+	data = devm_kzalloc(parent, sizeof(struct sch56xx_watchdog_data), GFP_KERNEL);
+	if (!data)
+		return;
+
+	data->addr = addr;
+	data->io_lock = io_lock;
+
+	strscpy(data->wdinfo.identity, "sch56xx watchdog", sizeof(data->wdinfo.identity));
+	data->wdinfo.firmware_version = revision;
+	data->wdinfo.options = WDIOF_KEEPALIVEPING | WDIOF_SETTIMEOUT;
+	if (!nowayout)
+		data->wdinfo.options |= WDIOF_MAGICCLOSE;
+
+	data->wddev.info = &data->wdinfo;
+	data->wddev.ops = &watchdog_ops;
+	data->wddev.parent = parent;
+	data->wddev.timeout = 60;
+	data->wddev.min_timeout = 1;
+	data->wddev.max_timeout = 255 * 60;
+	watchdog_set_nowayout(&data->wddev, nowayout);
+	if (output_enable & SCH56XX_WDOG_OUTPUT_ENABLE)
+		set_bit(WDOG_ACTIVE, &data->wddev.status);
+
+	/* Since the watchdog uses a downcounter there is no register to read
+	   the BIOS set timeout from (if any was set at all) ->
+	   Choose a preset which will give us a 1 minute timeout */
+	if (control & SCH56XX_WDOG_TIME_BASE_SEC)
+		data->watchdog_preset = 60; /* seconds */
+	else
+		data->watchdog_preset = 1; /* minute */
+
+	data->watchdog_control = control;
+	data->watchdog_output_enable = output_enable;
+
+	watchdog_set_drvdata(&data->wddev, data);
+	err = devm_watchdog_register_device(parent, &data->wddev);
+	if (err) {
+		pr_err("Registering watchdog chardev: %d\n", err);
+		devm_kfree(parent, data);
+	}
+}
+EXPORT_SYMBOL(sch56xx_watchdog_register);
+
+/*
+ * platform dev find, add and remove functions
+ */
+
+static int __init sch56xx_find(int sioaddr, const char **name)
 {
 	u8 devid;
+	unsigned short address;
 	int err;
 
 	err = superio_enter(sioaddr);
@@ -261,68 +485,49 @@ static int __init sch56xx_find(int sioaddr, unsigned short *address,
 	 * Warning the order of the low / high byte is the other way around
 	 * as on most other superio devices!!
 	 */
-	*address = superio_inb(sioaddr, SIO_REG_ADDR) |
+	address = superio_inb(sioaddr, SIO_REG_ADDR) |
 		   superio_inb(sioaddr, SIO_REG_ADDR + 1) << 8;
-	if (*address == 0) {
+	if (address == 0) {
 		pr_warn("Base address not set\n");
 		err = -ENODEV;
 		goto exit;
 	}
+	err = address;
 
 exit:
 	superio_exit(sioaddr);
 	return err;
 }
 
-static int __init sch56xx_device_add(unsigned short address, const char *name)
+static int __init sch56xx_device_add(int address, const char *name)
 {
 	struct resource res = {
 		.start	= address,
 		.end	= address + REGION_LENGTH - 1,
+		.name	= name,
 		.flags	= IORESOURCE_IO,
 	};
 	int err;
 
-	sch56xx_pdev = platform_device_alloc(name, address);
-	if (!sch56xx_pdev)
-		return -ENOMEM;
-
-	res.name = sch56xx_pdev->name;
 	err = acpi_check_resource_conflict(&res);
 	if (err)
-		goto exit_device_put;
+		return err;
 
-	err = platform_device_add_resources(sch56xx_pdev, &res, 1);
-	if (err) {
-		pr_err("Device resource addition failed\n");
-		goto exit_device_put;
-	}
+	sch56xx_pdev = platform_device_register_simple(name, -1, &res, 1);
 
-	err = platform_device_add(sch56xx_pdev);
-	if (err) {
-		pr_err("Device addition failed\n");
-		goto exit_device_put;
-	}
-
-	return 0;
-
-exit_device_put:
-	platform_device_put(sch56xx_pdev);
-
-	return err;
+	return PTR_ERR_OR_ZERO(sch56xx_pdev);
 }
 
 static int __init sch56xx_init(void)
 {
-	int err;
-	unsigned short address;
-	const char *name;
+	int address;
+	const char *name = NULL;
 
-	err = sch56xx_find(0x4e, &address, &name);
-	if (err)
-		err = sch56xx_find(0x2e, &address, &name);
-	if (err)
-		return err;
+	address = sch56xx_find(0x4e, &name);
+	if (address < 0)
+		address = sch56xx_find(0x2e, &name);
+	if (address < 0)
+		return address;
 
 	return sch56xx_device_add(address, name);
 }

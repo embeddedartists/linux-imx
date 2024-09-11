@@ -1,7 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) ST-Ericsson AB 2010
- * Author:	Sjur Brendeland/sjur.brandeland@stericsson.com
- * License terms: GNU General Public License (GPL) version 2
+ * Author:	Sjur Brendeland
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ":%s(): " fmt, __func__
@@ -33,8 +33,7 @@ struct cflayer *cfdgml_create(u8 channel_id, struct dev_info *dev_info)
 	cfsrvl_init(dgm, channel_id, dev_info, true);
 	dgm->layer.receive = cfdgml_receive;
 	dgm->layer.transmit = cfdgml_transmit;
-	snprintf(dgm->layer.name, CAIF_LAYER_NAME_SZ - 1, "dgm%d", channel_id);
-	dgm->layer.name[CAIF_LAYER_NAME_SZ - 1] = '\0';
+	snprintf(dgm->layer.name, CAIF_LAYER_NAME_SZ, "dgm%d", channel_id);
 	return &dgm->layer;
 }
 
@@ -86,12 +85,17 @@ static int cfdgml_transmit(struct cflayer *layr, struct cfpkt *pkt)
 	struct caif_payload_info *info;
 	struct cfsrvl *service = container_obj(layr);
 	int ret;
-	if (!cfsrvl_ready(service, &ret))
+
+	if (!cfsrvl_ready(service, &ret)) {
+		cfpkt_destroy(pkt);
 		return ret;
+	}
 
 	/* STE Modem cannot handle more than 1500 bytes datagrams */
-	if (cfpkt_getlen(pkt) > DGM_MTU)
+	if (cfpkt_getlen(pkt) > DGM_MTU) {
+		cfpkt_destroy(pkt);
 		return -EMSGSIZE;
+	}
 
 	cfpkt_add_head(pkt, &zero, 3);
 	packet_type = 0x08; /* B9 set - UNCLASSIFIED */

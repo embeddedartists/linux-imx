@@ -1,18 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (C) 2010 Texas Instruments Inc
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation version 2.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 #ifndef _VPBE_H
 #define _VPBE_H
@@ -35,7 +23,7 @@ struct osd_config_info {
 struct vpbe_output {
 	struct v4l2_output output;
 	/*
-	 * If output capabilities include dv_preset, list supported presets
+	 * If output capabilities include dv_timings, list supported timings
 	 * below
 	 */
 	char *subdev_name;
@@ -63,7 +51,7 @@ struct vpbe_output {
 	 * output basis. If per mode is needed, we may have to move this to
 	 * mode_info structure
 	 */
-	enum v4l2_mbus_pixelcode if_params;
+	u32 if_params;
 };
 
 /* encoder configuration info */
@@ -96,7 +84,7 @@ struct vpbe_config {
 	struct encoder_config_info *ext_encoders;
 	/* amplifier information goes here */
 	struct amp_config_info *amp;
-	int num_outputs;
+	unsigned int num_outputs;
 	/* Order is venc outputs followed by LCD and then external encoders */
 	struct vpbe_output *outputs;
 };
@@ -104,10 +92,6 @@ struct vpbe_config {
 struct vpbe_device;
 
 struct vpbe_device_ops {
-	/* crop cap for the display */
-	int (*g_cropcap)(struct vpbe_device *vpbe_dev,
-			 struct v4l2_cropcap *cropcap);
-
 	/* Enumerate the outputs */
 	int (*enum_outputs)(struct vpbe_device *vpbe_dev,
 			    struct v4l2_output *output);
@@ -120,19 +104,19 @@ struct vpbe_device_ops {
 	unsigned int (*get_output)(struct vpbe_device *vpbe_dev);
 
 	/* Set DV preset at current output */
-	int (*s_dv_preset)(struct vpbe_device *vpbe_dev,
-			   struct v4l2_dv_preset *dv_preset);
+	int (*s_dv_timings)(struct vpbe_device *vpbe_dev,
+			   struct v4l2_dv_timings *dv_timings);
 
 	/* Get DV presets supported at the output */
-	int (*g_dv_preset)(struct vpbe_device *vpbe_dev,
-			   struct v4l2_dv_preset *dv_preset);
+	int (*g_dv_timings)(struct vpbe_device *vpbe_dev,
+			   struct v4l2_dv_timings *dv_timings);
 
 	/* Enumerate the DV Presets supported at the output */
-	int (*enum_dv_presets)(struct vpbe_device *vpbe_dev,
-			       struct v4l2_dv_enum_preset *preset_info);
+	int (*enum_dv_timings)(struct vpbe_device *vpbe_dev,
+			       struct v4l2_enum_dv_timings *timings_info);
 
 	/* Set std at the output */
-	int (*s_std)(struct vpbe_device *vpbe_dev, v4l2_std_id *std_id);
+	int (*s_std)(struct vpbe_device *vpbe_dev, v4l2_std_id std_id);
 
 	/* Get the current std at the output */
 	int (*g_std)(struct vpbe_device *vpbe_dev, v4l2_std_id *std_id);

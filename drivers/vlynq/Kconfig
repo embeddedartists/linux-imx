@@ -1,5 +1,6 @@
+# SPDX-License-Identifier: GPL-2.0-only
 menu "TI VLYNQ"
-	depends on AR7 && EXPERIMENTAL
+	depends on AR7
 
 config VLYNQ
 	bool "TI VLYNQ bus support"

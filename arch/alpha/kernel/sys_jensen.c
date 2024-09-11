@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *	linux/arch/alpha/kernel/sys_jensen.c
  *
@@ -6,7 +7,12 @@
  *
  * Code supporting the Jensen.
  */
+#define __EXTERN_INLINE
+#include <asm/io.h>
+#include <asm/jensen.h>
+#undef  __EXTERN_INLINE
 
+#include <linux/interrupt.h>
 #include <linux/kernel.h>
 #include <linux/types.h>
 #include <linux/mm.h>
@@ -15,17 +21,10 @@
 #include <linux/init.h>
 
 #include <asm/ptrace.h>
-#include <asm/system.h>
-
-#define __EXTERN_INLINE inline
-#include <asm/io.h>
-#include <asm/jensen.h>
-#undef  __EXTERN_INLINE
 
 #include <asm/dma.h>
 #include <asm/irq.h>
 #include <asm/mmu_context.h>
-#include <asm/pgtable.h>
 #include <asm/tlbflush.h>
 
 #include "proto.h"
@@ -225,8 +224,6 @@ struct alpha_machine_vector jensen_mv __initmv = {
 	.machine_check		= jensen_machine_check,
 	.max_isa_dma_address	= ALPHA_MAX_ISA_DMA_ADDRESS,
 	.rtc_port		= 0x170,
-	.rtc_get_time		= common_get_rtc_time,
-	.rtc_set_time		= common_set_rtc_time,
 
 	.nr_irqs		= 16,
 	.device_interrupt	= jensen_device_interrupt,

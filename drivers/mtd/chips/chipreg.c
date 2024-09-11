@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Registration for chip drivers
  *
@@ -30,14 +31,11 @@ void unregister_mtd_chip_driver(struct mtd_chip_driver *drv)
 
 static struct mtd_chip_driver *get_mtd_chip_driver (const char *name)
 {
-	struct list_head *pos;
 	struct mtd_chip_driver *ret = NULL, *this;
 
 	spin_lock(&chip_drvs_lock);
 
-	list_for_each(pos, &chip_drvs_list) {
-		this = list_entry(pos, typeof(*this), list);
-
+	list_for_each_entry(this, &chip_drvs_list, list) {
 		if (!strcmp(this->name, name)) {
 			ret = this;
 			break;
@@ -76,10 +74,7 @@ struct mtd_info *do_map_probe(const char *name, struct map_info *map)
 	*/
 	module_put(drv->module);
 
-	if (ret)
-		return ret;
-
-	return NULL;
+	return ret;
 }
 /*
  * Destroy an MTD device which was created for a map device.

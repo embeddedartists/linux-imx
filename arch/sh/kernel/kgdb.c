@@ -1,19 +1,20 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * SuperH KGDB support
  *
- * Copyright (C) 2008 - 2009  Paul Mundt
+ * Copyright (C) 2008 - 2012  Paul Mundt
  *
  * Single stepping taken from the old stub by Henry Bell and Jeremy Siegel.
- *
- * This file is subject to the terms and conditions of the GNU General Public
- * License.  See the file "COPYING" in the main directory of this archive
- * for more details.
  */
 #include <linux/kgdb.h>
 #include <linux/kdebug.h>
 #include <linux/irq.h>
 #include <linux/io.h>
+#include <linux/sched.h>
+#include <linux/sched/task_stack.h>
+
 #include <asm/cacheflush.h>
+#include <asm/traps.h>
 
 /* Macros for single step instruction identification */
 #define OPCODE_BT(op)		(((op) & 0xff00) == 0x8900)
@@ -163,42 +164,89 @@ static void undo_single_step(struct pt_regs *linux_regs)
 	stepped_opcode = 0;
 }
 
-void pt_regs_to_gdb_regs(unsigned long *gdb_regs, struct pt_regs *regs)
+struct dbg_reg_def_t dbg_reg_def[DBG_MAX_REG_NUM] = {
+	{ "r0",		GDB_SIZEOF_REG, offsetof(struct pt_regs, regs[0]) },
+	{ "r1",		GDB_SIZEOF_REG, offsetof(struct pt_regs, regs[1]) },
+	{ "r2",		GDB_SIZEOF_REG, offsetof(struct pt_regs, regs[2]) },
+	{ "r3",		GDB_SIZEOF_REG, offsetof(struct pt_regs, regs[3]) },
+	{ "r4",		GDB_SIZEOF_REG, offsetof(struct pt_regs, regs[4]) },
+	{ "r5",		GDB_SIZEOF_REG, offsetof(struct pt_regs, regs[5]) },
+	{ "r6",		GDB_SIZEOF_REG, offsetof(struct pt_regs, regs[6]) },
+	{ "r7",		GDB_SIZEOF_REG, offsetof(struct pt_regs, regs[7]) },
+	{ "r8",		GDB_SIZEOF_REG, offsetof(struct pt_regs, regs[8]) },
+	{ "r9",		GDB_SIZEOF_REG, offsetof(struct pt_regs, regs[9]) },
+	{ "r10",	GDB_SIZEOF_REG, offsetof(struct pt_regs, regs[10]) },
+	{ "r11",	GDB_SIZEOF_REG, offsetof(struct pt_regs, regs[11]) },
+	{ "r12",	GDB_SIZEOF_REG, offsetof(struct pt_regs, regs[12]) },
+	{ "r13",	GDB_SIZEOF_REG, offsetof(struct pt_regs, regs[13]) },
+	{ "r14",	GDB_SIZEOF_REG, offsetof(struct pt_regs, regs[14]) },
+	{ "r15",	GDB_SIZEOF_REG, offsetof(struct pt_regs, regs[15]) },
+	{ "pc",		GDB_SIZEOF_REG, offsetof(struct pt_regs, pc) },
+	{ "pr",		GDB_SIZEOF_REG, offsetof(struct pt_regs, pr) },
+	{ "sr",		GDB_SIZEOF_REG, offsetof(struct pt_regs, sr) },
+	{ "gbr",	GDB_SIZEOF_REG, offsetof(struct pt_regs, gbr) },
+	{ "mach",	GDB_SIZEOF_REG, offsetof(struct pt_regs, mach) },
+	{ "macl",	GDB_SIZEOF_REG, offsetof(struct pt_regs, macl) },
+	{ "vbr",	GDB_SIZEOF_REG, -1 },
+};
+
+int dbg_set_reg(int regno, void *mem, struct pt_regs *regs)
 {
-	int i;
+	if (regno < 0 || regno >= DBG_MAX_REG_NUM)
+		return -EINVAL;
 
-	for (i = 0; i < 16; i++)
-		gdb_regs[GDB_R0 + i] = regs->regs[i];
+	if (dbg_reg_def[regno].offset != -1)
+		memcpy((void *)regs + dbg_reg_def[regno].offset, mem,
+		       dbg_reg_def[regno].size);
 
-	gdb_regs[GDB_PC] = regs->pc;
-	gdb_regs[GDB_PR] = regs->pr;
-	gdb_regs[GDB_SR] = regs->sr;
-	gdb_regs[GDB_GBR] = regs->gbr;
-	gdb_regs[GDB_MACH] = regs->mach;
-	gdb_regs[GDB_MACL] = regs->macl;
-
-	__asm__ __volatile__ ("stc vbr, %0" : "=r" (gdb_regs[GDB_VBR]));
+	return 0;
 }
 
-void gdb_regs_to_pt_regs(unsigned long *gdb_regs, struct pt_regs *regs)
+char *dbg_get_reg(int regno, void *mem, struct pt_regs *regs)
 {
-	int i;
+	if (regno >= DBG_MAX_REG_NUM || regno < 0)
+		return NULL;
 
-	for (i = 0; i < 16; i++)
-		regs->regs[GDB_R0 + i] = gdb_regs[GDB_R0 + i];
+	if (dbg_reg_def[regno].size != -1)
+		memcpy(mem, (void *)regs + dbg_reg_def[regno].offset,
+		       dbg_reg_def[regno].size);
 
-	regs->pc = gdb_regs[GDB_PC];
-	regs->pr = gdb_regs[GDB_PR];
-	regs->sr = gdb_regs[GDB_SR];
-	regs->gbr = gdb_regs[GDB_GBR];
-	regs->mach = gdb_regs[GDB_MACH];
-	regs->macl = gdb_regs[GDB_MACL];
+	switch (regno) {
+	case GDB_VBR:
+		__asm__ __volatile__ ("stc vbr, %0" : "=r" (mem));
+		break;
+	}
+
+	return dbg_reg_def[regno].name;
 }
 
 void sleeping_thread_to_gdb_regs(unsigned long *gdb_regs, struct task_struct *p)
 {
+	struct pt_regs *thread_regs = task_pt_regs(p);
+	int reg;
+
+	/* Initialize to zero */
+	for (reg = 0; reg < DBG_MAX_REG_NUM; reg++)
+		gdb_regs[reg] = 0;
+
+	/*
+	 * Copy out GP regs 8 to 14.
+	 *
+	 * switch_to() relies on SR.RB toggling, so regs 0->7 are banked
+	 * and need privileged instructions to get to. The r15 value we
+	 * fetch from the thread info directly.
+	 */
+	for (reg = GDB_R8; reg < GDB_R15; reg++)
+		gdb_regs[reg] = thread_regs->regs[reg];
+
 	gdb_regs[GDB_R15] = p->thread.sp;
 	gdb_regs[GDB_PC] = p->thread.pc;
+
+	/*
+	 * Additional registers we have context for
+	 */
+	gdb_regs[GDB_PR] = thread_regs->pr;
+	gdb_regs[GDB_GBR] = thread_regs->gbr;
 }
 
 int kgdb_arch_handle_exception(int e_vector, int signo, int err_code,
@@ -218,6 +266,7 @@ int kgdb_arch_handle_exception(int e_vector, int signo, int err_code,
 		ptr = &remcomInBuffer[1];
 		if (kgdb_hex2long(&ptr, &addr))
 			linux_regs->pc = addr;
+		fallthrough;
 	case 'D':
 	case 'k':
 		atomic_set(&kgdb_cpu_doing_single_step, -1);
@@ -319,7 +368,7 @@ void kgdb_arch_exit(void)
 	unregister_die_notifier(&kgdb_notifier);
 }
 
-struct kgdb_arch arch_kgdb_ops = {
+const struct kgdb_arch arch_kgdb_ops = {
 	/* Breakpoint instruction: trapa #0x3c */
 #ifdef CONFIG_CPU_LITTLE_ENDIAN
 	.gdb_bpt_instr		= { 0x3c, 0xc3 },

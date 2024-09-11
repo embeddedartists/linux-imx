@@ -1,8 +1,10 @@
-/* bnx2fc_hwi.c: Broadcom NetXtreme II Linux FCoE offload driver.
+/* bnx2fc_hwi.c: QLogic Linux FCoE offload driver.
  * This file contains the code that low level functions that interact
  * with 57712 FCoE firmware.
  *
- * Copyright (c) 2008 - 2011 Broadcom Corporation
+ * Copyright (c) 2008-2013 Broadcom Corporation
+ * Copyright (c) 2014-2016 QLogic Corporation
+ * Copyright (c) 2016-2017 Cavium Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -77,7 +79,7 @@ int bnx2fc_send_fw_fcoe_init_msg(struct bnx2fc_hba *hba)
 	fcoe_init1.hdr.flags = (FCOE_KWQE_LAYER_CODE <<
 					FCOE_KWQE_HEADER_LAYER_CODE_SHIFT);
 
-	fcoe_init1.num_tasks = BNX2FC_MAX_TASKS;
+	fcoe_init1.num_tasks = hba->max_tasks;
 	fcoe_init1.sq_num_wqes = BNX2FC_SQ_WQES_MAX;
 	fcoe_init1.rq_num_wqes = BNX2FC_RQ_WQES_MAX;
 	fcoe_init1.rq_buffer_log_size = BNX2FC_RQ_BUF_LOG_SZ;
@@ -126,7 +128,11 @@ int bnx2fc_send_fw_fcoe_init_msg(struct bnx2fc_hba *hba)
 	fcoe_init3.error_bit_map_lo = 0xffffffff;
 	fcoe_init3.error_bit_map_hi = 0xffffffff;
 
-	fcoe_init3.perf_config = 1;
+	/*
+	 * enable both cached connection and cached tasks
+	 * 0 = none, 1 = cached connection, 2 = cached tasks, 3 = both
+	 */
+	fcoe_init3.perf_config = 3;
 
 	kwqe_arr[0] = (struct kwqe *) &fcoe_init1;
 	kwqe_arr[1] = (struct kwqe *) &fcoe_init2;
@@ -167,6 +173,7 @@ int bnx2fc_send_session_ofld_req(struct fcoe_port *port,
 {
 	struct fc_lport *lport = port->lport;
 	struct bnx2fc_interface *interface = port->priv;
+	struct fcoe_ctlr *ctlr = bnx2fc_to_ctlr(interface);
 	struct bnx2fc_hba *hba = interface->hba;
 	struct kwqe *kwqe_arr[4];
 	struct fcoe_kwqe_conn_offload1 ofld_req1;
@@ -295,7 +302,7 @@ int bnx2fc_send_session_ofld_req(struct fcoe_port *port,
 	ofld_req3.flags |= (interface->vlan_enabled <<
 			    FCOE_KWQE_CONN_OFFLOAD3_B_VLAN_FLAG_SHIFT);
 
-	/* C2_VALID and ACK flags are not set as they are not suppported */
+	/* C2_VALID and ACK flags are not set as they are not supported */
 
 
 	/* Initialize offload request 4 structure */
@@ -314,13 +321,13 @@ int bnx2fc_send_session_ofld_req(struct fcoe_port *port,
 	ofld_req4.src_mac_addr_mid[1] =  port->data_src_addr[2];
 	ofld_req4.src_mac_addr_hi[0] =  port->data_src_addr[1];
 	ofld_req4.src_mac_addr_hi[1] =  port->data_src_addr[0];
-	ofld_req4.dst_mac_addr_lo[0] =  interface->ctlr.dest_addr[5];
+	ofld_req4.dst_mac_addr_lo[0] =  ctlr->dest_addr[5];
 							/* fcf mac */
-	ofld_req4.dst_mac_addr_lo[1] =  interface->ctlr.dest_addr[4];
-	ofld_req4.dst_mac_addr_mid[0] =  interface->ctlr.dest_addr[3];
-	ofld_req4.dst_mac_addr_mid[1] =  interface->ctlr.dest_addr[2];
-	ofld_req4.dst_mac_addr_hi[0] =  interface->ctlr.dest_addr[1];
-	ofld_req4.dst_mac_addr_hi[1] =  interface->ctlr.dest_addr[0];
+	ofld_req4.dst_mac_addr_lo[1] = ctlr->dest_addr[4];
+	ofld_req4.dst_mac_addr_mid[0] = ctlr->dest_addr[3];
+	ofld_req4.dst_mac_addr_mid[1] = ctlr->dest_addr[2];
+	ofld_req4.dst_mac_addr_hi[0] = ctlr->dest_addr[1];
+	ofld_req4.dst_mac_addr_hi[1] = ctlr->dest_addr[0];
 
 	ofld_req4.lcq_addr_lo = (u32) tgt->lcq_dma;
 	ofld_req4.lcq_addr_hi = (u32)((u64) tgt->lcq_dma >> 32);
@@ -346,11 +353,12 @@ int bnx2fc_send_session_ofld_req(struct fcoe_port *port,
  * @port:		port structure pointer
  * @tgt:		bnx2fc_rport structure pointer
  */
-static int bnx2fc_send_session_enable_req(struct fcoe_port *port,
+int bnx2fc_send_session_enable_req(struct fcoe_port *port,
 					struct bnx2fc_rport *tgt)
 {
 	struct kwqe *kwqe_arr[2];
 	struct bnx2fc_interface *interface = port->priv;
+	struct fcoe_ctlr *ctlr = bnx2fc_to_ctlr(interface);
 	struct bnx2fc_hba *hba = interface->hba;
 	struct fcoe_kwqe_conn_enable_disable enbl_req;
 	struct fc_lport *lport = port->lport;
@@ -374,12 +382,12 @@ static int bnx2fc_send_session_enable_req(struct fcoe_port *port,
 	enbl_req.src_mac_addr_hi[1] =  port->data_src_addr[0];
 	memcpy(tgt->src_addr, port->data_src_addr, ETH_ALEN);
 
-	enbl_req.dst_mac_addr_lo[0] =  interface->ctlr.dest_addr[5];
-	enbl_req.dst_mac_addr_lo[1] =  interface->ctlr.dest_addr[4];
-	enbl_req.dst_mac_addr_mid[0] =  interface->ctlr.dest_addr[3];
-	enbl_req.dst_mac_addr_mid[1] =  interface->ctlr.dest_addr[2];
-	enbl_req.dst_mac_addr_hi[0] =  interface->ctlr.dest_addr[1];
-	enbl_req.dst_mac_addr_hi[1] =  interface->ctlr.dest_addr[0];
+	enbl_req.dst_mac_addr_lo[0] =  ctlr->dest_addr[5];
+	enbl_req.dst_mac_addr_lo[1] =  ctlr->dest_addr[4];
+	enbl_req.dst_mac_addr_mid[0] = ctlr->dest_addr[3];
+	enbl_req.dst_mac_addr_mid[1] = ctlr->dest_addr[2];
+	enbl_req.dst_mac_addr_hi[0] = ctlr->dest_addr[1];
+	enbl_req.dst_mac_addr_hi[1] = ctlr->dest_addr[0];
 
 	port_id = fc_host_port_id(lport->host);
 	if (port_id != tgt->sid) {
@@ -419,6 +427,7 @@ int bnx2fc_send_session_disable_req(struct fcoe_port *port,
 				    struct bnx2fc_rport *tgt)
 {
 	struct bnx2fc_interface *interface = port->priv;
+	struct fcoe_ctlr *ctlr = bnx2fc_to_ctlr(interface);
 	struct bnx2fc_hba *hba = interface->hba;
 	struct fcoe_kwqe_conn_enable_disable disable_req;
 	struct kwqe *kwqe_arr[2];
@@ -440,12 +449,12 @@ int bnx2fc_send_session_disable_req(struct fcoe_port *port,
 	disable_req.src_mac_addr_hi[0] =  tgt->src_addr[1];
 	disable_req.src_mac_addr_hi[1] =  tgt->src_addr[0];
 
-	disable_req.dst_mac_addr_lo[0] =  interface->ctlr.dest_addr[5];
-	disable_req.dst_mac_addr_lo[1] =  interface->ctlr.dest_addr[4];
-	disable_req.dst_mac_addr_mid[0] =  interface->ctlr.dest_addr[3];
-	disable_req.dst_mac_addr_mid[1] =  interface->ctlr.dest_addr[2];
-	disable_req.dst_mac_addr_hi[0] =  interface->ctlr.dest_addr[1];
-	disable_req.dst_mac_addr_hi[1] =  interface->ctlr.dest_addr[0];
+	disable_req.dst_mac_addr_lo[0] =  ctlr->dest_addr[5];
+	disable_req.dst_mac_addr_lo[1] =  ctlr->dest_addr[4];
+	disable_req.dst_mac_addr_mid[0] = ctlr->dest_addr[3];
+	disable_req.dst_mac_addr_mid[1] = ctlr->dest_addr[2];
+	disable_req.dst_mac_addr_hi[0] = ctlr->dest_addr[1];
+	disable_req.dst_mac_addr_hi[1] = ctlr->dest_addr[0];
 
 	port_id = tgt->sid;
 	disable_req.s_id[0] = (port_id & 0x000000FF);
@@ -476,7 +485,7 @@ int bnx2fc_send_session_disable_req(struct fcoe_port *port,
 /**
  * bnx2fc_send_session_destroy_req - initiates FCoE Session destroy
  *
- * @port:		port structure pointer
+ * @hba:		adapter structure pointer
  * @tgt:		bnx2fc_rport structure pointer
  */
 int bnx2fc_send_session_destroy_req(struct bnx2fc_hba *hba,
@@ -624,10 +633,8 @@ static void bnx2fc_process_unsol_compl(struct bnx2fc_rport *tgt, u16 wqe)
 	u16 xid;
 	u32 frame_len, len;
 	struct bnx2fc_cmd *io_req = NULL;
-	struct fcoe_task_ctx_entry *task, *task_page;
 	struct bnx2fc_interface *interface = tgt->port->priv;
 	struct bnx2fc_hba *hba = interface->hba;
-	int task_idx, index;
 	int rc = 0;
 	u64 err_warn_bit_map;
 	u8 err_warn = 0xff;
@@ -693,18 +700,12 @@ static void bnx2fc_process_unsol_compl(struct bnx2fc_rport *tgt, u16 wqe)
 		BNX2FC_TGT_DBG(tgt, "buf_offsets - tx = 0x%x, rx = 0x%x\n",
 			err_entry->data.tx_buf_off, err_entry->data.rx_buf_off);
 
-
-		if (xid > BNX2FC_MAX_XID) {
+		if (xid > hba->max_xid) {
 			BNX2FC_TGT_DBG(tgt, "xid(0x%x) out of FW range\n",
 				   xid);
 			goto ret_err_rqe;
 		}
 
-		task_idx = xid / BNX2FC_TASKS_PER_PAGE;
-		index = xid % BNX2FC_TASKS_PER_PAGE;
-		task_page = (struct fcoe_task_ctx_entry *)
-					hba->task_ctx[task_idx];
-		task = &(task_page[index]);
 
 		io_req = (struct bnx2fc_cmd *)hba->cmd_mgr->cmds[xid];
 		if (!io_req)
@@ -756,8 +757,6 @@ static void bnx2fc_process_unsol_compl(struct bnx2fc_rport *tgt, u16 wqe)
 		case FCOE_ERROR_CODE_DATA_SOFN_SEQ_ACTIVE_RESET:
 			BNX2FC_TGT_DBG(tgt, "REC TOV popped for xid - 0x%x\n",
 				   xid);
-			memset(&io_req->err_entry, 0,
-			       sizeof(struct fcoe_err_report_entry));
 			memcpy(&io_req->err_entry, err_entry,
 			       sizeof(struct fcoe_err_report_entry));
 			if (!test_bit(BNX2FC_FLAG_SRR_SENT,
@@ -771,7 +770,6 @@ static void bnx2fc_process_unsol_compl(struct bnx2fc_rport *tgt, u16 wqe)
 			} else
 				printk(KERN_ERR PFX "SRR in progress\n");
 			goto ret_err_rqe;
-			break;
 		default:
 			break;
 		}
@@ -814,7 +812,7 @@ ret_err_rqe:
 		BNX2FC_TGT_DBG(tgt, "buf_offsets - tx = 0x%x, rx = 0x%x",
 			err_entry->data.tx_buf_off, err_entry->data.rx_buf_off);
 
-		if (xid > BNX2FC_MAX_XID) {
+		if (xid > hba->max_xid) {
 			BNX2FC_TGT_DBG(tgt, "xid(0x%x) out of FW range\n", xid);
 			goto ret_warn_rqe;
 		}
@@ -823,18 +821,13 @@ ret_err_rqe:
 			((u64)err_entry->data.err_warn_bitmap_hi << 32) |
 			(u64)err_entry->data.err_warn_bitmap_lo;
 		for (i = 0; i < BNX2FC_NUM_ERR_BITS; i++) {
-			if (err_warn_bit_map & (u64) (1 << i)) {
+			if (err_warn_bit_map & ((u64)1 << i)) {
 				err_warn = i;
 				break;
 			}
 		}
 		BNX2FC_TGT_DBG(tgt, "warn = 0x%x\n", err_warn);
 
-		task_idx = xid / BNX2FC_TASKS_PER_PAGE;
-		index = xid % BNX2FC_TASKS_PER_PAGE;
-		task_page = (struct fcoe_task_ctx_entry *)
-			     interface->hba->task_ctx[task_idx];
-		task = &(task_page[index]);
 		io_req = (struct bnx2fc_cmd *)hba->cmd_mgr->cmds[xid];
 		if (!io_req)
 			goto ret_warn_rqe;
@@ -844,8 +837,6 @@ ret_err_rqe:
 			goto ret_warn_rqe;
 		}
 
-		memset(&io_req->err_entry, 0,
-		       sizeof(struct fcoe_err_report_entry));
 		memcpy(&io_req->err_entry, err_entry,
 		       sizeof(struct fcoe_err_report_entry));
 
@@ -865,36 +856,22 @@ ret_warn_rqe:
 	}
 }
 
-void bnx2fc_process_cq_compl(struct bnx2fc_rport *tgt, u16 wqe)
+void bnx2fc_process_cq_compl(struct bnx2fc_rport *tgt, u16 wqe,
+			     unsigned char *rq_data, u8 num_rq,
+			     struct fcoe_task_ctx_entry *task)
 {
-	struct fcoe_task_ctx_entry *task;
-	struct fcoe_task_ctx_entry *task_page;
 	struct fcoe_port *port = tgt->port;
 	struct bnx2fc_interface *interface = port->priv;
 	struct bnx2fc_hba *hba = interface->hba;
 	struct bnx2fc_cmd *io_req;
-	int task_idx, index;
+
 	u16 xid;
 	u8  cmd_type;
 	u8 rx_state = 0;
-	u8 num_rq;
 
 	spin_lock_bh(&tgt->tgt_lock);
+
 	xid = wqe & FCOE_PEND_WQ_CQE_TASK_ID;
-	if (xid >= BNX2FC_MAX_TASKS) {
-		printk(KERN_ERR PFX "ERROR:xid out of range\n");
-		spin_unlock_bh(&tgt->tgt_lock);
-		return;
-	}
-	task_idx = xid / BNX2FC_TASKS_PER_PAGE;
-	index = xid % BNX2FC_TASKS_PER_PAGE;
-	task_page = (struct fcoe_task_ctx_entry *)hba->task_ctx[task_idx];
-	task = &(task_page[index]);
-
-	num_rq = ((task->rxwr_txrd.var_ctx.rx_flags &
-		   FCOE_TCE_RX_WR_TX_RD_VAR_NUM_RQ_WQE) >>
-		   FCOE_TCE_RX_WR_TX_RD_VAR_NUM_RQ_WQE_SHIFT);
-
 	io_req = (struct bnx2fc_cmd *)hba->cmd_mgr->cmds[xid];
 
 	if (io_req == NULL) {
@@ -914,7 +891,8 @@ void bnx2fc_process_cq_compl(struct bnx2fc_rport *tgt, u16 wqe)
 	switch (cmd_type) {
 	case BNX2FC_SCSI_CMD:
 		if (rx_state == FCOE_TASK_RX_STATE_COMPLETED) {
-			bnx2fc_process_scsi_cmd_compl(io_req, task, num_rq);
+			bnx2fc_process_scsi_cmd_compl(io_req, task, num_rq,
+						      rq_data);
 			spin_unlock_bh(&tgt->tgt_lock);
 			return;
 		}
@@ -931,7 +909,7 @@ void bnx2fc_process_cq_compl(struct bnx2fc_rport *tgt, u16 wqe)
 
 	case BNX2FC_TASK_MGMT_CMD:
 		BNX2FC_IO_DBG(io_req, "Processing TM complete\n");
-		bnx2fc_process_tm_compl(io_req, task, num_rq);
+		bnx2fc_process_tm_compl(io_req, task, num_rq, rq_data);
 		break;
 
 	case BNX2FC_ABTS:
@@ -986,11 +964,12 @@ void bnx2fc_arm_cq(struct bnx2fc_rport *tgt)
 			FCOE_CQE_TOGGLE_BIT_SHIFT);
 	msg = *((u32 *)rx_db);
 	writel(cpu_to_le32(msg), tgt->ctx_base);
-	mmiowb();
 
 }
 
-struct bnx2fc_work *bnx2fc_alloc_work(struct bnx2fc_rport *tgt, u16 wqe)
+static struct bnx2fc_work *bnx2fc_alloc_work(struct bnx2fc_rport *tgt, u16 wqe,
+					     unsigned char *rq_data, u8 num_rq,
+					     struct fcoe_task_ctx_entry *task)
 {
 	struct bnx2fc_work *work;
 	work = kzalloc(sizeof(struct bnx2fc_work), GFP_ATOMIC);
@@ -1000,7 +979,86 @@ struct bnx2fc_work *bnx2fc_alloc_work(struct bnx2fc_rport *tgt, u16 wqe)
 	INIT_LIST_HEAD(&work->list);
 	work->tgt = tgt;
 	work->wqe = wqe;
+	work->num_rq = num_rq;
+	work->task = task;
+	if (rq_data)
+		memcpy(work->rq_data, rq_data, BNX2FC_RQ_BUF_SZ);
+
 	return work;
+}
+
+/* Pending work request completion */
+static bool bnx2fc_pending_work(struct bnx2fc_rport *tgt, unsigned int wqe)
+{
+	unsigned int cpu = wqe % num_possible_cpus();
+	struct bnx2fc_percpu_s *fps;
+	struct bnx2fc_work *work;
+	struct fcoe_task_ctx_entry *task;
+	struct fcoe_task_ctx_entry *task_page;
+	struct fcoe_port *port = tgt->port;
+	struct bnx2fc_interface *interface = port->priv;
+	struct bnx2fc_hba *hba = interface->hba;
+	unsigned char *rq_data = NULL;
+	unsigned char rq_data_buff[BNX2FC_RQ_BUF_SZ];
+	int task_idx, index;
+	u16 xid;
+	u8 num_rq;
+	int i;
+
+	xid = wqe & FCOE_PEND_WQ_CQE_TASK_ID;
+	if (xid >= hba->max_tasks) {
+		pr_err(PFX "ERROR:xid out of range\n");
+		return false;
+	}
+
+	task_idx = xid / BNX2FC_TASKS_PER_PAGE;
+	index = xid % BNX2FC_TASKS_PER_PAGE;
+	task_page = (struct fcoe_task_ctx_entry *)hba->task_ctx[task_idx];
+	task = &task_page[index];
+
+	num_rq = ((task->rxwr_txrd.var_ctx.rx_flags &
+		   FCOE_TCE_RX_WR_TX_RD_VAR_NUM_RQ_WQE) >>
+		  FCOE_TCE_RX_WR_TX_RD_VAR_NUM_RQ_WQE_SHIFT);
+
+	memset(rq_data_buff, 0, BNX2FC_RQ_BUF_SZ);
+
+	if (!num_rq)
+		goto num_rq_zero;
+
+	rq_data = bnx2fc_get_next_rqe(tgt, 1);
+
+	if (num_rq > 1) {
+		/* We do not need extra sense data */
+		for (i = 1; i < num_rq; i++)
+			bnx2fc_get_next_rqe(tgt, 1);
+	}
+
+	if (rq_data)
+		memcpy(rq_data_buff, rq_data, BNX2FC_RQ_BUF_SZ);
+
+	/* return RQ entries */
+	for (i = 0; i < num_rq; i++)
+		bnx2fc_return_rqe(tgt, 1);
+
+num_rq_zero:
+
+	fps = &per_cpu(bnx2fc_percpu, cpu);
+	spin_lock_bh(&fps->fp_work_lock);
+	if (fps->iothread) {
+		work = bnx2fc_alloc_work(tgt, wqe, rq_data_buff,
+					 num_rq, task);
+		if (work) {
+			list_add_tail(&work->list, &fps->work_list);
+			wake_up_process(fps->iothread);
+			spin_unlock_bh(&fps->fp_work_lock);
+			return true;
+		}
+	}
+	spin_unlock_bh(&fps->fp_work_lock);
+	bnx2fc_process_cq_compl(tgt, wqe,
+				rq_data_buff, num_rq, task);
+
+	return true;
 }
 
 int bnx2fc_process_new_cqes(struct bnx2fc_rport *tgt)
@@ -1037,29 +1095,8 @@ int bnx2fc_process_new_cqes(struct bnx2fc_rport *tgt)
 			/* Unsolicited event notification */
 			bnx2fc_process_unsol_compl(tgt, wqe);
 		} else {
-			/* Pending work request completion */
-			struct bnx2fc_work *work = NULL;
-			struct bnx2fc_percpu_s *fps = NULL;
-			unsigned int cpu = wqe % num_possible_cpus();
-
-			fps = &per_cpu(bnx2fc_percpu, cpu);
-			spin_lock_bh(&fps->fp_work_lock);
-			if (unlikely(!fps->iothread))
-				goto unlock;
-
-			work = bnx2fc_alloc_work(tgt, wqe);
-			if (work)
-				list_add_tail(&work->list,
-					      &fps->work_list);
-unlock:
-			spin_unlock_bh(&fps->fp_work_lock);
-
-			/* Pending work request completion */
-			if (fps->iothread && work)
-				wake_up_process(fps->iothread);
-			else
-				bnx2fc_process_cq_compl(tgt, wqe);
-			num_free_sqes++;
+			if (bnx2fc_pending_work(tgt, wqe))
+				num_free_sqes++;
 		}
 		cqe++;
 		tgt->cq_cons_idx++;
@@ -1117,11 +1154,9 @@ static void bnx2fc_process_ofld_cmpl(struct bnx2fc_hba *hba,
 					struct fcoe_kcqe *ofld_kcqe)
 {
 	struct bnx2fc_rport		*tgt;
-	struct fcoe_port		*port;
 	struct bnx2fc_interface		*interface;
 	u32				conn_id;
 	u32				context_id;
-	int				rc;
 
 	conn_id = ofld_kcqe->fcoe_conn_id;
 	context_id = ofld_kcqe->fcoe_conn_context_id;
@@ -1132,7 +1167,6 @@ static void bnx2fc_process_ofld_cmpl(struct bnx2fc_hba *hba,
 	}
 	BNX2FC_TGT_DBG(tgt, "Entered ofld compl - context_id = 0x%x\n",
 		ofld_kcqe->fcoe_conn_context_id);
-	port = tgt->port;
 	interface = tgt->port->priv;
 	if (hba != interface->hba) {
 		printk(KERN_ERR PFX "ERROR:ofld_cmpl: HBA mis-match\n");
@@ -1150,17 +1184,10 @@ static void bnx2fc_process_ofld_cmpl(struct bnx2fc_hba *hba,
 				"resources\n");
 			set_bit(BNX2FC_FLAG_CTX_ALLOC_FAILURE, &tgt->flags);
 		}
-		goto ofld_cmpl_err;
 	} else {
-
-		/* now enable the session */
-		rc = bnx2fc_send_session_enable_req(port, tgt);
-		if (rc) {
-			printk(KERN_ERR PFX "enable session failed\n");
-			goto ofld_cmpl_err;
-		}
+		/* FW offload request successfully completed */
+		set_bit(BNX2FC_FLAG_OFFLOADED, &tgt->flags);
 	}
-	return;
 ofld_cmpl_err:
 	set_bit(BNX2FC_FLAG_OFLD_REQ_CMPL, &tgt->flags);
 	wake_up_interruptible(&tgt->ofld_wait);
@@ -1207,15 +1234,9 @@ static void bnx2fc_process_enable_conn_cmpl(struct bnx2fc_hba *hba,
 		printk(KERN_ERR PFX "bnx2fc-enbl_cmpl: HBA mis-match\n");
 		goto enbl_cmpl_err;
 	}
-	if (ofld_kcqe->completion_status)
-		goto enbl_cmpl_err;
-	else {
+	if (!ofld_kcqe->completion_status)
 		/* enable successful - rport ready for issuing IOs */
-		set_bit(BNX2FC_FLAG_OFFLOADED, &tgt->flags);
-		set_bit(BNX2FC_FLAG_OFLD_REQ_CMPL, &tgt->flags);
-		wake_up_interruptible(&tgt->ofld_wait);
-	}
-	return;
+		set_bit(BNX2FC_FLAG_ENABLED, &tgt->flags);
 
 enbl_cmpl_err:
 	set_bit(BNX2FC_FLAG_OFLD_REQ_CMPL, &tgt->flags);
@@ -1241,11 +1262,14 @@ static void bnx2fc_process_conn_disable_cmpl(struct bnx2fc_hba *hba,
 	if (disable_kcqe->completion_status) {
 		printk(KERN_ERR PFX "Disable failed with cmpl status %d\n",
 			disable_kcqe->completion_status);
-		return;
+		set_bit(BNX2FC_FLAG_DISABLE_FAILED, &tgt->flags);
+		set_bit(BNX2FC_FLAG_UPLD_REQ_COMPL, &tgt->flags);
+		wake_up_interruptible(&tgt->upld_wait);
 	} else {
 		/* disable successful */
 		BNX2FC_TGT_DBG(tgt, "disable successful\n");
 		clear_bit(BNX2FC_FLAG_OFFLOADED, &tgt->flags);
+		clear_bit(BNX2FC_FLAG_ENABLED, &tgt->flags);
 		set_bit(BNX2FC_FLAG_DISABLED, &tgt->flags);
 		set_bit(BNX2FC_FLAG_UPLD_REQ_COMPL, &tgt->flags);
 		wake_up_interruptible(&tgt->upld_wait);
@@ -1307,10 +1331,10 @@ static void bnx2fc_init_failure(struct bnx2fc_hba *hba, u32 err_code)
 }
 
 /**
- * bnx2fc_indicae_kcqe - process KCQE
+ * bnx2fc_indicate_kcqe() - process KCQE
  *
- * @hba:	adapter structure pointer
- * @kcqe:	kcqe pointer
+ * @context:	adapter structure pointer
+ * @kcq:	kcqe pointer
  * @num_cqe:	Number of completion queue elements
  *
  * Generic KCQ event handler
@@ -1379,7 +1403,6 @@ void bnx2fc_indicate_kcqe(void *context, struct kcqe *kcq[],
 			break;
 
 		case FCOE_KCQE_OPCODE_FCOE_ERROR:
-			/* fall thru */
 		default:
 			printk(KERN_ERR PFX "unknown opcode 0x%x\n",
 								kcqe->op_code);
@@ -1414,7 +1437,6 @@ void bnx2fc_ring_doorbell(struct bnx2fc_rport *tgt)
 				(tgt->sq_curr_toggle_bit << 15);
 	msg = *((u32 *)sq_db);
 	writel(cpu_to_le32(msg), tgt->ctx_base);
-	mmiowb();
 
 }
 
@@ -1429,9 +1451,8 @@ int bnx2fc_map_doorbell(struct bnx2fc_rport *tgt)
 
 	reg_base = pci_resource_start(hba->pcidev,
 					BNX2X_DOORBELL_PCI_BAR);
-	reg_off = BNX2FC_5771X_DB_PAGE_SIZE *
-			(context_id & 0x1FFFF) + DPM_TRIGER_TYPE;
-	tgt->ctx_base = ioremap_nocache(reg_base + reg_off, 4);
+	reg_off = (1 << BNX2X_DB_SHIFT) * (context_id & 0x1FFFF);
+	tgt->ctx_base = ioremap(reg_base + reg_off, 4);
 	if (!tgt->ctx_base)
 		return -ENOMEM;
 	return 0;
@@ -1471,10 +1492,7 @@ void bnx2fc_init_seq_cleanup_task(struct bnx2fc_cmd *seq_clnp_req,
 {
 	struct scsi_cmnd *sc_cmd = orig_io_req->sc_cmd;
 	struct bnx2fc_rport *tgt = seq_clnp_req->tgt;
-	struct bnx2fc_interface *interface = tgt->port->priv;
 	struct fcoe_bd_ctx *bd = orig_io_req->bd_tbl->bd_tbl;
-	struct fcoe_task_ctx_entry *orig_task;
-	struct fcoe_task_ctx_entry *task_page;
 	struct fcoe_ext_mul_sges_ctx *sgl;
 	u8 task_type = FCOE_TASK_TYPE_SEQUENCE_CLEANUP;
 	u8 orig_task_type;
@@ -1483,7 +1501,6 @@ void bnx2fc_init_seq_cleanup_task(struct bnx2fc_cmd *seq_clnp_req,
 	u64 phys_addr = (u64)orig_io_req->bd_tbl->bd_tbl_dma;
 	u32 orig_offset = offset;
 	int bd_count;
-	int orig_task_idx, index;
 	int i;
 
 	memset(task, 0, sizeof(struct fcoe_task_ctx_entry));
@@ -1533,12 +1550,6 @@ void bnx2fc_init_seq_cleanup_task(struct bnx2fc_cmd *seq_clnp_req,
 				offset; /* adjusted offset */
 		task->txwr_only.sgl_ctx.sgl.mul_sgl.cur_sge_idx = i;
 	} else {
-		orig_task_idx = orig_xid / BNX2FC_TASKS_PER_PAGE;
-		index = orig_xid % BNX2FC_TASKS_PER_PAGE;
-
-		task_page = (struct fcoe_task_ctx_entry *)
-			     interface->hba->task_ctx[orig_task_idx];
-		orig_task = &(task_page[index]);
 
 		/* Multiple SGEs were used for this IO */
 		sgl = &task->rxwr_only.union_ctx.read_info.sgl_ctx.sgl;
@@ -1716,15 +1727,19 @@ void bnx2fc_init_task(struct bnx2fc_cmd *io_req,
 
 	/* Tx only */
 	bd_count = bd_tbl->bd_valid;
+	cached_sge = &task->rxwr_only.union_ctx.read_info.sgl_ctx.cached_sge;
 	if (task_type == FCOE_TASK_TYPE_WRITE) {
 		if ((dev_type == TYPE_DISK) && (bd_count == 1)) {
 			struct fcoe_bd_ctx *fcoe_bd_tbl = bd_tbl->bd_tbl;
 
 			task->txwr_only.sgl_ctx.cached_sge.cur_buf_addr.lo =
+			cached_sge->cur_buf_addr.lo =
 					fcoe_bd_tbl->buf_addr_lo;
 			task->txwr_only.sgl_ctx.cached_sge.cur_buf_addr.hi =
+			cached_sge->cur_buf_addr.hi =
 					fcoe_bd_tbl->buf_addr_hi;
 			task->txwr_only.sgl_ctx.cached_sge.cur_buf_rem =
+			cached_sge->cur_buf_rem =
 					fcoe_bd_tbl->buf_len;
 
 			task->txwr_rxrd.const_ctx.init_flags |= 1 <<
@@ -1790,11 +1805,13 @@ void bnx2fc_init_task(struct bnx2fc_cmd *io_req,
 	task->rxwr_txrd.var_ctx.rx_id = 0xffff;
 
 	/* Rx Only */
-	cached_sge = &task->rxwr_only.union_ctx.read_info.sgl_ctx.cached_sge;
+	if (task_type != FCOE_TASK_TYPE_READ)
+		return;
+
 	sgl = &task->rxwr_only.union_ctx.read_info.sgl_ctx.sgl;
 	bd_count = bd_tbl->bd_valid;
-	if (task_type == FCOE_TASK_TYPE_READ &&
-	    dev_type == TYPE_DISK) {
+
+	if (dev_type == TYPE_DISK) {
 		if (bd_count == 1) {
 
 			struct fcoe_bd_ctx *fcoe_bd_tbl = bd_tbl->bd_tbl;
@@ -1848,6 +1865,7 @@ int bnx2fc_setup_task_ctx(struct bnx2fc_hba *hba)
 	int rc = 0;
 	struct regpair *task_ctx_bdt;
 	dma_addr_t addr;
+	int task_ctx_arr_sz;
 	int i;
 
 	/*
@@ -1865,13 +1883,13 @@ int bnx2fc_setup_task_ctx(struct bnx2fc_hba *hba)
 		rc = -1;
 		goto out;
 	}
-	memset(hba->task_ctx_bd_tbl, 0, PAGE_SIZE);
 
 	/*
 	 * Allocate task_ctx which is an array of pointers pointing to
 	 * a page containing 32 task contexts
 	 */
-	hba->task_ctx = kzalloc((BNX2FC_TASK_CTX_ARR_SZ * sizeof(void *)),
+	task_ctx_arr_sz = (hba->max_tasks / BNX2FC_TASKS_PER_PAGE);
+	hba->task_ctx = kzalloc((task_ctx_arr_sz * sizeof(void *)),
 				 GFP_KERNEL);
 	if (!hba->task_ctx) {
 		printk(KERN_ERR PFX "unable to allocate task context array\n");
@@ -1882,7 +1900,7 @@ int bnx2fc_setup_task_ctx(struct bnx2fc_hba *hba)
 	/*
 	 * Allocate task_ctx_dma which is an array of dma addresses
 	 */
-	hba->task_ctx_dma = kmalloc((BNX2FC_TASK_CTX_ARR_SZ *
+	hba->task_ctx_dma = kmalloc((task_ctx_arr_sz *
 					sizeof(dma_addr_t)), GFP_KERNEL);
 	if (!hba->task_ctx_dma) {
 		printk(KERN_ERR PFX "unable to alloc context mapping array\n");
@@ -1891,7 +1909,7 @@ int bnx2fc_setup_task_ctx(struct bnx2fc_hba *hba)
 	}
 
 	task_ctx_bdt = (struct regpair *)hba->task_ctx_bd_tbl;
-	for (i = 0; i < BNX2FC_TASK_CTX_ARR_SZ; i++) {
+	for (i = 0; i < task_ctx_arr_sz; i++) {
 
 		hba->task_ctx[i] = dma_alloc_coherent(&hba->pcidev->dev,
 						      PAGE_SIZE,
@@ -1902,7 +1920,6 @@ int bnx2fc_setup_task_ctx(struct bnx2fc_hba *hba)
 			rc = -1;
 			goto out3;
 		}
-		memset(hba->task_ctx[i], 0, PAGE_SIZE);
 		addr = (u64)hba->task_ctx_dma[i];
 		task_ctx_bdt->hi = cpu_to_le32((u64)addr >> 32);
 		task_ctx_bdt->lo = cpu_to_le32((u32)addr);
@@ -1911,7 +1928,7 @@ int bnx2fc_setup_task_ctx(struct bnx2fc_hba *hba)
 	return 0;
 
 out3:
-	for (i = 0; i < BNX2FC_TASK_CTX_ARR_SZ; i++) {
+	for (i = 0; i < task_ctx_arr_sz; i++) {
 		if (hba->task_ctx[i]) {
 
 			dma_free_coherent(&hba->pcidev->dev, PAGE_SIZE,
@@ -1935,6 +1952,7 @@ out:
 
 void bnx2fc_free_task_ctx(struct bnx2fc_hba *hba)
 {
+	int task_ctx_arr_sz;
 	int i;
 
 	if (hba->task_ctx_bd_tbl) {
@@ -1944,8 +1962,9 @@ void bnx2fc_free_task_ctx(struct bnx2fc_hba *hba)
 		hba->task_ctx_bd_tbl = NULL;
 	}
 
+	task_ctx_arr_sz = (hba->max_tasks / BNX2FC_TASKS_PER_PAGE);
 	if (hba->task_ctx) {
-		for (i = 0; i < BNX2FC_TASK_CTX_ARR_SZ; i++) {
+		for (i = 0; i < task_ctx_arr_sz; i++) {
 			if (hba->task_ctx[i]) {
 				dma_free_coherent(&hba->pcidev->dev, PAGE_SIZE,
 						    hba->task_ctx[i],
@@ -1965,26 +1984,29 @@ static void bnx2fc_free_hash_table(struct bnx2fc_hba *hba)
 {
 	int i;
 	int segment_count;
-	int hash_table_size;
 	u32 *pbl;
 
-	segment_count = hba->hash_tbl_segment_count;
-	hash_table_size = BNX2FC_NUM_MAX_SESS * BNX2FC_MAX_ROWS_IN_HASH_TBL *
-		sizeof(struct fcoe_hash_table_entry);
+	if (hba->hash_tbl_segments) {
 
-	pbl = hba->hash_tbl_pbl;
-	for (i = 0; i < segment_count; ++i) {
-		dma_addr_t dma_address;
+		pbl = hba->hash_tbl_pbl;
+		if (pbl) {
+			segment_count = hba->hash_tbl_segment_count;
+			for (i = 0; i < segment_count; ++i) {
+				dma_addr_t dma_address;
 
-		dma_address = le32_to_cpu(*pbl);
-		++pbl;
-		dma_address += ((u64)le32_to_cpu(*pbl)) << 32;
-		++pbl;
-		dma_free_coherent(&hba->pcidev->dev,
-				  BNX2FC_HASH_TBL_CHUNK_SIZE,
-				  hba->hash_tbl_segments[i],
-				  dma_address);
+				dma_address = le32_to_cpu(*pbl);
+				++pbl;
+				dma_address += ((u64)le32_to_cpu(*pbl)) << 32;
+				++pbl;
+				dma_free_coherent(&hba->pcidev->dev,
+						  BNX2FC_HASH_TBL_CHUNK_SIZE,
+						  hba->hash_tbl_segments[i],
+						  dma_address);
+			}
+		}
 
+		kfree(hba->hash_tbl_segments);
+		hba->hash_tbl_segments = NULL;
 	}
 
 	if (hba->hash_tbl_pbl) {
@@ -2022,41 +2044,27 @@ static int bnx2fc_allocate_hash_table(struct bnx2fc_hba *hba)
 	dma_segment_array = kzalloc(dma_segment_array_size, GFP_KERNEL);
 	if (!dma_segment_array) {
 		printk(KERN_ERR PFX "hash table pointers (dma) alloc failed\n");
-		return -ENOMEM;
+		goto cleanup_ht;
 	}
 
 	for (i = 0; i < segment_count; ++i) {
-		hba->hash_tbl_segments[i] =
-			dma_alloc_coherent(&hba->pcidev->dev,
-					   BNX2FC_HASH_TBL_CHUNK_SIZE,
-					   &dma_segment_array[i],
-					   GFP_KERNEL);
+		hba->hash_tbl_segments[i] = dma_alloc_coherent(&hba->pcidev->dev,
+							       BNX2FC_HASH_TBL_CHUNK_SIZE,
+							       &dma_segment_array[i],
+							       GFP_KERNEL);
 		if (!hba->hash_tbl_segments[i]) {
 			printk(KERN_ERR PFX "hash segment alloc failed\n");
-			while (--i >= 0) {
-				dma_free_coherent(&hba->pcidev->dev,
-						    BNX2FC_HASH_TBL_CHUNK_SIZE,
-						    hba->hash_tbl_segments[i],
-						    dma_segment_array[i]);
-				hba->hash_tbl_segments[i] = NULL;
-			}
-			kfree(dma_segment_array);
-			return -ENOMEM;
+			goto cleanup_dma;
 		}
-		memset(hba->hash_tbl_segments[i], 0,
-		       BNX2FC_HASH_TBL_CHUNK_SIZE);
 	}
 
-	hba->hash_tbl_pbl = dma_alloc_coherent(&hba->pcidev->dev,
-					       PAGE_SIZE,
+	hba->hash_tbl_pbl = dma_alloc_coherent(&hba->pcidev->dev, PAGE_SIZE,
 					       &hba->hash_tbl_pbl_dma,
 					       GFP_KERNEL);
 	if (!hba->hash_tbl_pbl) {
 		printk(KERN_ERR PFX "hash table pbl alloc failed\n");
-		kfree(dma_segment_array);
-		return -ENOMEM;
+		goto cleanup_dma;
 	}
-	memset(hba->hash_tbl_pbl, 0, PAGE_SIZE);
 
 	pbl = hba->hash_tbl_pbl;
 	for (i = 0; i < segment_count; ++i) {
@@ -2069,16 +2077,28 @@ static int bnx2fc_allocate_hash_table(struct bnx2fc_hba *hba)
 	pbl = hba->hash_tbl_pbl;
 	i = 0;
 	while (*pbl && *(pbl + 1)) {
-		u32 lo;
-		u32 hi;
-		lo = *pbl;
 		++pbl;
-		hi = *pbl;
 		++pbl;
 		++i;
 	}
 	kfree(dma_segment_array);
 	return 0;
+
+cleanup_dma:
+	for (i = 0; i < segment_count; ++i) {
+		if (hba->hash_tbl_segments[i])
+			dma_free_coherent(&hba->pcidev->dev,
+					    BNX2FC_HASH_TBL_CHUNK_SIZE,
+					    hba->hash_tbl_segments[i],
+					    dma_segment_array[i]);
+	}
+
+	kfree(dma_segment_array);
+
+cleanup_ht:
+	kfree(hba->hash_tbl_segments);
+	hba->hash_tbl_segments = NULL;
+	return -ENOMEM;
 }
 
 /**
@@ -2105,7 +2125,6 @@ int bnx2fc_setup_fw_resc(struct bnx2fc_hba *hba)
 		bnx2fc_free_fw_resc(hba);
 		return -ENOMEM;
 	}
-	memset(hba->t2_hash_tbl_ptr, 0x00, mem_size);
 
 	mem_size = BNX2FC_NUM_MAX_SESS *
 				sizeof(struct fcoe_t2_hash_table_entry);
@@ -2117,7 +2136,6 @@ int bnx2fc_setup_fw_resc(struct bnx2fc_hba *hba)
 		bnx2fc_free_fw_resc(hba);
 		return -ENOMEM;
 	}
-	memset(hba->t2_hash_tbl, 0x00, mem_size);
 	for (i = 0; i < BNX2FC_NUM_MAX_SESS; i++) {
 		addr = (unsigned long) hba->t2_hash_tbl_dma +
 			 ((i+1) * sizeof(struct fcoe_t2_hash_table_entry));
@@ -2134,8 +2152,7 @@ int bnx2fc_setup_fw_resc(struct bnx2fc_hba *hba)
 		return -ENOMEM;
 	}
 
-	hba->stats_buffer = dma_alloc_coherent(&hba->pcidev->dev,
-					       PAGE_SIZE,
+	hba->stats_buffer = dma_alloc_coherent(&hba->pcidev->dev, PAGE_SIZE,
 					       &hba->stats_buf_dma,
 					       GFP_KERNEL);
 	if (!hba->stats_buffer) {
@@ -2143,7 +2160,6 @@ int bnx2fc_setup_fw_resc(struct bnx2fc_hba *hba)
 		bnx2fc_free_fw_resc(hba);
 		return -ENOMEM;
 	}
-	memset(hba->stats_buffer, 0x00, PAGE_SIZE);
 
 	return 0;
 }

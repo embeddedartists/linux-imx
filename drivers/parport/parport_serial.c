@@ -1,30 +1,24 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Support for common PCI multi-I/O cards (which is most of them)
  *
  * Copyright (C) 2001  Tim Waugh <twaugh@redhat.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version
- * 2 of the License, or (at your option) any later version.
- *
  *
  * Multi-function PCI cards are supposed to present separate logical
  * devices on the bus.  A common thing to do seems to be to just use
  * one logical device with lots of base address registers for both
  * parallel ports and serial ports.  This driver is for dealing with
  * that.
- *
  */
 
-#include <linux/types.h>
-#include <linux/module.h>
-#include <linux/init.h>
-#include <linux/slab.h>
-#include <linux/pci.h>
 #include <linux/interrupt.h>
+#include <linux/module.h>
 #include <linux/parport.h>
 #include <linux/parport_pc.h>
+#include <linux/pci.h>
+#include <linux/slab.h>
+#include <linux/types.h>
+
 #include <linux/8250_pci.h>
 
 enum parport_pc_pci_cards {
@@ -62,6 +56,15 @@ enum parport_pc_pci_cards {
 	timedia_9079a,
 	timedia_9079b,
 	timedia_9079c,
+	wch_ch353_1s1p,
+	wch_ch353_2s1p,
+	wch_ch382_0s1p,
+	wch_ch382_2s1p,
+	brainboxes_5s1p,
+	sunix_4008a,
+	sunix_5069a,
+	sunix_5079a,
+	sunix_5099a,
 };
 
 /* each element directly indexed from enum list, above */
@@ -86,7 +89,8 @@ struct parport_pc_pci {
 				struct parport_pc_pci *card, int failed);
 };
 
-static int __devinit netmos_parallel_init(struct pci_dev *dev, struct parport_pc_pci *par, int autoirq, int autodma)
+static int netmos_parallel_init(struct pci_dev *dev, struct parport_pc_pci *par,
+				int autoirq, int autodma)
 {
 	/* the rule described below doesn't hold for this device */
 	if (dev->device == PCI_DEVICE_ID_NETMOS_9835 &&
@@ -110,7 +114,7 @@ static int __devinit netmos_parallel_init(struct pci_dev *dev, struct parport_pc
 	return 0;
 }
 
-static struct parport_pc_pci cards[] __devinitdata = {
+static struct parport_pc_pci cards[] = {
 	/* titan_110l */		{ 1, { { 3, -1 }, } },
 	/* titan_210l */		{ 1, { { 3, -1 }, } },
 	/* netmos_9xx5_combo */		{ 1, { { 2, -1 }, }, netmos_parallel_init },
@@ -145,6 +149,15 @@ static struct parport_pc_pci cards[] __devinitdata = {
 	/* timedia_9079a */             { 1, { { 2, 3 }, } },
 	/* timedia_9079b */             { 1, { { 2, 3 }, } },
 	/* timedia_9079c */             { 1, { { 2, 3 }, } },
+	/* wch_ch353_1s1p*/             { 1, { { 1, -1}, } },
+	/* wch_ch353_2s1p*/             { 1, { { 2, -1}, } },
+	/* wch_ch382_0s1p*/		{ 1, { { 2, -1}, } },
+	/* wch_ch382_2s1p*/             { 1, { { 2, -1}, } },
+	/* brainboxes_5s1p */           { 1, { { 3, -1 }, } },
+	/* sunix_4008a */		{ 1, { { 1, 2 }, } },
+	/* sunix_5069a */		{ 1, { { 1, 2 }, } },
+	/* sunix_5079a */		{ 1, { { 1, 2 }, } },
+	/* sunix_5099a */		{ 1, { { 1, 2 }, } },
 };
 
 static struct pci_device_id parport_serial_pci_tbl[] = {
@@ -244,6 +257,26 @@ static struct pci_device_id parport_serial_pci_tbl[] = {
 	{ 0x1409, 0x7168, 0x1409, 0xc079, 0, 0, timedia_9079b },
 	{ 0x1409, 0x7168, 0x1409, 0xd079, 0, 0, timedia_9079c },
 
+	/* WCH CARDS */
+	{ 0x4348, 0x5053, PCI_ANY_ID, PCI_ANY_ID, 0, 0, wch_ch353_1s1p},
+	{ 0x4348, 0x7053, 0x4348, 0x3253, 0, 0, wch_ch353_2s1p},
+	{ 0x1c00, 0x3050, 0x1c00, 0x3050, 0, 0, wch_ch382_0s1p},
+	{ 0x1c00, 0x3250, 0x1c00, 0x3250, 0, 0, wch_ch382_2s1p},
+
+	/* BrainBoxes PX272/PX306 MIO card */
+	{ PCI_VENDOR_ID_INTASHIELD, 0x4100,
+	  PCI_ANY_ID, PCI_ANY_ID, 0, 0, brainboxes_5s1p },
+
+	/* Sunix boards */
+	{ PCI_VENDOR_ID_SUNIX, PCI_DEVICE_ID_SUNIX_1999, PCI_VENDOR_ID_SUNIX,
+	  0x0100, 0, 0, sunix_4008a },
+	{ PCI_VENDOR_ID_SUNIX, PCI_DEVICE_ID_SUNIX_1999, PCI_VENDOR_ID_SUNIX,
+	  0x0101, 0, 0, sunix_5069a },
+	{ PCI_VENDOR_ID_SUNIX, PCI_DEVICE_ID_SUNIX_1999, PCI_VENDOR_ID_SUNIX,
+	  0x0102, 0, 0, sunix_5079a },
+	{ PCI_VENDOR_ID_SUNIX, PCI_DEVICE_ID_SUNIX_1999, PCI_VENDOR_ID_SUNIX,
+	  0x0104, 0, 0, sunix_5099a },
+
 	{ 0, } /* terminate list */
 };
 MODULE_DEVICE_TABLE(pci,parport_serial_pci_tbl);
@@ -255,7 +288,7 @@ MODULE_DEVICE_TABLE(pci,parport_serial_pci_tbl);
  * Cards not tested are marked n/t
  * If you have one of these cards and it works for you, please tell me..
  */
-static struct pciserial_board pci_parport_serial_boards[] __devinitdata = {
+static struct pciserial_board pci_parport_serial_boards[] = {
 	[titan_110l] = {
 		.flags		= FL_BASE1 | FL_BASE_BARS,
 		.num_ports	= 1,
@@ -460,6 +493,55 @@ static struct pciserial_board pci_parport_serial_boards[] __devinitdata = {
 		.base_baud	= 921600,
 		.uart_offset	= 8,
 	},
+	[wch_ch353_1s1p] = {
+		.flags          = FL_BASE0|FL_BASE_BARS,
+		.num_ports      = 1,
+		.base_baud      = 115200,
+		.uart_offset    = 8,
+	},
+	[wch_ch353_2s1p] = {
+		.flags          = FL_BASE0|FL_BASE_BARS,
+		.num_ports      = 2,
+		.base_baud      = 115200,
+		.uart_offset    = 8,
+	},
+	[wch_ch382_0s1p] = {
+		.flags          = FL_BASE0,
+		.num_ports      = 0,
+		.base_baud      = 115200,
+		.uart_offset    = 8,
+	},
+	[wch_ch382_2s1p] = {
+		.flags          = FL_BASE0,
+		.num_ports      = 2,
+		.base_baud      = 115200,
+		.uart_offset    = 8,
+		.first_offset   = 0xC0,
+	},
+	[brainboxes_5s1p] = {
+		.flags		= FL_BASE2,
+		.num_ports	= 5,
+		.base_baud	= 921600,
+		.uart_offset	= 8,
+	},
+	[sunix_4008a] = {
+		.num_ports	= 0,
+	},
+	[sunix_5069a] = {
+		.num_ports	= 1,
+		.base_baud      = 921600,
+		.uart_offset	= 0x8,
+	},
+	[sunix_5079a] = {
+		.num_ports	= 2,
+		.base_baud      = 921600,
+		.uart_offset	= 0x8,
+	},
+	[sunix_5099a] = {
+		.num_ports	= 4,
+		.base_baud      = 921600,
+		.uart_offset	= 0x8,
+	},
 };
 
 struct parport_serial_private {
@@ -470,20 +552,17 @@ struct parport_serial_private {
 };
 
 /* Register the serial port(s) of a PCI card. */
-static int __devinit serial_register (struct pci_dev *dev,
-				      const struct pci_device_id *id)
+static int serial_register(struct pci_dev *dev, const struct pci_device_id *id)
 {
 	struct parport_serial_private *priv = pci_get_drvdata (dev);
 	struct pciserial_board *board;
 	struct serial_private *serial;
 
 	board = &pci_parport_serial_boards[id->driver_data];
-
 	if (board->num_ports == 0)
 		return 0;
 
 	serial = pciserial_init_ports(dev, board);
-
 	if (IS_ERR(serial))
 		return PTR_ERR(serial);
 
@@ -492,8 +571,7 @@ static int __devinit serial_register (struct pci_dev *dev,
 }
 
 /* Register the parallel port(s) of a PCI card. */
-static int __devinit parport_register (struct pci_dev *dev,
-				       const struct pci_device_id *id)
+static int parport_register(struct pci_dev *dev, const struct pci_device_id *id)
 {
 	struct parport_pc_pci *card;
 	struct parport_serial_private *priv = pci_get_drvdata (dev);
@@ -513,10 +591,9 @@ static int __devinit parport_register (struct pci_dev *dev,
 		int irq;
 
 		if (priv->num_par == ARRAY_SIZE (priv->port)) {
-			printk (KERN_WARNING
-				"parport_serial: %s: only %zu parallel ports "
-				"supported (%d reported)\n", pci_name (dev),
-				ARRAY_SIZE(priv->port), card->numports);
+			dev_warn(&dev->dev,
+				 "only %zu parallel ports supported (%d reported)\n",
+				 ARRAY_SIZE(priv->port), card->numports);
 			break;
 		}
 
@@ -529,15 +606,18 @@ static int __devinit parport_register (struct pci_dev *dev,
                                         "hi" as an offset (see SYBA
                                         def.) */
 		/* TODO: test if sharing interrupts works */
-		irq = dev->irq;
-		if (irq == IRQ_NONE) {
-			dev_dbg(&dev->dev,
-			"PCI parallel port detected: I/O at %#lx(%#lx)\n",
-				io_lo, io_hi);
+		irq = pci_irq_vector(dev, 0);
+		if (irq < 0)
+			return irq;
+		if (irq == 0)
 			irq = PARPORT_IRQ_NONE;
+		if (irq == PARPORT_IRQ_NONE) {
+			dev_dbg(&dev->dev,
+				"PCI parallel port detected: I/O at %#lx(%#lx)\n",
+				io_lo, io_hi);
 		} else {
 			dev_dbg(&dev->dev,
-		"PCI parallel port detected: I/O at %#lx(%#lx), IRQ %d\n",
+				"PCI parallel port detected: I/O at %#lx(%#lx), IRQ %d\n",
 				io_lo, io_hi, irq);
 		}
 		port = parport_pc_probe_port (io_lo, io_hi, irq,
@@ -554,48 +634,41 @@ static int __devinit parport_register (struct pci_dev *dev,
 	return 0;
 }
 
-static int __devinit parport_serial_pci_probe (struct pci_dev *dev,
-					       const struct pci_device_id *id)
+static int parport_serial_pci_probe(struct pci_dev *dev,
+				    const struct pci_device_id *id)
 {
 	struct parport_serial_private *priv;
 	int err;
 
-	priv = kzalloc (sizeof *priv, GFP_KERNEL);
+	priv = devm_kzalloc(&dev->dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv)
 		return -ENOMEM;
+
 	pci_set_drvdata (dev, priv);
 
-	err = pci_enable_device (dev);
-	if (err) {
-		pci_set_drvdata (dev, NULL);
-		kfree (priv);
+	err = pcim_enable_device(dev);
+	if (err)
 		return err;
-	}
 
-	if (parport_register (dev, id)) {
-		pci_set_drvdata (dev, NULL);
-		kfree (priv);
-		return -ENODEV;
-	}
+	err = parport_register(dev, id);
+	if (err)
+		return err;
 
-	if (serial_register (dev, id)) {
+	err = serial_register(dev, id);
+	if (err) {
 		int i;
 		for (i = 0; i < priv->num_par; i++)
 			parport_pc_unregister_port (priv->port[i]);
-		pci_set_drvdata (dev, NULL);
-		kfree (priv);
-		return -ENODEV;
+		return err;
 	}
 
 	return 0;
 }
 
-static void __devexit parport_serial_pci_remove (struct pci_dev *dev)
+static void parport_serial_pci_remove(struct pci_dev *dev)
 {
 	struct parport_serial_private *priv = pci_get_drvdata (dev);
 	int i;
-
-	pci_set_drvdata(dev, NULL);
 
 	// Serial ports
 	if (priv->serial)
@@ -605,78 +678,45 @@ static void __devexit parport_serial_pci_remove (struct pci_dev *dev)
 	for (i = 0; i < priv->num_par; i++)
 		parport_pc_unregister_port (priv->port[i]);
 
-	kfree (priv);
 	return;
 }
 
-#ifdef CONFIG_PM
-static int parport_serial_pci_suspend(struct pci_dev *dev, pm_message_t state)
+static int __maybe_unused parport_serial_pci_suspend(struct device *dev)
 {
-	struct parport_serial_private *priv = pci_get_drvdata(dev);
+	struct parport_serial_private *priv = dev_get_drvdata(dev);
 
 	if (priv->serial)
 		pciserial_suspend_ports(priv->serial);
 
 	/* FIXME: What about parport? */
-
-	pci_save_state(dev);
-	pci_set_power_state(dev, pci_choose_state(dev, state));
 	return 0;
 }
 
-static int parport_serial_pci_resume(struct pci_dev *dev)
+static int __maybe_unused parport_serial_pci_resume(struct device *dev)
 {
-	struct parport_serial_private *priv = pci_get_drvdata(dev);
-	int err;
-
-	pci_set_power_state(dev, PCI_D0);
-	pci_restore_state(dev);
-
-	/*
-	 * The device may have been disabled.  Re-enable it.
-	 */
-	err = pci_enable_device(dev);
-	if (err) {
-		printk(KERN_ERR "parport_serial: %s: error enabling "
-			"device for resume (%d)\n", pci_name(dev), err);
-		return err;
-	}
+	struct parport_serial_private *priv = dev_get_drvdata(dev);
 
 	if (priv->serial)
 		pciserial_resume_ports(priv->serial);
 
 	/* FIXME: What about parport? */
-
 	return 0;
 }
-#endif
+
+static SIMPLE_DEV_PM_OPS(parport_serial_pm_ops,
+			 parport_serial_pci_suspend, parport_serial_pci_resume);
 
 static struct pci_driver parport_serial_pci_driver = {
 	.name		= "parport_serial",
 	.id_table	= parport_serial_pci_tbl,
 	.probe		= parport_serial_pci_probe,
-	.remove		= __devexit_p(parport_serial_pci_remove),
-#ifdef CONFIG_PM
-	.suspend	= parport_serial_pci_suspend,
-	.resume		= parport_serial_pci_resume,
-#endif
+	.remove		= parport_serial_pci_remove,
+	.driver         = {
+		.pm     = &parport_serial_pm_ops,
+	},
 };
-
-
-static int __init parport_serial_init (void)
-{
-	return pci_register_driver (&parport_serial_pci_driver);
-}
-
-static void __exit parport_serial_exit (void)
-{
-	pci_unregister_driver (&parport_serial_pci_driver);
-	return;
-}
+module_pci_driver(parport_serial_pci_driver);
 
 MODULE_AUTHOR("Tim Waugh <twaugh@redhat.com>");
 MODULE_DESCRIPTION("Driver for common parallel+serial multi-I/O PCI cards");
 MODULE_LICENSE("GPL");
-
-module_init(parport_serial_init);
-module_exit(parport_serial_exit);

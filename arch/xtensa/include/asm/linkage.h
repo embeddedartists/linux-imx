@@ -1,16 +1,9 @@
-/*
- * include/asm-xtensa/linkage.h
- *
- * This file is subject to the terms and conditions of the GNU General Public
- * License.  See the file "COPYING" in the main directory of this archive
- * for more details.
- *
- * Copyright (C) 2001 - 2005 Tensilica Inc.
- */
+/* SPDX-License-Identifier: GPL-2.0 */
 
-#ifndef _XTENSA_LINKAGE_H
-#define _XTENSA_LINKAGE_H
+#ifndef __ASM_LINKAGE_H
+#define __ASM_LINKAGE_H
 
-/* Nothing to do here ... */
+#define __ALIGN		.align 4
+#define __ALIGN_STR	".align 4"
 
-#endif	/* _XTENSA_LINKAGE_H */
+#endif

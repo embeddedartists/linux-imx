@@ -1,0 +1,64 @@
+/*
+ * Copyright (C) 2015 Freescale Semiconductor, Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+#include "imx6ulea-com-kit_v2.dts"
+
+&i2c1 {
+
+        ov5640: ov5640@3c {
+                compatible = "ovti,ov5640";
+                reg = <0x3c>;
+                clocks = <&clks IMX6UL_CLK_CSI>;
+                clock-names = "csi_mclk";
+                csi_id = <0>;
+                pinctrl-names = "default";
+                pinctrl-0 = <&pinctrl_csi_0>;
+                mclk = <24000000>;
+                mclk_source = <0>;
+                port {
+                        ov5640_ep: endpoint {
+                                remote-endpoint = <&csi1_ep>;
+                        };
+                };
+        };
+
+};
+
+&csi {
+        status = "okay";
+
+        port {
+                csi1_ep: endpoint {
+                        remote-endpoint = <&ov5640_ep>;
+                };
+        };
+};
+
+&iomuxc {
+
+        imx6ulea-devkit {
+                pinctrl_csi_0: csigrp-0 {
+                        fsl,pins = <
+                                MX6UL_PAD_CSI_MCLK__CSI_MCLK            0x11098
+                                MX6UL_PAD_CSI_PIXCLK__CSI_PIXCLK        0x110b0
+                                MX6UL_PAD_CSI_VSYNC__CSI_VSYNC          0x110b0
+                                MX6UL_PAD_CSI_HSYNC__CSI_HSYNC          0x110b0
+                                MX6UL_PAD_CSI_DATA00__CSI_DATA02        0x110b0
+                                MX6UL_PAD_CSI_DATA01__CSI_DATA03        0x110b0
+                                MX6UL_PAD_CSI_DATA02__CSI_DATA04        0x110b0
+                                MX6UL_PAD_CSI_DATA03__CSI_DATA05        0x110b0
+                                MX6UL_PAD_CSI_DATA04__CSI_DATA06        0x110b0
+                                MX6UL_PAD_CSI_DATA05__CSI_DATA07        0x110b0
+                                MX6UL_PAD_CSI_DATA06__CSI_DATA08        0x110b0
+                                MX6UL_PAD_CSI_DATA07__CSI_DATA09        0x110b0
+
+                        >;
+                };
+
+        };
+};

@@ -1,20 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * C-Media CMI8788 driver - mixer code
  *
  * Copyright (c) Clemens Ladisch <clemens@ladisch.de>
- *
- *
- *  This driver is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License, version 2.
- *
- *  This driver is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with this driver; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  */
 
 #include <linux/mutex.h>
@@ -88,7 +76,7 @@ static int dac_mute_put(struct snd_kcontrol *ctl,
 	int changed;
 
 	mutex_lock(&chip->mutex);
-	changed = !value->value.integer.value[0] != chip->dac_mute;
+	changed = (!value->value.integer.value[0]) != chip->dac_mute;
 	if (changed) {
 		chip->dac_mute = !value->value.integer.value[0];
 		chip->model.update_dac_mute(chip);
@@ -190,6 +178,7 @@ void oxygen_update_dac_routing(struct oxygen *chip)
 	if (chip->model.update_center_lfe_mix)
 		chip->model.update_center_lfe_mix(chip, chip->dac_routing > 2);
 }
+EXPORT_SYMBOL(oxygen_update_dac_routing);
 
 static int upmix_put(struct snd_kcontrol *ctl, struct snd_ctl_elem_value *value)
 {
@@ -618,9 +607,12 @@ static int ac97_volume_get(struct snd_kcontrol *ctl,
 	mutex_lock(&chip->mutex);
 	reg = oxygen_read_ac97(chip, codec, index);
 	mutex_unlock(&chip->mutex);
-	value->value.integer.value[0] = 31 - (reg & 0x1f);
-	if (stereo)
-		value->value.integer.value[1] = 31 - ((reg >> 8) & 0x1f);
+	if (!stereo) {
+		value->value.integer.value[0] = 31 - (reg & 0x1f);
+	} else {
+		value->value.integer.value[0] = 31 - ((reg >> 8) & 0x1f);
+		value->value.integer.value[1] = 31 - (reg & 0x1f);
+	}
 	return 0;
 }
 
@@ -636,14 +628,14 @@ static int ac97_volume_put(struct snd_kcontrol *ctl,
 
 	mutex_lock(&chip->mutex);
 	oldreg = oxygen_read_ac97(chip, codec, index);
-	newreg = oldreg;
-	newreg = (newreg & ~0x1f) |
-		(31 - (value->value.integer.value[0] & 0x1f));
-	if (stereo)
-		newreg = (newreg & ~0x1f00) |
-			((31 - (value->value.integer.value[1] & 0x1f)) << 8);
-	else
-		newreg = (newreg & ~0x1f00) | ((newreg & 0x1f) << 8);
+	if (!stereo) {
+		newreg = oldreg & ~0x1f;
+		newreg |= 31 - (value->value.integer.value[0] & 0x1f);
+	} else {
+		newreg = oldreg & ~0x1f1f;
+		newreg |= (31 - (value->value.integer.value[0] & 0x1f)) << 8;
+		newreg |= 31 - (value->value.integer.value[1] & 0x1f);
+	}
 	change = newreg != oldreg;
 	if (change)
 		oxygen_write_ac97(chip, codec, index, newreg);
@@ -782,6 +774,9 @@ static const struct snd_kcontrol_new controls[] = {
 		.get = upmix_get,
 		.put = upmix_put,
 	},
+};
+
+static const struct snd_kcontrol_new spdif_output_controls[] = {
 	{
 		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 		.name = SNDRV_CTL_NAME_IEC958("", PLAYBACK, SWITCH),
@@ -934,6 +929,33 @@ static const struct {
 		},
 	},
 	{
+		.pcm_dev = CAPTURE_3_FROM_I2S_3,
+		.controls = {
+			{
+				.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
+				.name = "Analog Input Monitor Playback Switch",
+				.index = 2,
+				.info = snd_ctl_boolean_mono_info,
+				.get = monitor_get,
+				.put = monitor_put,
+				.private_value = OXYGEN_ADC_MONITOR_C,
+			},
+			{
+				.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
+				.name = "Analog Input Monitor Playback Volume",
+				.index = 2,
+				.access = SNDRV_CTL_ELEM_ACCESS_READWRITE |
+					  SNDRV_CTL_ELEM_ACCESS_TLV_READ,
+				.info = monitor_volume_info,
+				.get = monitor_get,
+				.put = monitor_put,
+				.private_value = OXYGEN_ADC_MONITOR_C_HALF_VOL
+						| (1 << 8),
+				.tlv = { .p = monitor_db_scale, },
+			},
+		},
+	},
+	{
 		.pcm_dev = CAPTURE_1_FROM_SPDIF,
 		.controls = {
 			{
@@ -1018,10 +1040,10 @@ static int add_controls(struct oxygen *chip,
 		[CONTROL_CD_CAPTURE_SWITCH] = "CD Capture Switch",
 		[CONTROL_AUX_CAPTURE_SWITCH] = "Aux Capture Switch",
 	};
-	unsigned int i, j;
+	unsigned int i;
 	struct snd_kcontrol_new template;
 	struct snd_kcontrol *ctl;
-	int err;
+	int j, err;
 
 	for (i = 0; i < count; ++i) {
 		template = controls[i];
@@ -1052,11 +1074,11 @@ static int add_controls(struct oxygen *chip,
 		err = snd_ctl_add(chip->card, ctl);
 		if (err < 0)
 			return err;
-		for (j = 0; j < CONTROL_COUNT; ++j)
-			if (!strcmp(ctl->id.name, known_ctl_names[j])) {
-				chip->controls[j] = ctl;
-				ctl->private_free = oxygen_any_ctl_free;
-			}
+		j = match_string(known_ctl_names, CONTROL_COUNT, ctl->id.name);
+		if (j >= 0) {
+			chip->controls[j] = ctl;
+			ctl->private_free = oxygen_any_ctl_free;
+		}
 	}
 	return 0;
 }
@@ -1069,6 +1091,12 @@ int oxygen_mixer_init(struct oxygen *chip)
 	err = add_controls(chip, controls, ARRAY_SIZE(controls));
 	if (err < 0)
 		return err;
+	if (chip->model.device_config & PLAYBACK_1_TO_SPDIF) {
+		err = add_controls(chip, spdif_output_controls,
+				   ARRAY_SIZE(spdif_output_controls));
+		if (err < 0)
+			return err;
+	}
 	if (chip->model.device_config & CAPTURE_1_FROM_SPDIF) {
 		err = add_controls(chip, spdif_input_controls,
 				   ARRAY_SIZE(spdif_input_controls));

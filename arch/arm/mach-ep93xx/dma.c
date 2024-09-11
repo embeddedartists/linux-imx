@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * arch/arm/mach-ep93xx/dma.c
  *
@@ -11,11 +12,6 @@
  *   Copyright (C) 2006 Lennert Buytenhek <buytenh@wantstofly.org>
  *   Copyright (C) 2006 Applied Data Systems
  *   Copyright (C) 2009 Ryan Mallon <rmallon@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or (at
- * your option) any later version.
  */
 
 #include <linux/dmaengine.h>
@@ -25,8 +21,10 @@
 #include <linux/kernel.h>
 #include <linux/platform_device.h>
 
-#include <mach/dma.h>
-#include <mach/hardware.h>
+#include <linux/platform_data/dma-ep93xx.h>
+#include "hardware.h"
+
+#include "soc.h"
 
 #define DMA_CHANNEL(_name, _base, _irq) \
 	{ .name = (_name), .base = (_base), .irq = (_irq) }
@@ -64,11 +62,15 @@ static struct ep93xx_dma_platform_data ep93xx_dma_m2p_data = {
 	.num_channels		= ARRAY_SIZE(ep93xx_dma_m2p_channels),
 };
 
+static u64 ep93xx_dma_m2p_mask = DMA_BIT_MASK(32);
+
 static struct platform_device ep93xx_dma_m2p_device = {
 	.name			= "ep93xx-dma-m2p",
 	.id			= -1,
 	.dev			= {
-		.platform_data	= &ep93xx_dma_m2p_data,
+		.platform_data		= &ep93xx_dma_m2p_data,
+		.dma_mask		= &ep93xx_dma_m2p_mask,
+		.coherent_dma_mask	= DMA_BIT_MASK(32),
 	},
 };
 
@@ -91,11 +93,15 @@ static struct ep93xx_dma_platform_data ep93xx_dma_m2m_data = {
 	.num_channels		= ARRAY_SIZE(ep93xx_dma_m2m_channels),
 };
 
+static u64 ep93xx_dma_m2m_mask = DMA_BIT_MASK(32);
+
 static struct platform_device ep93xx_dma_m2m_device = {
 	.name			= "ep93xx-dma-m2m",
 	.id			= -1,
 	.dev			= {
-		.platform_data	= &ep93xx_dma_m2m_data,
+		.platform_data		= &ep93xx_dma_m2m_data,
+		.dma_mask		= &ep93xx_dma_m2m_mask,
+		.coherent_dma_mask	= DMA_BIT_MASK(32),
 	},
 };
 

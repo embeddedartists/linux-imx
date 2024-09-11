@@ -1,14 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * linux/arch/sh/boards/lbox/setup.c
  *
  * Copyright (C) 2007 Nobuhiro Iwamatsu
  *
  * NTT COMWARE L-BOX RE2 Support
- *
- * This file is subject to the terms and conditions of the GNU General Public
- * License.  See the file "COPYING" in the main directory of this archive
- * for more details.
- *
  */
 
 #include <linux/init.h>
@@ -79,6 +75,5 @@ device_initcall(lboxre2_devices_setup);
  */
 static struct sh_machine_vector mv_lboxre2 __initmv = {
 	.mv_name		= "L-BOX RE2",
-	.mv_nr_irqs		= 72,
 	.mv_init_irq		= init_lboxre2_IRQ,
 };

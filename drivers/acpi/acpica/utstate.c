@@ -1,45 +1,9 @@
+// SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0
 /*******************************************************************************
  *
  * Module Name: utstate - state object support procedures
  *
  ******************************************************************************/
-
-/*
- * Copyright (C) 2000 - 2011, Intel Corp.
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions, and the following disclaimer,
- *    without modification.
- * 2. Redistributions in binary form must reproduce at minimum a disclaimer
- *    substantially similar to the "NO WARRANTY" disclaimer below
- *    ("Disclaimer") and any redistribution must be conditioned upon
- *    including a substantially similar Disclaimer requirement for further
- *    binary redistribution.
- * 3. Neither the names of the above-listed copyright holders nor the names
- *    of any contributors may be used to endorse or promote products derived
- *    from this software without specific prior written permission.
- *
- * Alternatively, this software may be distributed under the terms of the
- * GNU General Public License ("GPL") version 2 as published by the Free
- * Software Foundation.
- *
- * NO WARRANTY
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * HOLDERS OR CONTRIBUTORS BE LIABLE FOR SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
- * IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGES.
- */
 
 #include <acpi/acpi.h>
 #include "accommon.h"
@@ -49,62 +13,27 @@ ACPI_MODULE_NAME("utstate")
 
 /*******************************************************************************
  *
- * FUNCTION:    acpi_ut_create_pkg_state_and_push
- *
- * PARAMETERS:  Object          - Object to be added to the new state
- *              Action          - Increment/Decrement
- *              state_list      - List the state will be added to
- *
- * RETURN:      Status
- *
- * DESCRIPTION: Create a new state and push it
- *
- ******************************************************************************/
-acpi_status
-acpi_ut_create_pkg_state_and_push(void *internal_object,
-				  void *external_object,
-				  u16 index,
-				  union acpi_generic_state **state_list)
-{
-	union acpi_generic_state *state;
-
-	ACPI_FUNCTION_ENTRY();
-
-	state =
-	    acpi_ut_create_pkg_state(internal_object, external_object, index);
-	if (!state) {
-		return (AE_NO_MEMORY);
-	}
-
-	acpi_ut_push_generic_state(state_list, state);
-	return (AE_OK);
-}
-
-/*******************************************************************************
- *
  * FUNCTION:    acpi_ut_push_generic_state
  *
  * PARAMETERS:  list_head           - Head of the state stack
- *              State               - State object to push
+ *              state               - State object to push
  *
  * RETURN:      None
  *
  * DESCRIPTION: Push a state object onto a state stack
  *
  ******************************************************************************/
-
 void
 acpi_ut_push_generic_state(union acpi_generic_state **list_head,
 			   union acpi_generic_state *state)
 {
-	ACPI_FUNCTION_TRACE(ut_push_generic_state);
+	ACPI_FUNCTION_ENTRY();
 
 	/* Push the state object onto the front of the list (stack) */
 
 	state->common.next = *list_head;
 	*list_head = state;
-
-	return_VOID;
+	return;
 }
 
 /*******************************************************************************
@@ -124,7 +53,7 @@ union acpi_generic_state *acpi_ut_pop_generic_state(union acpi_generic_state
 {
 	union acpi_generic_state *state;
 
-	ACPI_FUNCTION_TRACE(ut_pop_generic_state);
+	ACPI_FUNCTION_ENTRY();
 
 	/* Remove the state object at the head of the list (stack) */
 
@@ -136,7 +65,7 @@ union acpi_generic_state *acpi_ut_pop_generic_state(union acpi_generic_state
 		*list_head = state->common.next;
 	}
 
-	return_PTR(state);
+	return (state);
 }
 
 /*******************************************************************************
@@ -147,7 +76,7 @@ union acpi_generic_state *acpi_ut_pop_generic_state(union acpi_generic_state
  *
  * RETURN:      The new state object. NULL on failure.
  *
- * DESCRIPTION: Create a generic state object.  Attempt to obtain one from
+ * DESCRIPTION: Create a generic state object. Attempt to obtain one from
  *              the global state cache;  If none available, create a new one.
  *
  ******************************************************************************/
@@ -162,7 +91,6 @@ union acpi_generic_state *acpi_ut_create_generic_state(void)
 	if (state) {
 
 		/* Initialize */
-		memset(state, 0, sizeof(union acpi_generic_state));
 		state->common.descriptor_type = ACPI_DESC_TYPE_STATE;
 	}
 
@@ -186,13 +114,13 @@ struct acpi_thread_state *acpi_ut_create_thread_state(void)
 {
 	union acpi_generic_state *state;
 
-	ACPI_FUNCTION_TRACE(ut_create_thread_state);
+	ACPI_FUNCTION_ENTRY();
 
 	/* Create the generic state object */
 
 	state = acpi_ut_create_generic_state();
 	if (!state) {
-		return_PTR(NULL);
+		return (NULL);
 	}
 
 	/* Init fields specific to the update struct */
@@ -207,15 +135,15 @@ struct acpi_thread_state *acpi_ut_create_thread_state(void)
 		state->thread.thread_id = (acpi_thread_id) 1;
 	}
 
-	return_PTR((struct acpi_thread_state *)state);
+	return ((struct acpi_thread_state *)state);
 }
 
 /*******************************************************************************
  *
  * FUNCTION:    acpi_ut_create_update_state
  *
- * PARAMETERS:  Object          - Initial Object to be installed in the state
- *              Action          - Update action to be performed
+ * PARAMETERS:  object          - Initial Object to be installed in the state
+ *              action          - Update action to be performed
  *
  * RETURN:      New state object, null on failure
  *
@@ -230,13 +158,13 @@ union acpi_generic_state *acpi_ut_create_update_state(union acpi_operand_object
 {
 	union acpi_generic_state *state;
 
-	ACPI_FUNCTION_TRACE_PTR(ut_create_update_state, object);
+	ACPI_FUNCTION_ENTRY();
 
 	/* Create the generic state object */
 
 	state = acpi_ut_create_generic_state();
 	if (!state) {
-		return_PTR(NULL);
+		return (NULL);
 	}
 
 	/* Init fields specific to the update struct */
@@ -244,16 +172,15 @@ union acpi_generic_state *acpi_ut_create_update_state(union acpi_operand_object
 	state->common.descriptor_type = ACPI_DESC_TYPE_STATE_UPDATE;
 	state->update.object = object;
 	state->update.value = action;
-
-	return_PTR(state);
+	return (state);
 }
 
 /*******************************************************************************
  *
  * FUNCTION:    acpi_ut_create_pkg_state
  *
- * PARAMETERS:  Object          - Initial Object to be installed in the state
- *              Action          - Update action to be performed
+ * PARAMETERS:  object          - Initial Object to be installed in the state
+ *              action          - Update action to be performed
  *
  * RETURN:      New state object, null on failure
  *
@@ -263,17 +190,17 @@ union acpi_generic_state *acpi_ut_create_update_state(union acpi_operand_object
 
 union acpi_generic_state *acpi_ut_create_pkg_state(void *internal_object,
 						   void *external_object,
-						   u16 index)
+						   u32 index)
 {
 	union acpi_generic_state *state;
 
-	ACPI_FUNCTION_TRACE_PTR(ut_create_pkg_state, internal_object);
+	ACPI_FUNCTION_ENTRY();
 
 	/* Create the generic state object */
 
 	state = acpi_ut_create_generic_state();
 	if (!state) {
-		return_PTR(NULL);
+		return (NULL);
 	}
 
 	/* Init fields specific to the update struct */
@@ -284,7 +211,7 @@ union acpi_generic_state *acpi_ut_create_pkg_state(void *internal_object,
 	state->pkg.index = index;
 	state->pkg.num_packages = 1;
 
-	return_PTR(state);
+	return (state);
 }
 
 /*******************************************************************************
@@ -304,13 +231,13 @@ union acpi_generic_state *acpi_ut_create_control_state(void)
 {
 	union acpi_generic_state *state;
 
-	ACPI_FUNCTION_TRACE(ut_create_control_state);
+	ACPI_FUNCTION_ENTRY();
 
 	/* Create the generic state object */
 
 	state = acpi_ut_create_generic_state();
 	if (!state) {
-		return_PTR(NULL);
+		return (NULL);
 	}
 
 	/* Init fields specific to the control struct */
@@ -318,14 +245,14 @@ union acpi_generic_state *acpi_ut_create_control_state(void)
 	state->common.descriptor_type = ACPI_DESC_TYPE_STATE_CONTROL;
 	state->common.state = ACPI_CONTROL_CONDITIONAL_EXECUTING;
 
-	return_PTR(state);
+	return (state);
 }
 
 /*******************************************************************************
  *
  * FUNCTION:    acpi_ut_delete_generic_state
  *
- * PARAMETERS:  State               - The state object to be deleted
+ * PARAMETERS:  state               - The state object to be deleted
  *
  * RETURN:      None
  *
@@ -336,12 +263,13 @@ union acpi_generic_state *acpi_ut_create_control_state(void)
 
 void acpi_ut_delete_generic_state(union acpi_generic_state *state)
 {
-	ACPI_FUNCTION_TRACE(ut_delete_generic_state);
+	ACPI_FUNCTION_ENTRY();
 
 	/* Ignore null state */
 
 	if (state) {
 		(void)acpi_os_release_object(acpi_gbl_state_cache, state);
 	}
-	return_VOID;
+
+	return;
 }

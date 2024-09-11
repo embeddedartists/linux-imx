@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Hardware definitions for Palm LifeDrive
  *
@@ -6,12 +7,7 @@
  * Based on work of:
  *		Alex Osborne <ato@meshy.org>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
  * (find more info at www.hackndev.com)
- *
  */
 
 #include <linux/platform_device.h>
@@ -32,15 +28,15 @@
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
 
-#include <mach/pxa27x.h>
+#include "pxa27x.h"
 #include <mach/audio.h>
 #include <mach/palmld.h>
-#include <mach/mmc.h>
-#include <mach/pxafb.h>
-#include <mach/irda.h>
-#include <plat/pxa27x_keypad.h>
-#include <mach/palmasoc.h>
-#include <mach/palm27x.h>
+#include <linux/platform_data/mmc-pxamci.h>
+#include <linux/platform_data/video-pxafb.h>
+#include <linux/platform_data/irda-pxaficp.h>
+#include <linux/platform_data/keypad-pxa27x.h>
+#include <linux/platform_data/asoc-palm27x.h>
+#include "palm27x.h"
 
 #include "generic.h"
 #include "devices.h"
@@ -173,7 +169,7 @@ static inline void palmld_nor_init(void) {}
  * GPIO keyboard
  ******************************************************************************/
 #if defined(CONFIG_KEYBOARD_PXA27x) || defined(CONFIG_KEYBOARD_PXA27x_MODULE)
-static unsigned int palmld_matrix_keys[] = {
+static const unsigned int palmld_matrix_keys[] = {
 	KEY(0, 1, KEY_F2),
 	KEY(0, 2, KEY_UP),
 
@@ -190,11 +186,15 @@ static unsigned int palmld_matrix_keys[] = {
 	KEY(3, 2, KEY_LEFT),
 };
 
+static struct matrix_keymap_data palmld_matrix_keymap_data = {
+	.keymap			= palmld_matrix_keys,
+	.keymap_size		= ARRAY_SIZE(palmld_matrix_keys),
+};
+
 static struct pxa27x_keypad_platform_data palmld_keypad_platform_data = {
 	.matrix_key_rows	= 4,
 	.matrix_key_cols	= 3,
-	.matrix_key_map		= palmld_matrix_keys,
-	.matrix_key_map_size	= ARRAY_SIZE(palmld_matrix_keys),
+	.matrix_keymap_data	= &palmld_matrix_keymap_data,
 
 	.debounce_interval	= 30,
 };
@@ -284,8 +284,20 @@ static struct platform_device palmld_ide_device = {
 	.id	= -1,
 };
 
+static struct gpiod_lookup_table palmld_ide_gpio_table = {
+	.dev_id = "pata_palmld",
+	.table = {
+		GPIO_LOOKUP("gpio-pxa", GPIO_NR_PALMLD_IDE_PWEN,
+			    "power", GPIO_ACTIVE_HIGH),
+		GPIO_LOOKUP("gpio-pxa", GPIO_NR_PALMLD_IDE_RESET,
+			    "reset", GPIO_ACTIVE_LOW),
+		{ },
+	},
+};
+
 static void __init palmld_ide_init(void)
 {
+	gpiod_add_lookup_table(&palmld_ide_gpio_table);
 	platform_device_register(&palmld_ide_device);
 }
 #else
@@ -316,6 +328,19 @@ static void __init palmld_map_io(void)
 	iotable_init(palmld_io_desc, ARRAY_SIZE(palmld_io_desc));
 }
 
+static struct gpiod_lookup_table palmld_mci_gpio_table = {
+	.dev_id = "pxa2xx-mci.0",
+	.table = {
+		GPIO_LOOKUP("gpio-pxa", GPIO_NR_PALMLD_SD_DETECT_N,
+			    "cd", GPIO_ACTIVE_LOW),
+		GPIO_LOOKUP("gpio-pxa", GPIO_NR_PALMLD_SD_READONLY,
+			    "wp", GPIO_ACTIVE_LOW),
+		GPIO_LOOKUP("gpio-pxa", GPIO_NR_PALMLD_SD_POWER,
+			    "power", GPIO_ACTIVE_HIGH),
+		{ },
+	},
+};
+
 static void __init palmld_init(void)
 {
 	pxa2xx_mfp_config(ARRAY_AND_SIZE(palmld_pin_config));
@@ -323,8 +348,7 @@ static void __init palmld_init(void)
 	pxa_set_btuart_info(NULL);
 	pxa_set_stuart_info(NULL);
 
-	palm27x_mmc_init(GPIO_NR_PALMLD_SD_DETECT_N, GPIO_NR_PALMLD_SD_READONLY,
-			GPIO_NR_PALMLD_SD_POWER, 0);
+	palm27x_mmc_init(&palmld_mci_gpio_table);
 	palm27x_pm_init(PALMLD_STR_BASE);
 	palm27x_lcd_init(-1, &palm_320x480_lcd_mode);
 	palm27x_irda_init(GPIO_NR_PALMLD_IR_DISABLE);
@@ -344,9 +368,10 @@ static void __init palmld_init(void)
 MACHINE_START(PALMLD, "Palm LifeDrive")
 	.atag_offset	= 0x100,
 	.map_io		= palmld_map_io,
+	.nr_irqs	= PXA_NR_IRQS,
 	.init_irq	= pxa27x_init_irq,
 	.handle_irq	= pxa27x_handle_irq,
-	.timer		= &pxa_timer,
+	.init_time	= pxa_timer_init,
 	.init_machine	= palmld_init,
 	.restart	= pxa_restart,
 MACHINE_END

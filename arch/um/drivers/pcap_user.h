@@ -1,9 +1,9 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /* 
  * Copyright (C) 2002 Jeff Dike (jdike@karaya.com)
- * Licensed under the GPL
  */
 
-#include "net_user.h"
+#include <net_user.h>
 
 struct pcap_data {
 	char *host_if;

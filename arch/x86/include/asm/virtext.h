@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /* CPU virtualization extensions handling
  *
  * This should carry the code for handling CPU virtualization extensions
@@ -8,18 +9,15 @@
  * Copyright (C) 2008, Red Hat Inc.
  *
  * Contains code from KVM, Copyright (C) 2006 Qumranet, Inc.
- *
- * This work is licensed under the terms of the GNU GPL, version 2.  See
- * the COPYING file in the top-level directory.
  */
 #ifndef _ASM_X86_VIRTEX_H
 #define _ASM_X86_VIRTEX_H
 
 #include <asm/processor.h>
-#include <asm/system.h>
 
 #include <asm/vmx.h>
 #include <asm/svm.h>
+#include <asm/tlbflush.h>
 
 /*
  * VMX functions:
@@ -32,21 +30,34 @@ static inline int cpu_has_vmx(void)
 }
 
 
-/** Disable VMX on the current CPU
+/**
+ * cpu_vmxoff() - Disable VMX on the current CPU
  *
- * vmxoff causes a undefined-opcode exception if vmxon was not run
- * on the CPU previously. Only call this function if you know VMX
- * is enabled.
+ * Disable VMX and clear CR4.VMXE (even if VMXOFF faults)
+ *
+ * Note, VMXOFF causes a #UD if the CPU is !post-VMXON, but it's impossible to
+ * atomically track post-VMXON state, e.g. this may be called in NMI context.
+ * Eat all faults as all other faults on VMXOFF faults are mode related, i.e.
+ * faults are guaranteed to be due to the !post-VMXON check unless the CPU is
+ * magically in RM, VM86, compat mode, or at CPL>0.
  */
-static inline void cpu_vmxoff(void)
+static inline int cpu_vmxoff(void)
 {
-	asm volatile (ASM_VMX_VMXOFF : : : "cc");
-	write_cr4(read_cr4() & ~X86_CR4_VMXE);
+	asm_volatile_goto("1: vmxoff\n\t"
+			  _ASM_EXTABLE(1b, %l[fault])
+			  ::: "cc", "memory" : fault);
+
+	cr4_clear_bits(X86_CR4_VMXE);
+	return 0;
+
+fault:
+	cr4_clear_bits(X86_CR4_VMXE);
+	return -EIO;
 }
 
 static inline int cpu_vmx_enabled(void)
 {
-	return read_cr4() & X86_CR4_VMXE;
+	return __read_cr4() & X86_CR4_VMXE;
 }
 
 /** Disable VMX if it is enabled on the current CPU
@@ -83,23 +94,20 @@ static inline void cpu_emergency_vmxoff(void)
  */
 static inline int cpu_has_svm(const char **msg)
 {
-	uint32_t eax, ebx, ecx, edx;
-
-	if (boot_cpu_data.x86_vendor != X86_VENDOR_AMD) {
+	if (boot_cpu_data.x86_vendor != X86_VENDOR_AMD &&
+	    boot_cpu_data.x86_vendor != X86_VENDOR_HYGON) {
 		if (msg)
-			*msg = "not amd";
+			*msg = "not amd or hygon";
 		return 0;
 	}
 
-	cpuid(0x80000000, &eax, &ebx, &ecx, &edx);
-	if (eax < SVM_CPUID_FUNC) {
+	if (boot_cpu_data.extended_cpuid_level < SVM_CPUID_FUNC) {
 		if (msg)
 			*msg = "can't execute cpuid_8000000a";
 		return 0;
 	}
 
-	cpuid(0x80000001, &eax, &ebx, &ecx, &edx);
-	if (!(ecx & (1 << SVM_CPUID_FEATURE_SHIFT))) {
+	if (!boot_cpu_has(X86_FEATURE_SVM)) {
 		if (msg)
 			*msg = "svm not available";
 		return 0;

@@ -1,12 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  *
  *  Copyright (C) 2008 Christian Pellegrin <chripell@evolware.org>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
  *
  * Notes: the MAX3100 doesn't provide an interrupt on CTS so we have
  * to use polling for flow control. TX empty IRQ is unusable, since
@@ -179,14 +174,13 @@ static void max3100_work(struct work_struct *w);
 
 static void max3100_dowork(struct max3100_port *s)
 {
-	if (!s->force_end_work && !work_pending(&s->work) &&
-	    !freezing(current) && !s->suspending)
+	if (!s->force_end_work && !freezing(current) && !s->suspending)
 		queue_work(s->workqueue, &s->work);
 }
 
-static void max3100_timeout(unsigned long data)
+static void max3100_timeout(struct timer_list *t)
 {
-	struct max3100_port *s = (struct max3100_port *)data;
+	struct max3100_port *s = from_timer(s, t, timer);
 
 	if (s->port.state) {
 		max3100_dowork(s);
@@ -264,7 +258,7 @@ static void max3100_work(struct work_struct *w)
 	struct max3100_port *s = container_of(w, struct max3100_port, work);
 	int rxchars;
 	u16 tx, rx;
-	int conf, cconf, rts, crts;
+	int conf, cconf, crts;
 	struct circ_buf *xmit = &s->port.state->xmit;
 
 	dev_dbg(&s->spi->dev, "%s\n", __func__);
@@ -275,7 +269,6 @@ static void max3100_work(struct work_struct *w)
 		conf = s->conf;
 		cconf = s->conf_commit;
 		s->conf_commit = 0;
-		rts = s->rts;
 		crts = s->rts_commit;
 		s->rts_commit = 0;
 		spin_unlock(&s->conf_lock);
@@ -311,8 +304,8 @@ static void max3100_work(struct work_struct *w)
 			}
 		}
 
-		if (rxchars > 16 && s->port.state->port.tty != NULL) {
-			tty_flip_buffer_push(s->port.state->port.tty);
+		if (rxchars > 16) {
+			tty_flip_buffer_push(&s->port.state->port);
 			rxchars = 0;
 		}
 		if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
@@ -324,8 +317,8 @@ static void max3100_work(struct work_struct *w)
 		  (!uart_circ_empty(xmit) &&
 		   !uart_tx_stopped(&s->port))));
 
-	if (rxchars > 0 && s->port.state->port.tty != NULL)
-		tty_flip_buffer_push(s->port.state->port.tty);
+	if (rxchars > 0)
+		tty_flip_buffer_push(&s->port.state->port);
 }
 
 static irqreturn_t max3100_irq(int irqno, void *dev_id)
@@ -437,7 +430,6 @@ max3100_set_termios(struct uart_port *port, struct ktermios *termios,
 	dev_dbg(&s->spi->dev, "%s\n", __func__);
 
 	cflag = termios->c_cflag;
-	param_new = 0;
 	param_mask = 0;
 
 	baud = tty_termios_baud_rate(termios);
@@ -528,9 +520,6 @@ max3100_set_termios(struct uart_port *port, struct ktermios *termios,
 		s->port.ignore_status_mask |=
 			MAX3100_STATUS_PE | MAX3100_STATUS_FE |
 			MAX3100_STATUS_OE;
-
-	/* we are sending char from a workqueue so enable */
-	s->port.state->port.tty->low_latency = 1;
 
 	if (s->poll_time > 0)
 		del_timer_sync(&s->timer);
@@ -713,7 +702,7 @@ static void max3100_break_ctl(struct uart_port *port, int break_state)
 	dev_dbg(&s->spi->dev, "%s\n", __func__);
 }
 
-static struct uart_ops max3100_ops = {
+static const struct uart_ops max3100_ops = {
 	.tx_empty	= max3100_tx_empty,
 	.set_mctrl	= max3100_set_mctrl,
 	.get_mctrl	= max3100_get_mctrl,
@@ -742,7 +731,7 @@ static struct uart_driver max3100_uart_driver = {
 };
 static int uart_driver_registered;
 
-static int __devinit max3100_probe(struct spi_device *spi)
+static int max3100_probe(struct spi_device *spi)
 {
 	int i, retval;
 	struct plat_max3100 *pdata;
@@ -779,18 +768,16 @@ static int __devinit max3100_probe(struct spi_device *spi)
 	max3100s[i]->spi = spi;
 	max3100s[i]->irq = spi->irq;
 	spin_lock_init(&max3100s[i]->conf_lock);
-	dev_set_drvdata(&spi->dev, max3100s[i]);
-	pdata = spi->dev.platform_data;
+	spi_set_drvdata(spi, max3100s[i]);
+	pdata = dev_get_platdata(&spi->dev);
 	max3100s[i]->crystal = pdata->crystal;
 	max3100s[i]->loopback = pdata->loopback;
-	max3100s[i]->poll_time = pdata->poll_time * HZ / 1000;
+	max3100s[i]->poll_time = msecs_to_jiffies(pdata->poll_time);
 	if (pdata->poll_time > 0 && max3100s[i]->poll_time == 0)
 		max3100s[i]->poll_time = 1;
 	max3100s[i]->max3100_hw_suspend = pdata->max3100_hw_suspend;
 	max3100s[i]->minor = i;
-	init_timer(&max3100s[i]->timer);
-	max3100s[i]->timer.function = max3100_timeout;
-	max3100s[i]->timer.data = (unsigned long) max3100s[i];
+	timer_setup(&max3100s[i]->timer, max3100_timeout, 0);
 
 	dev_dbg(&spi->dev, "%s: adding port %d\n", __func__, i);
 	max3100s[i]->port.irq = max3100s[i]->irq;
@@ -818,23 +805,25 @@ static int __devinit max3100_probe(struct spi_device *spi)
 	return 0;
 }
 
-static int __devexit max3100_remove(struct spi_device *spi)
+static int max3100_remove(struct spi_device *spi)
 {
-	struct max3100_port *s = dev_get_drvdata(&spi->dev);
+	struct max3100_port *s = spi_get_drvdata(spi);
 	int i;
 
 	mutex_lock(&max3100s_lock);
 
 	/* find out the index for the chip we are removing */
 	for (i = 0; i < MAX_MAX3100; i++)
-		if (max3100s[i] == s)
+		if (max3100s[i] == s) {
+			dev_dbg(&spi->dev, "%s: removing port %d\n", __func__, i);
+			uart_remove_one_port(&max3100_uart_driver, &max3100s[i]->port);
+			kfree(max3100s[i]);
+			max3100s[i] = NULL;
 			break;
+		}
 
-	dev_dbg(&spi->dev, "%s: removing port %d\n", __func__, i);
-	uart_remove_one_port(&max3100_uart_driver, &max3100s[i]->port);
-	kfree(max3100s[i]);
-	max3100s[i] = NULL;
-
+	WARN_ON(i == MAX_MAX3100);
+	
 	/* check if this is the last chip we have */
 	for (i = 0; i < MAX_MAX3100; i++)
 		if (max3100s[i]) {
@@ -848,11 +837,11 @@ static int __devexit max3100_remove(struct spi_device *spi)
 	return 0;
 }
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 
-static int max3100_suspend(struct spi_device *spi, pm_message_t state)
+static int max3100_suspend(struct device *dev)
 {
-	struct max3100_port *s = dev_get_drvdata(&spi->dev);
+	struct max3100_port *s = dev_get_drvdata(dev);
 
 	dev_dbg(&s->spi->dev, "%s\n", __func__);
 
@@ -873,9 +862,9 @@ static int max3100_suspend(struct spi_device *spi, pm_message_t state)
 	return 0;
 }
 
-static int max3100_resume(struct spi_device *spi)
+static int max3100_resume(struct device *dev)
 {
-	struct max3100_port *s = dev_get_drvdata(&spi->dev);
+	struct max3100_port *s = dev_get_drvdata(dev);
 
 	dev_dbg(&s->spi->dev, "%s\n", __func__);
 
@@ -893,34 +882,23 @@ static int max3100_resume(struct spi_device *spi)
 	return 0;
 }
 
+static SIMPLE_DEV_PM_OPS(max3100_pm_ops, max3100_suspend, max3100_resume);
+#define MAX3100_PM_OPS (&max3100_pm_ops)
+
 #else
-#define max3100_suspend NULL
-#define max3100_resume  NULL
+#define MAX3100_PM_OPS NULL
 #endif
 
 static struct spi_driver max3100_driver = {
 	.driver = {
 		.name		= "max3100",
-		.owner		= THIS_MODULE,
+		.pm		= MAX3100_PM_OPS,
 	},
-
 	.probe		= max3100_probe,
-	.remove		= __devexit_p(max3100_remove),
-	.suspend	= max3100_suspend,
-	.resume		= max3100_resume,
+	.remove		= max3100_remove,
 };
 
-static int __init max3100_init(void)
-{
-	return spi_register_driver(&max3100_driver);
-}
-module_init(max3100_init);
-
-static void __exit max3100_exit(void)
-{
-	spi_unregister_driver(&max3100_driver);
-}
-module_exit(max3100_exit);
+module_spi_driver(max3100_driver);
 
 MODULE_DESCRIPTION("MAX3100 driver");
 MODULE_AUTHOR("Christian Pellegrin <chripell@evolware.org>");

@@ -9,28 +9,26 @@
 #define __ASM_MACH_JAZZ_FLOPPY_H
 
 #include <linux/delay.h>
-#include <linux/init.h>
 #include <linux/linkage.h>
 #include <linux/types.h>
 #include <linux/mm.h>
 #include <asm/addrspace.h>
 #include <asm/jazz.h>
 #include <asm/jazzdma.h>
-#include <asm/pgtable.h>
 
-static inline unsigned char fd_inb(unsigned int port)
+static inline unsigned char fd_inb(unsigned int base, unsigned int reg)
 {
 	unsigned char c;
 
-	c = *(volatile unsigned char *) port;
+	c = *(volatile unsigned char *) (base + reg);
 	udelay(1);
 
 	return c;
 }
 
-static inline void fd_outb(unsigned char value, unsigned int port)
+static inline void fd_outb(unsigned char value, unsigned int base, unsigned int reg)
 {
-	*(volatile unsigned char *) port = value;
+	*(volatile unsigned char *) (base + reg) = value;
 }
 
 /*
@@ -90,7 +88,7 @@ static inline void fd_disable_irq(void)
 static inline int fd_request_irq(void)
 {
 	return request_irq(FLOPPY_IRQ, floppy_interrupt,
-	                   0, "floppy", NULL);
+			   0, "floppy", NULL);
 }
 
 static inline void fd_free_irq(void)

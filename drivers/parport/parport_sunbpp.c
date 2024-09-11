@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /* parport_sunbpp.c: Parallel-port routines for SBUS
  * 
  * Author: Derrick J. Brashear <shadow@dementia.org>
@@ -81,27 +82,6 @@ static unsigned char parport_sunbpp_read_data(struct parport *p)
 
 	return sbus_readb(&regs->p_dr);
 }
-
-#if 0
-static void control_pc_to_sunbpp(struct parport *p, unsigned char status)
-{
-	struct bpp_regs __iomem *regs = (struct bpp_regs __iomem *)p->base;
-	unsigned char value_tcr = sbus_readb(&regs->p_tcr);
-	unsigned char value_or = sbus_readb(&regs->p_or);
-
-	if (status & PARPORT_CONTROL_STROBE) 
-		value_tcr |= P_TCR_DS;
-	if (status & PARPORT_CONTROL_AUTOFD) 
-		value_or |= P_OR_AFXN;
-	if (status & PARPORT_CONTROL_INIT) 
-		value_or |= P_OR_INIT;
-	if (status & PARPORT_CONTROL_SELECT) 
-		value_or |= P_OR_SLCT_IN;
-
-	sbus_writeb(value_or, &regs->p_or);
-	sbus_writeb(value_tcr, &regs->p_tcr);
-}
-#endif
 
 static unsigned char status_sunbpp_to_pc(struct parport *p)
 {
@@ -286,7 +266,7 @@ static struct parport_operations parport_sunbpp_ops =
 	.owner		= THIS_MODULE,
 };
 
-static int __devinit bpp_probe(struct platform_device *op)
+static int bpp_probe(struct platform_device *op)
 {
 	struct parport_operations *ops;
 	struct bpp_regs __iomem *regs;
@@ -305,15 +285,18 @@ static int __devinit bpp_probe(struct platform_device *op)
 	size = resource_size(&op->resource[0]);
 	dma = PARPORT_DMA_NONE;
 
-	ops = kmalloc(sizeof(struct parport_operations), GFP_KERNEL);
-        if (!ops)
+	ops = kmemdup(&parport_sunbpp_ops, sizeof(struct parport_operations),
+		      GFP_KERNEL);
+	if (!ops) {
+		err = -ENOMEM;
 		goto out_unmap;
-
-        memcpy (ops, &parport_sunbpp_ops, sizeof(struct parport_operations));
+	}
 
 	dprintk(("register_port\n"));
-	if (!(p = parport_register_port((unsigned long)base, irq, dma, ops)))
+	if (!(p = parport_register_port((unsigned long)base, irq, dma, ops))) {
+		err = -ENOMEM;
 		goto out_free_ops;
+	}
 
 	p->size = size;
 	p->dev = &op->dev;
@@ -331,7 +314,7 @@ static int __devinit bpp_probe(struct platform_device *op)
 	value_tcr &= ~P_TCR_DIR;
 	sbus_writeb(value_tcr, &regs->p_tcr);
 
-	printk(KERN_INFO "%s: sunbpp at 0x%lx\n", p->name, p->base);
+	pr_info("%s: sunbpp at 0x%lx\n", p->name, p->base);
 
 	dev_set_drvdata(&op->dev, p);
 
@@ -351,7 +334,7 @@ out_unmap:
 	return err;
 }
 
-static int __devexit bpp_remove(struct platform_device *op)
+static int bpp_remove(struct platform_device *op)
 {
 	struct parport *p = dev_get_drvdata(&op->dev);
 	struct parport_operations *ops = p->ops;
@@ -384,17 +367,15 @@ MODULE_DEVICE_TABLE(of, bpp_match);
 static struct platform_driver bpp_sbus_driver = {
 	.driver = {
 		.name = "bpp",
-		.owner = THIS_MODULE,
 		.of_match_table = bpp_match,
 	},
 	.probe		= bpp_probe,
-	.remove		= __devexit_p(bpp_remove),
+	.remove		= bpp_remove,
 };
 
 module_platform_driver(bpp_sbus_driver);
 
 MODULE_AUTHOR("Derrick J Brashear");
 MODULE_DESCRIPTION("Parport Driver for Sparc bidirectional Port");
-MODULE_SUPPORTED_DEVICE("Sparc Bidirectional Parallel Port");
 MODULE_VERSION("2.0");
 MODULE_LICENSE("GPL");

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /* chmc.c: Driver for UltraSPARC-III memory controller.
  *
  * Copyright (C) 2001, 2007, 2008 David S. Miller (davem@davemloft.net)
@@ -336,9 +337,9 @@ static int jbusmc_print_dimm(int syndrome_code,
 	return 0;
 }
 
-static u64 __devinit jbusmc_dimm_group_size(u64 base,
-					    const struct linux_prom64_registers *mem_regs,
-					    int num_mem_regs)
+static u64 jbusmc_dimm_group_size(u64 base,
+				  const struct linux_prom64_registers *mem_regs,
+				  int num_mem_regs)
 {
 	u64 max = base + (8UL * 1024 * 1024 * 1024);
 	u64 max_seen = base;
@@ -363,10 +364,10 @@ static u64 __devinit jbusmc_dimm_group_size(u64 base,
 	return max_seen - base;
 }
 
-static void __devinit jbusmc_construct_one_dimm_group(struct jbusmc *p,
-						      unsigned long index,
-						      const struct linux_prom64_registers *mem_regs,
-						      int num_mem_regs)
+static void jbusmc_construct_one_dimm_group(struct jbusmc *p,
+					    unsigned long index,
+					    const struct linux_prom64_registers *mem_regs,
+					    int num_mem_regs)
 {
 	struct jbusmc_dimm_group *dp = &p->dimm_groups[index];
 
@@ -378,9 +379,9 @@ static void __devinit jbusmc_construct_one_dimm_group(struct jbusmc *p,
 	dp->size = jbusmc_dimm_group_size(dp->base_addr, mem_regs, num_mem_regs);
 }
 
-static void __devinit jbusmc_construct_dimm_groups(struct jbusmc *p,
-						   const struct linux_prom64_registers *mem_regs,
-						   int num_mem_regs)
+static void jbusmc_construct_dimm_groups(struct jbusmc *p,
+					 const struct linux_prom64_registers *mem_regs,
+					 int num_mem_regs)
 {
 	if (p->mc_reg_1 & JB_MC_REG1_DIMM1_BANK0) {
 		jbusmc_construct_one_dimm_group(p, 0, mem_regs, num_mem_regs);
@@ -392,7 +393,7 @@ static void __devinit jbusmc_construct_dimm_groups(struct jbusmc *p,
 	}
 }
 
-static int __devinit jbusmc_probe(struct platform_device *op)
+static int jbusmc_probe(struct platform_device *op)
 {
 	const struct linux_prom64_registers *mem_regs;
 	struct device_node *mem_node;
@@ -464,8 +465,8 @@ static int __devinit jbusmc_probe(struct platform_device *op)
 
 	mc_list_add(&p->list);
 
-	printk(KERN_INFO PFX "UltraSPARC-IIIi memory controller at %s\n",
-	       op->dev.of_node->full_name);
+	printk(KERN_INFO PFX "UltraSPARC-IIIi memory controller at %pOF\n",
+	       op->dev.of_node);
 
 	dev_set_drvdata(&op->dev, p);
 
@@ -689,7 +690,7 @@ static void chmc_fetch_decode_regs(struct chmc *p)
 				      chmc_read_mcreg(p, CHMCTRL_DECODE4));
 }
 
-static int __devinit chmc_probe(struct platform_device *op)
+static int chmc_probe(struct platform_device *op)
 {
 	struct device_node *dp = op->dev.of_node;
 	unsigned long ver;
@@ -747,8 +748,8 @@ static int __devinit chmc_probe(struct platform_device *op)
 
 	mc_list_add(&p->list);
 
-	printk(KERN_INFO PFX "UltraSPARC-III memory controller at %s [%s]\n",
-	       dp->full_name,
+	printk(KERN_INFO PFX "UltraSPARC-III memory controller at %pOF [%s]\n",
+	       dp,
 	       (p->layout_size ? "ACTIVE" : "INACTIVE"));
 
 	dev_set_drvdata(&op->dev, p);
@@ -763,7 +764,7 @@ out_free:
 	goto out;
 }
 
-static int __devinit us3mc_probe(struct platform_device *op)
+static int us3mc_probe(struct platform_device *op)
 {
 	if (mc_type == MC_TYPE_SAFARI)
 		return chmc_probe(op);
@@ -772,21 +773,21 @@ static int __devinit us3mc_probe(struct platform_device *op)
 	return -ENODEV;
 }
 
-static void __devexit chmc_destroy(struct platform_device *op, struct chmc *p)
+static void chmc_destroy(struct platform_device *op, struct chmc *p)
 {
 	list_del(&p->list);
 	of_iounmap(&op->resource[0], p->regs, 0x48);
 	kfree(p);
 }
 
-static void __devexit jbusmc_destroy(struct platform_device *op, struct jbusmc *p)
+static void jbusmc_destroy(struct platform_device *op, struct jbusmc *p)
 {
 	mc_list_del(&p->list);
 	of_iounmap(&op->resource[0], p->regs, JBUSMC_REGS_SIZE);
 	kfree(p);
 }
 
-static int __devexit us3mc_remove(struct platform_device *op)
+static int us3mc_remove(struct platform_device *op)
 {
 	void *p = dev_get_drvdata(&op->dev);
 
@@ -810,11 +811,10 @@ MODULE_DEVICE_TABLE(of, us3mc_match);
 static struct platform_driver us3mc_driver = {
 	.driver = {
 		.name = "us3mc",
-		.owner = THIS_MODULE,
 		.of_match_table = us3mc_match,
 	},
 	.probe		= us3mc_probe,
-	.remove		= __devexit_p(us3mc_remove),
+	.remove		= us3mc_remove,
 };
 
 static inline bool us3mc_platform(void)

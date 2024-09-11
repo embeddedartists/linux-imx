@@ -1,9 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * socket_sysfs.c -- most of socket-related sysfs output
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  *
  * (C) 2003 - 2004		Dominik Brodowski
  */
@@ -23,7 +20,6 @@
 #include <linux/pm.h>
 #include <linux/device.h>
 #include <linux/mutex.h>
-#include <asm/system.h>
 #include <asm/irq.h>
 
 #include <pcmcia/ss.h>

@@ -1,14 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /* drivers/rtc/rtc-max6902.c
  *
  * Copyright (C) 2006 8D Technologies inc.
  * Copyright (C) 2004 Compulab Ltd.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
  * Driver for MAX6902 spi RTC
- *
  */
 
 #include <linux/module.h>
@@ -85,7 +81,7 @@ static int max6902_read_time(struct device *dev, struct rtc_time *dt)
 	dt->tm_year += century;
 	dt->tm_year -= 1900;
 
-	return rtc_valid_tm(dt);
+	return 0;
 }
 
 static int max6902_set_time(struct device *dev, struct rtc_time *dt)
@@ -93,24 +89,24 @@ static int max6902_set_time(struct device *dev, struct rtc_time *dt)
 	dt->tm_year = dt->tm_year + 1900;
 
 	/* Remove write protection */
-	max6902_set_reg(dev, 0xF, 0);
+	max6902_set_reg(dev, MAX6902_REG_CONTROL, 0);
 
-	max6902_set_reg(dev, 0x01, bin2bcd(dt->tm_sec));
-	max6902_set_reg(dev, 0x03, bin2bcd(dt->tm_min));
-	max6902_set_reg(dev, 0x05, bin2bcd(dt->tm_hour));
+	max6902_set_reg(dev, MAX6902_REG_SECONDS, bin2bcd(dt->tm_sec));
+	max6902_set_reg(dev, MAX6902_REG_MINUTES, bin2bcd(dt->tm_min));
+	max6902_set_reg(dev, MAX6902_REG_HOURS, bin2bcd(dt->tm_hour));
 
-	max6902_set_reg(dev, 0x07, bin2bcd(dt->tm_mday));
-	max6902_set_reg(dev, 0x09, bin2bcd(dt->tm_mon + 1));
-	max6902_set_reg(dev, 0x0B, bin2bcd(dt->tm_wday));
-	max6902_set_reg(dev, 0x0D, bin2bcd(dt->tm_year % 100));
-	max6902_set_reg(dev, 0x13, bin2bcd(dt->tm_year / 100));
+	max6902_set_reg(dev, MAX6902_REG_DATE, bin2bcd(dt->tm_mday));
+	max6902_set_reg(dev, MAX6902_REG_MONTH, bin2bcd(dt->tm_mon + 1));
+	max6902_set_reg(dev, MAX6902_REG_DAY, bin2bcd(dt->tm_wday));
+	max6902_set_reg(dev, MAX6902_REG_YEAR, bin2bcd(dt->tm_year % 100));
+	max6902_set_reg(dev, MAX6902_REG_CENTURY, bin2bcd(dt->tm_year / 100));
 
 	/* Compulab used a delay here. However, the datasheet
 	 * does not mention a delay being required anywhere... */
 	/* delay(2000); */
 
 	/* Write protect */
-	max6902_set_reg(dev, 0xF, 0x80);
+	max6902_set_reg(dev, MAX6902_REG_CONTROL, 0x80);
 
 	return 0;
 }
@@ -120,7 +116,7 @@ static const struct rtc_class_ops max6902_rtc_ops = {
 	.set_time	= max6902_set_time,
 };
 
-static int __devinit max6902_probe(struct spi_device *spi)
+static int max6902_probe(struct spi_device *spi)
 {
 	struct rtc_device *rtc;
 	unsigned char tmp;
@@ -134,45 +130,25 @@ static int __devinit max6902_probe(struct spi_device *spi)
 	if (res != 0)
 		return res;
 
-	rtc = rtc_device_register("max6902",
-				&spi->dev, &max6902_rtc_ops, THIS_MODULE);
+	rtc = devm_rtc_device_register(&spi->dev, "max6902",
+				&max6902_rtc_ops, THIS_MODULE);
 	if (IS_ERR(rtc))
 		return PTR_ERR(rtc);
 
-	dev_set_drvdata(&spi->dev, rtc);
-	return 0;
-}
-
-static int __devexit max6902_remove(struct spi_device *spi)
-{
-	struct rtc_device *rtc = dev_get_drvdata(&spi->dev);
-
-	rtc_device_unregister(rtc);
+	spi_set_drvdata(spi, rtc);
 	return 0;
 }
 
 static struct spi_driver max6902_driver = {
 	.driver = {
 		.name	= "rtc-max6902",
-		.owner	= THIS_MODULE,
 	},
 	.probe	= max6902_probe,
-	.remove = __devexit_p(max6902_remove),
 };
 
-static __init int max6902_init(void)
-{
-	return spi_register_driver(&max6902_driver);
-}
-module_init(max6902_init);
+module_spi_driver(max6902_driver);
 
-static __exit void max6902_exit(void)
-{
-	spi_unregister_driver(&max6902_driver);
-}
-module_exit(max6902_exit);
-
-MODULE_DESCRIPTION ("max6902 spi RTC driver");
-MODULE_AUTHOR ("Raphael Assenat");
-MODULE_LICENSE ("GPL");
+MODULE_DESCRIPTION("max6902 spi RTC driver");
+MODULE_AUTHOR("Raphael Assenat");
+MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:rtc-max6902");

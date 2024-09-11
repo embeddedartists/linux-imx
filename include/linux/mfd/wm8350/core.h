@@ -1,13 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * core.h  --  Core Driver for Wolfson WM8350 PMIC
  *
  * Copyright 2007 Wolfson Microelectronics PLC
- *
- *  This program is free software; you can redistribute  it and/or modify it
- *  under  the terms of  the GNU General  Public License as published by the
- *  Free Software Foundation;  either version 2 of the  License, or (at your
- *  option) any later version.
- *
  */
 
 #ifndef __LINUX_MFD_WM8350_CORE_H_
@@ -17,6 +12,7 @@
 #include <linux/mutex.h>
 #include <linux/interrupt.h>
 #include <linux/completion.h>
+#include <linux/regmap.h>
 
 #include <linux/mfd/wm8350/audio.h>
 #include <linux/mfd/wm8350/gpio.h>
@@ -65,6 +61,9 @@
 #define WM8350_STATE_MACHINE_STATUS		0xE9
 
 #define WM8350_MAX_REGISTER                     0xFF
+
+#define WM8350_UNLOCK_KEY		0x0013
+#define WM8350_LOCK_KEY			0x0000
 
 /*
  * Field Definitions.
@@ -582,24 +581,7 @@
 
 #define WM8350_NUM_IRQ_REGS 7
 
-struct wm8350_reg_access {
-	u16 readable;		/* Mask of readable bits */
-	u16 writable;		/* Mask of writable bits */
-	u16 vol;		/* Mask of volatile bits */
-};
-extern const struct wm8350_reg_access wm8350_reg_io_map[];
-extern const u16 wm8350_mode0_defaults[];
-extern const u16 wm8350_mode1_defaults[];
-extern const u16 wm8350_mode2_defaults[];
-extern const u16 wm8350_mode3_defaults[];
-extern const u16 wm8351_mode0_defaults[];
-extern const u16 wm8351_mode1_defaults[];
-extern const u16 wm8351_mode2_defaults[];
-extern const u16 wm8351_mode3_defaults[];
-extern const u16 wm8352_mode0_defaults[];
-extern const u16 wm8352_mode1_defaults[];
-extern const u16 wm8352_mode2_defaults[];
-extern const u16 wm8352_mode3_defaults[];
+extern const struct regmap_config wm8350_regmap;
 
 struct wm8350;
 
@@ -612,14 +594,8 @@ struct wm8350 {
 	struct device *dev;
 
 	/* device IO */
-	union {
-		struct i2c_client *i2c_client;
-		struct spi_device *spi_device;
-	};
-	int (*read_dev)(struct wm8350 *wm8350, char reg, int size, void *dest);
-	int (*write_dev)(struct wm8350 *wm8350, char reg, int size,
-			 void *src);
-	u16 *reg_cache;
+	struct regmap *regmap;
+	bool unlocked;
 
 	struct mutex auxadc_mutex;
 	struct completion auxadc_done;
@@ -662,7 +638,6 @@ struct wm8350_platform_data {
  */
 int wm8350_device_init(struct wm8350 *wm8350, int irq,
 		       struct wm8350_platform_data *pdata);
-void wm8350_device_exit(struct wm8350 *wm8350);
 
 /*
  * WM8350 device IO

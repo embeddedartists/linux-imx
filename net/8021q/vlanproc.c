@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /******************************************************************************
  * vlanproc.c	VLAN Module. /proc filesystem interface.
  *
@@ -9,10 +10,6 @@
  *
  * Copyright:	(c) 1998 Ben Greear
  *
- *		This program is free software; you can redistribute it and/or
- *		modify it under the terms of the GNU General Public License
- *		as published by the Free Software Foundation; either version
- *		2 of the License, or (at your option) any later version.
  * ============================================================================
  * Jan 20, 1998        Ben Greear     Initial Version
  *****************************************************************************/
@@ -73,39 +70,8 @@ static const struct seq_operations vlan_seq_ops = {
 	.show = vlan_seq_show,
 };
 
-static int vlan_seq_open(struct inode *inode, struct file *file)
-{
-	return seq_open_net(inode, file, &vlan_seq_ops,
-			sizeof(struct seq_net_private));
-}
-
-static const struct file_operations vlan_fops = {
-	.owner	 = THIS_MODULE,
-	.open    = vlan_seq_open,
-	.read    = seq_read,
-	.llseek  = seq_lseek,
-	.release = seq_release_net,
-};
-
 /*
- *	/proc/net/vlan/<device> file and inode operations
- */
-
-static int vlandev_seq_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, vlandev_seq_show, PDE(inode)->data);
-}
-
-static const struct file_operations vlandev_fops = {
-	.owner = THIS_MODULE,
-	.open    = vlandev_seq_open,
-	.read    = seq_read,
-	.llseek  = seq_lseek,
-	.release = single_release,
-};
-
-/*
- * Proc filesystem derectory entries.
+ * Proc filesystem directory entries.
  */
 
 /* Strings */
@@ -131,7 +97,7 @@ void vlan_proc_cleanup(struct net *net)
 		remove_proc_entry(name_conf, vn->proc_vlan_dir);
 
 	if (vn->proc_vlan_dir)
-		proc_net_remove(net, name_root);
+		remove_proc_entry(name_root, net->proc_net);
 
 	/* Dynamically added entries should be cleaned up as their vlan_device
 	 * is removed, so we should not have to take care of it here...
@@ -150,8 +116,9 @@ int __net_init vlan_proc_init(struct net *net)
 	if (!vn->proc_vlan_dir)
 		goto err;
 
-	vn->proc_vlan_conf = proc_create(name_conf, S_IFREG|S_IRUSR|S_IWUSR,
-				     vn->proc_vlan_dir, &vlan_fops);
+	vn->proc_vlan_conf = proc_create_net(name_conf, S_IFREG | 0600,
+			vn->proc_vlan_dir, &vlan_seq_ops,
+			sizeof(struct seq_net_private));
 	if (!vn->proc_vlan_conf)
 		goto err;
 	return 0;
@@ -171,9 +138,10 @@ int vlan_proc_add_dev(struct net_device *vlandev)
 	struct vlan_dev_priv *vlan = vlan_dev_priv(vlandev);
 	struct vlan_net *vn = net_generic(dev_net(vlandev), vlan_net_id);
 
-	vlan->dent =
-		proc_create_data(vlandev->name, S_IFREG|S_IRUSR|S_IWUSR,
-				 vn->proc_vlan_dir, &vlandev_fops, vlandev);
+	if (!strcmp(vlandev->name, name_conf))
+		return -EINVAL;
+	vlan->dent = proc_create_single_data(vlandev->name, S_IFREG | 0600,
+			vn->proc_vlan_dir, vlandev_seq_show, vlandev);
 	if (!vlan->dent)
 		return -ENOBUFS;
 	return 0;
@@ -182,17 +150,11 @@ int vlan_proc_add_dev(struct net_device *vlandev)
 /*
  *	Delete directory entry for VLAN device.
  */
-int vlan_proc_rem_dev(struct net_device *vlandev)
+void vlan_proc_rem_dev(struct net_device *vlandev)
 {
-	struct vlan_net *vn = net_generic(dev_net(vlandev), vlan_net_id);
-
 	/** NOTE:  This will consume the memory pointed to by dent, it seems. */
-	if (vlan_dev_priv(vlandev)->dent) {
-		remove_proc_entry(vlan_dev_priv(vlandev)->dent->name,
-				  vn->proc_vlan_dir);
-		vlan_dev_priv(vlandev)->dent = NULL;
-	}
-	return 0;
+	proc_remove(vlan_dev_priv(vlandev)->dent);
+	vlan_dev_priv(vlandev)->dent = NULL;
 }
 
 /****** Proc filesystem entry points ****************************************/

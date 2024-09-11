@@ -1,21 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Event jump tables
  *
- * Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
+ * Copyright (c) 2010-2012,2013, The Linux Foundation. All rights reserved.
  */
 
 #include <asm/hexagon_vm.h>
@@ -41,7 +28,7 @@ _K_VM_event_vector:
 	jump 1b;  /*  Reset  */
 	jump _K_enter_machcheck;
 	jump _K_enter_genex;
-	jump 1b;  /*  3 Rsvd  */
+	jump _K_enter_debug;
 	jump 1b;  /*  4 Rsvd  */
 	jump _K_enter_trap0;
 	jump 1b;  /*  6 Rsvd  */

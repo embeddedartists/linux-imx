@@ -1,13 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /* Network filesystem caching backend to use cache files on a premounted
  * filesystem
  *
  * Copyright (C) 2007 Red Hat, Inc. All Rights Reserved.
  * Written by David Howells (dhowells@redhat.com)
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public Licence
- * as published by the Free Software Foundation; either version
- * 2 of the Licence, or (at your option) any later version.
  */
 
 #include <linux/module.h>
@@ -22,6 +18,7 @@
 #include <linux/statfs.h>
 #include <linux/sysctl.h>
 #include <linux/miscdevice.h>
+#define CREATE_TRACE_POINTS
 #include "internal.h"
 
 unsigned cachefiles_debug;
@@ -68,24 +65,17 @@ static int __init cachefiles_init(void)
 				  SLAB_HWCACHE_ALIGN,
 				  cachefiles_object_init_once);
 	if (!cachefiles_object_jar) {
-		printk(KERN_NOTICE
-		       "CacheFiles: Failed to allocate an object jar\n");
+		pr_notice("Failed to allocate an object jar\n");
 		goto error_object_jar;
 	}
 
-	ret = cachefiles_proc_init();
-	if (ret < 0)
-		goto error_proc;
-
-	printk(KERN_INFO "CacheFiles: Loaded\n");
+	pr_info("Loaded\n");
 	return 0;
 
-error_proc:
-	kmem_cache_destroy(cachefiles_object_jar);
 error_object_jar:
 	misc_deregister(&cachefiles_dev);
 error_dev:
-	kerror("failed to register: %d", ret);
+	pr_err("failed to register: %d\n", ret);
 	return ret;
 }
 
@@ -96,9 +86,8 @@ fs_initcall(cachefiles_init);
  */
 static void __exit cachefiles_exit(void)
 {
-	printk(KERN_INFO "CacheFiles: Unloading\n");
+	pr_info("Unloading\n");
 
-	cachefiles_proc_cleanup();
 	kmem_cache_destroy(cachefiles_object_jar);
 	misc_deregister(&cachefiles_dev);
 }

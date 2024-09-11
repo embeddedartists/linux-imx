@@ -1,12 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /* FS-Cache cache handling
  *
  * Copyright (C) 2007 Red Hat, Inc. All Rights Reserved.
  * Written by David Howells (dhowells@redhat.com)
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version
- * 2 of the License, or (at your option) any later version.
  */
 
 #define FSCACHE_DEBUG_LEVEL CACHE
@@ -115,17 +111,17 @@ struct fscache_cache *fscache_select_cache_for_object(
 				     struct fscache_object, cookie_link);
 
 		cache = object->cache;
-		if (object->state >= FSCACHE_OBJECT_DYING ||
+		if (fscache_object_is_dying(object) ||
 		    test_bit(FSCACHE_IOERROR, &cache->flags))
 			cache = NULL;
 
 		spin_unlock(&cookie->lock);
-		_leave(" = %p [parent]", cache);
+		_leave(" = %s [parent]", cache ? cache->tag->name : "NULL");
 		return cache;
 	}
 
 	/* the parent is unbacked */
-	if (cookie->def->type != FSCACHE_COOKIE_TYPE_INDEX) {
+	if (cookie->type != FSCACHE_COOKIE_TYPE_INDEX) {
 		/* cookie not an index and is unbacked */
 		spin_unlock(&cookie->lock);
 		_leave(" = NULL [cookie ub,ni]");
@@ -156,14 +152,14 @@ struct fscache_cache *fscache_select_cache_for_object(
 	if (test_bit(FSCACHE_IOERROR, &tag->cache->flags))
 		return NULL;
 
-	_leave(" = %p [specific]", tag->cache);
+	_leave(" = %s [specific]", tag->name);
 	return tag->cache;
 
 no_preference:
 	/* netfs has no preference - just select first cache */
 	cache = list_entry(fscache_cache_list.next,
 			   struct fscache_cache, link);
-	_leave(" = %p [first]", cache);
+	_leave(" = %s [first]", cache->tag->name);
 	return cache;
 }
 
@@ -176,7 +172,7 @@ no_preference:
  *
  * Initialise a record of a cache and fill in the name.
  *
- * See Documentation/filesystems/caching/backend-api.txt for a complete
+ * See Documentation/filesystems/caching/backend-api.rst for a complete
  * description.
  */
 void fscache_init_cache(struct fscache_cache *cache,
@@ -211,7 +207,7 @@ EXPORT_SYMBOL(fscache_init_cache);
  *
  * Add a cache to the system, making it available for netfs's to use.
  *
- * See Documentation/filesystems/caching/backend-api.txt for a complete
+ * See Documentation/filesystems/caching/backend-api.rst for a complete
  * description.
  */
 int fscache_add_cache(struct fscache_cache *cache,
@@ -220,12 +216,15 @@ int fscache_add_cache(struct fscache_cache *cache,
 {
 	struct fscache_cache_tag *tag;
 
+	ASSERTCMP(ifsdef->cookie, ==, &fscache_fsdef_index);
 	BUG_ON(!cache->ops);
 	BUG_ON(!ifsdef);
 
 	cache->flags = 0;
-	ifsdef->event_mask = ULONG_MAX & ~(1 << FSCACHE_OBJECT_EV_CLEARED);
-	ifsdef->state = FSCACHE_OBJECT_ACTIVE;
+	ifsdef->event_mask =
+		((1 << NR_FSCACHE_OBJECT_EVENTS) - 1) &
+		~(1 << FSCACHE_OBJECT_EV_CLEARED);
+	__set_bit(FSCACHE_OBJECT_IS_AVAILABLE, &ifsdef->flags);
 
 	if (!tagname)
 		tagname = cache->identifier;
@@ -246,7 +245,6 @@ int fscache_add_cache(struct fscache_cache *cache,
 	if (!cache->kobj)
 		goto error;
 
-	ifsdef->cookie = &fscache_fsdef_index;
 	ifsdef->cache = cache;
 	cache->fsdef = ifsdef;
 
@@ -263,7 +261,6 @@ int fscache_add_cache(struct fscache_cache *cache,
 	spin_lock(&cache->object_list_lock);
 	list_add_tail(&ifsdef->cache_link, &cache->object_list);
 	spin_unlock(&cache->object_list_lock);
-	fscache_objlist_add(ifsdef);
 
 	/* add the cache's netfs definition index object to the top level index
 	 * cookie as a known backing object */
@@ -272,21 +269,21 @@ int fscache_add_cache(struct fscache_cache *cache,
 	hlist_add_head(&ifsdef->cookie_link,
 		       &fscache_fsdef_index.backing_objects);
 
-	atomic_inc(&fscache_fsdef_index.usage);
+	refcount_inc(&fscache_fsdef_index.ref);
 
 	/* done */
 	spin_unlock(&fscache_fsdef_index.lock);
 	up_write(&fscache_addremove_sem);
 
-	printk(KERN_NOTICE "FS-Cache: Cache \"%s\" added (type %s)\n",
-	       cache->tag->name, cache->ops->name);
+	pr_notice("Cache \"%s\" added (type %s)\n",
+		  cache->tag->name, cache->ops->name);
 	kobject_uevent(cache->kobj, KOBJ_ADD);
 
 	_leave(" = 0 [%s]", cache->identifier);
 	return 0;
 
 tag_in_use:
-	printk(KERN_ERR "FS-Cache: Cache tag '%s' already in use\n", tagname);
+	pr_err("Cache tag '%s' already in use\n", tagname);
 	__fscache_release_cache_tag(tag);
 	_leave(" = -EXIST");
 	return -EEXIST;
@@ -309,15 +306,14 @@ EXPORT_SYMBOL(fscache_add_cache);
  * Note that an I/O error occurred in a cache and that it should no longer be
  * used for anything.  This also reports the error into the kernel log.
  *
- * See Documentation/filesystems/caching/backend-api.txt for a complete
+ * See Documentation/filesystems/caching/backend-api.rst for a complete
  * description.
  */
 void fscache_io_error(struct fscache_cache *cache)
 {
-	set_bit(FSCACHE_IOERROR, &cache->flags);
-
-	printk(KERN_ERR "FS-Cache: Cache %s stopped due to I/O error\n",
-	       cache->ops->name);
+	if (!test_and_set_bit(FSCACHE_IOERROR, &cache->flags))
+		pr_err("Cache '%s' stopped due to I/O error\n",
+		       cache->ops->name);
 }
 EXPORT_SYMBOL(fscache_io_error);
 
@@ -330,25 +326,25 @@ static void fscache_withdraw_all_objects(struct fscache_cache *cache,
 {
 	struct fscache_object *object;
 
-	spin_lock(&cache->object_list_lock);
-
 	while (!list_empty(&cache->object_list)) {
-		object = list_entry(cache->object_list.next,
-				    struct fscache_object, cache_link);
-		list_move_tail(&object->cache_link, dying_objects);
-
-		_debug("withdraw %p", object->cookie);
-
-		spin_lock(&object->lock);
-		spin_unlock(&cache->object_list_lock);
-		fscache_raise_event(object, FSCACHE_OBJECT_EV_WITHDRAW);
-		spin_unlock(&object->lock);
-
-		cond_resched();
 		spin_lock(&cache->object_list_lock);
-	}
 
-	spin_unlock(&cache->object_list_lock);
+		if (!list_empty(&cache->object_list)) {
+			object = list_entry(cache->object_list.next,
+					    struct fscache_object, cache_link);
+			list_move_tail(&object->cache_link, dying_objects);
+
+			_debug("withdraw %x", object->cookie->debug_id);
+
+			/* This must be done under object_list_lock to prevent
+			 * a race with fscache_drop_object().
+			 */
+			fscache_raise_event(object, FSCACHE_OBJECT_EV_KILL);
+		}
+
+		spin_unlock(&cache->object_list_lock);
+		cond_resched();
+	}
 }
 
 /**
@@ -358,7 +354,7 @@ static void fscache_withdraw_all_objects(struct fscache_cache *cache,
  * Withdraw a cache from service, unbinding all its cache objects from the
  * netfs cookies they're currently representing.
  *
- * See Documentation/filesystems/caching/backend-api.txt for a complete
+ * See Documentation/filesystems/caching/backend-api.rst for a complete
  * description.
  */
 void fscache_withdraw_cache(struct fscache_cache *cache)
@@ -367,8 +363,8 @@ void fscache_withdraw_cache(struct fscache_cache *cache)
 
 	_enter("");
 
-	printk(KERN_NOTICE "FS-Cache: Withdrawing cache \"%s\"\n",
-	       cache->tag->name);
+	pr_notice("Withdrawing cache \"%s\"\n",
+		  cache->tag->name);
 
 	/* make the cache unavailable for cookie acquisition */
 	if (test_and_set_bit(FSCACHE_CACHE_WITHDRAWN, &cache->flags))

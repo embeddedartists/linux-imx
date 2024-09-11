@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * OpenRISC Linux
  *
@@ -8,31 +9,28 @@
  * Modifications for the OpenRISC architecture:
  * Copyright (C) 2010-2011 Jonas Bonn <jonas@southpole.se>
  *
- *      This program is free software; you can redistribute it and/or
- *      modify it under the terms of the GNU General Public License
- *      version 2 as published by the Free Software Foundation
- *
  * Precise Delay Loops
  */
 
 #include <linux/kernel.h>
-#include <linux/module.h>
+#include <linux/export.h>
 #include <linux/init.h>
+#include <asm/param.h>
 #include <asm/delay.h>
 #include <asm/timex.h>
 #include <asm/processor.h>
 
-int __devinit read_current_timer(unsigned long *timer_value)
+int read_current_timer(unsigned long *timer_value)
 {
-	*timer_value = mfspr(SPR_TTCR);
+	*timer_value = get_cycles();
 	return 0;
 }
 
 void __delay(unsigned long cycles)
 {
-	cycles_t target = get_cycles() + cycles;
+	cycles_t start = get_cycles();
 
-	while (get_cycles() < target)
+	while ((get_cycles() - start) < cycles)
 		cpu_relax();
 }
 EXPORT_SYMBOL(__delay);
@@ -41,7 +39,7 @@ inline void __const_udelay(unsigned long xloops)
 {
 	unsigned long long loops;
 
-	loops = xloops * loops_per_jiffy * HZ;
+	loops = (unsigned long long)xloops * loops_per_jiffy * HZ;
 
 	__delay(loops >> 32);
 }

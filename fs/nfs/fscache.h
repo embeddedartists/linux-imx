@@ -1,12 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /* NFS filesystem cache interface definitions
  *
  * Copyright (C) 2008 Red Hat, Inc. All Rights Reserved.
  * Written by David Howells (dhowells@redhat.com)
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public Licence
- * as published by the Free Software Foundation; either version
- * 2 of the Licence, or (at your option) any later version.
  */
 
 #ifndef _NFS_FSCACHE_H
@@ -57,6 +53,23 @@ struct nfs_fscache_key {
 };
 
 /*
+ * Definition of the auxiliary data attached to NFS inode storage objects
+ * within the cache.
+ *
+ * The contents of this struct are recorded in the on-disk local cache in the
+ * auxiliary data attached to the data storage object backing an inode.  This
+ * permits coherency to be managed when a new inode binds to an already extant
+ * cache object.
+ */
+struct nfs_fscache_inode_auxdata {
+	s64	mtime_sec;
+	s64	mtime_nsec;
+	s64	ctime_sec;
+	s64	ctime_nsec;
+	u64	change_attr;
+};
+
+/*
  * fscache-index.c
  */
 extern struct fscache_netfs nfs_fscache_netfs;
@@ -73,16 +86,12 @@ extern void nfs_fscache_unregister(void);
 extern void nfs_fscache_get_client_cookie(struct nfs_client *);
 extern void nfs_fscache_release_client_cookie(struct nfs_client *);
 
-extern void nfs_fscache_get_super_cookie(struct super_block *,
-					 const char *,
-					 struct nfs_clone_mount *);
+extern void nfs_fscache_get_super_cookie(struct super_block *, const char *, int);
 extern void nfs_fscache_release_super_cookie(struct super_block *);
 
-extern void nfs_fscache_init_inode_cookie(struct inode *);
-extern void nfs_fscache_release_inode_cookie(struct inode *);
-extern void nfs_fscache_zap_inode_cookie(struct inode *);
-extern void nfs_fscache_set_inode_cookie(struct inode *, struct file *);
-extern void nfs_fscache_reset_inode_cookie(struct inode *);
+extern void nfs_fscache_init_inode(struct inode *);
+extern void nfs_fscache_clear_inode(struct inode *);
+extern void nfs_fscache_open_file(struct inode *, struct file *);
 
 extern void __nfs_fscache_invalidate_page(struct page *, struct inode *);
 extern int nfs_fscache_release_page(struct page *, gfp_t);
@@ -155,15 +164,30 @@ static inline void nfs_readpage_to_fscache(struct inode *inode,
 }
 
 /*
+ * Invalidate the contents of fscache for this inode.  This will not sleep.
+ */
+static inline void nfs_fscache_invalidate(struct inode *inode)
+{
+	fscache_invalidate(NFS_I(inode)->fscache);
+}
+
+/*
+ * Wait for an object to finish being invalidated.
+ */
+static inline void nfs_fscache_wait_on_invalidate(struct inode *inode)
+{
+	fscache_wait_on_invalidate(NFS_I(inode)->fscache);
+}
+
+/*
  * indicate the client caching state as readable text
  */
 static inline const char *nfs_server_fscache_state(struct nfs_server *server)
 {
-	if (server->fscache && (server->options & NFS_OPTION_FSCACHE))
+	if (server->fscache)
 		return "yes";
 	return "no ";
 }
-
 
 #else /* CONFIG_NFS_FSCACHE */
 static inline int nfs_fscache_register(void) { return 0; }
@@ -172,20 +196,12 @@ static inline void nfs_fscache_unregister(void) {}
 static inline void nfs_fscache_get_client_cookie(struct nfs_client *clp) {}
 static inline void nfs_fscache_release_client_cookie(struct nfs_client *clp) {}
 
-static inline void nfs_fscache_get_super_cookie(
-	struct super_block *sb,
-	const char *uniq,
-	struct nfs_clone_mount *mntdata)
-{
-}
 static inline void nfs_fscache_release_super_cookie(struct super_block *sb) {}
 
-static inline void nfs_fscache_init_inode_cookie(struct inode *inode) {}
-static inline void nfs_fscache_release_inode_cookie(struct inode *inode) {}
-static inline void nfs_fscache_zap_inode_cookie(struct inode *inode) {}
-static inline void nfs_fscache_set_inode_cookie(struct inode *inode,
-						struct file *filp) {}
-static inline void nfs_fscache_reset_inode_cookie(struct inode *inode) {}
+static inline void nfs_fscache_init_inode(struct inode *inode) {}
+static inline void nfs_fscache_clear_inode(struct inode *inode) {}
+static inline void nfs_fscache_open_file(struct inode *inode,
+					 struct file *filp) {}
 
 static inline int nfs_fscache_release_page(struct page *page, gfp_t gfp)
 {
@@ -212,6 +228,10 @@ static inline int nfs_readpages_from_fscache(struct nfs_open_context *ctx,
 }
 static inline void nfs_readpage_to_fscache(struct inode *inode,
 					   struct page *page, int sync) {}
+
+
+static inline void nfs_fscache_invalidate(struct inode *inode) {}
+static inline void nfs_fscache_wait_on_invalidate(struct inode *inode) {}
 
 static inline const char *nfs_server_fscache_state(struct nfs_server *server)
 {

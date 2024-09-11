@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /* uctrl.c: TS102 Microcontroller interface on Tadpole Sparcbook 3
  *
  * Copyright 1999 Derrick J Brashear (shadow@dementia.org)
@@ -11,7 +12,6 @@
 #include <linux/slab.h>
 #include <linux/mutex.h>
 #include <linux/ioport.h>
-#include <linux/init.h>
 #include <linux/miscdevice.h>
 #include <linux/mm.h>
 #include <linux/of.h>
@@ -19,12 +19,8 @@
 
 #include <asm/openprom.h>
 #include <asm/oplib.h>
-#include <asm/system.h>
 #include <asm/irq.h>
 #include <asm/io.h>
-#include <asm/pgtable.h>
-
-#define UCTRL_MINOR	174
 
 #define DEBUG 1
 #ifdef DEBUG
@@ -348,7 +344,7 @@ static void uctrl_get_external_status(struct uctrl_driver *driver)
 	
 }
 
-static int __devinit uctrl_probe(struct platform_device *op)
+static int uctrl_probe(struct platform_device *op)
 {
 	struct uctrl_driver *p;
 	int err = -ENOMEM;
@@ -381,8 +377,8 @@ static int __devinit uctrl_probe(struct platform_device *op)
 	}
 
 	sbus_writel(UCTRL_INTR_RXNE_REQ|UCTRL_INTR_RXNE_MSK, &p->regs->uctrl_intr);
-	printk(KERN_INFO "%s: uctrl regs[0x%p] (irq %d)\n",
-	       op->dev.of_node->full_name, p->regs, p->irq);
+	printk(KERN_INFO "%pOF: uctrl regs[0x%p] (irq %d)\n",
+	       op->dev.of_node, p->regs, p->irq);
 	uctrl_get_event_status(p);
 	uctrl_get_external_status(p);
 
@@ -403,7 +399,7 @@ out_free:
 	goto out;
 }
 
-static int __devexit uctrl_remove(struct platform_device *op)
+static int uctrl_remove(struct platform_device *op)
 {
 	struct uctrl_driver *p = dev_get_drvdata(&op->dev);
 
@@ -427,11 +423,10 @@ MODULE_DEVICE_TABLE(of, uctrl_match);
 static struct platform_driver uctrl_driver = {
 	.driver = {
 		.name = "uctrl",
-		.owner = THIS_MODULE,
 		.of_match_table = uctrl_match,
 	},
 	.probe		= uctrl_probe,
-	.remove		= __devexit_p(uctrl_remove),
+	.remove		= uctrl_remove,
 };
 
 

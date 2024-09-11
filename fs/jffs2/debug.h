@@ -13,6 +13,7 @@
 #ifndef _JFFS2_DEBUG_H_
 #define _JFFS2_DEBUG_H_
 
+#include <linux/printk.h>
 #include <linux/sched.h>
 
 #ifndef CONFIG_JFFS2_FS_DEBUG
@@ -51,6 +52,7 @@
  * superseded by nicer dbg_xxx() macros...
  */
 #if CONFIG_JFFS2_FS_DEBUG > 0
+#define DEBUG
 #define D1(x) x
 #else
 #define D1(x)
@@ -62,50 +64,33 @@
 #define D2(x)
 #endif
 
+#define jffs2_dbg(level, fmt, ...)		\
+do {						\
+	if (CONFIG_JFFS2_FS_DEBUG >= level)	\
+		pr_debug(fmt, ##__VA_ARGS__);	\
+} while (0)
+
 /* The prefixes of JFFS2 messages */
+#define JFFS2_DBG		KERN_DEBUG
 #define JFFS2_DBG_PREFIX	"[JFFS2 DBG]"
-#define JFFS2_ERR_PREFIX	"JFFS2 error:"
-#define JFFS2_WARN_PREFIX	"JFFS2 warning:"
-#define JFFS2_NOTICE_PREFIX	"JFFS2 notice:"
-
-#define JFFS2_ERR	KERN_ERR
-#define JFFS2_WARN	KERN_WARNING
-#define JFFS2_NOT	KERN_NOTICE
-#define JFFS2_DBG	KERN_DEBUG
-
 #define JFFS2_DBG_MSG_PREFIX	JFFS2_DBG JFFS2_DBG_PREFIX
-#define JFFS2_ERR_MSG_PREFIX	JFFS2_ERR JFFS2_ERR_PREFIX
-#define JFFS2_WARN_MSG_PREFIX	JFFS2_WARN JFFS2_WARN_PREFIX
-#define JFFS2_NOTICE_MSG_PREFIX	JFFS2_NOT JFFS2_NOTICE_PREFIX
 
 /* JFFS2 message macros */
-#define JFFS2_ERROR(fmt, ...)						\
-	do {								\
-		printk(JFFS2_ERR_MSG_PREFIX				\
-			" (%d) %s: " fmt, task_pid_nr(current),		\
-			__func__ , ##__VA_ARGS__);			\
-	} while(0)
+#define JFFS2_ERROR(fmt, ...)					\
+	pr_err("error: (%d) %s: " fmt,				\
+	       task_pid_nr(current), __func__, ##__VA_ARGS__)
 
 #define JFFS2_WARNING(fmt, ...)						\
-	do {								\
-		printk(JFFS2_WARN_MSG_PREFIX				\
-			" (%d) %s: " fmt, task_pid_nr(current),		\
-			__func__ , ##__VA_ARGS__);			\
-	} while(0)
+	pr_warn("warning: (%d) %s: " fmt,				\
+		task_pid_nr(current), __func__, ##__VA_ARGS__)
 
 #define JFFS2_NOTICE(fmt, ...)						\
-	do {								\
-		printk(JFFS2_NOTICE_MSG_PREFIX				\
-			" (%d) %s: " fmt, task_pid_nr(current),		\
-			__func__ , ##__VA_ARGS__);			\
-	} while(0)
+	pr_notice("notice: (%d) %s: " fmt,				\
+		  task_pid_nr(current), __func__, ##__VA_ARGS__)
 
 #define JFFS2_DEBUG(fmt, ...)						\
-	do {								\
-		printk(JFFS2_DBG_MSG_PREFIX				\
-			" (%d) %s: " fmt, task_pid_nr(current),		\
-			__func__ , ##__VA_ARGS__);			\
-	} while(0)
+	printk(KERN_DEBUG "[JFFS2 DBG] (%d) %s: " fmt,			\
+	       task_pid_nr(current), __func__, ##__VA_ARGS__)
 
 /*
  * We split our debugging messages on several parts, depending on the JFFS2
@@ -115,73 +100,73 @@
 #ifdef JFFS2_DBG_READINODE_MESSAGES
 #define dbg_readinode(fmt, ...)	JFFS2_DEBUG(fmt, ##__VA_ARGS__)
 #else
-#define dbg_readinode(fmt, ...)
+#define dbg_readinode(fmt, ...)	no_printk(fmt, ##__VA_ARGS__)
 #endif
 #ifdef JFFS2_DBG_READINODE2_MESSAGES
 #define dbg_readinode2(fmt, ...)	JFFS2_DEBUG(fmt, ##__VA_ARGS__)
 #else
-#define dbg_readinode2(fmt, ...)
+#define dbg_readinode2(fmt, ...)	no_printk(fmt, ##__VA_ARGS__)
 #endif
 
 /* Fragtree build debugging messages */
 #ifdef JFFS2_DBG_FRAGTREE_MESSAGES
 #define dbg_fragtree(fmt, ...)	JFFS2_DEBUG(fmt, ##__VA_ARGS__)
 #else
-#define dbg_fragtree(fmt, ...)
+#define dbg_fragtree(fmt, ...)	no_printk(fmt, ##__VA_ARGS__)
 #endif
 #ifdef JFFS2_DBG_FRAGTREE2_MESSAGES
 #define dbg_fragtree2(fmt, ...)	JFFS2_DEBUG(fmt, ##__VA_ARGS__)
 #else
-#define dbg_fragtree2(fmt, ...)
+#define dbg_fragtree2(fmt, ...)	no_printk(fmt, ##__VA_ARGS__)
 #endif
 
 /* Directory entry list manilulation debugging messages */
 #ifdef JFFS2_DBG_DENTLIST_MESSAGES
 #define dbg_dentlist(fmt, ...)	JFFS2_DEBUG(fmt, ##__VA_ARGS__)
 #else
-#define dbg_dentlist(fmt, ...)
+#define dbg_dentlist(fmt, ...)	no_printk(fmt, ##__VA_ARGS__)
 #endif
 
 /* Print the messages about manipulating node_refs */
 #ifdef JFFS2_DBG_NODEREF_MESSAGES
 #define dbg_noderef(fmt, ...)	JFFS2_DEBUG(fmt, ##__VA_ARGS__)
 #else
-#define dbg_noderef(fmt, ...)
+#define dbg_noderef(fmt, ...)	no_printk(fmt, ##__VA_ARGS__)
 #endif
 
 /* Manipulations with the list of inodes (JFFS2 inocache) */
 #ifdef JFFS2_DBG_INOCACHE_MESSAGES
 #define dbg_inocache(fmt, ...)	JFFS2_DEBUG(fmt, ##__VA_ARGS__)
 #else
-#define dbg_inocache(fmt, ...)
+#define dbg_inocache(fmt, ...)	no_printk(fmt, ##__VA_ARGS__)
 #endif
 
 /* Summary debugging messages */
 #ifdef JFFS2_DBG_SUMMARY_MESSAGES
 #define dbg_summary(fmt, ...)	JFFS2_DEBUG(fmt, ##__VA_ARGS__)
 #else
-#define dbg_summary(fmt, ...)
+#define dbg_summary(fmt, ...)	no_printk(fmt, ##__VA_ARGS__)
 #endif
 
 /* File system build messages */
 #ifdef JFFS2_DBG_FSBUILD_MESSAGES
 #define dbg_fsbuild(fmt, ...)	JFFS2_DEBUG(fmt, ##__VA_ARGS__)
 #else
-#define dbg_fsbuild(fmt, ...)
+#define dbg_fsbuild(fmt, ...)	no_printk(fmt, ##__VA_ARGS__)
 #endif
 
 /* Watch the object allocations */
 #ifdef JFFS2_DBG_MEMALLOC_MESSAGES
 #define dbg_memalloc(fmt, ...)	JFFS2_DEBUG(fmt, ##__VA_ARGS__)
 #else
-#define dbg_memalloc(fmt, ...)
+#define dbg_memalloc(fmt, ...)	no_printk(fmt, ##__VA_ARGS__)
 #endif
 
 /* Watch the XATTR subsystem */
 #ifdef JFFS2_DBG_XATTR_MESSAGES
 #define dbg_xattr(fmt, ...)  JFFS2_DEBUG(fmt, ##__VA_ARGS__)
 #else
-#define dbg_xattr(fmt, ...)
+#define dbg_xattr(fmt, ...)  no_printk(fmt, ##__VA_ARGS__)
 #endif 
 
 /* "Sanity" checks */

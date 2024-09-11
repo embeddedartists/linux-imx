@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Static Memory Controller
  */
@@ -40,6 +41,8 @@ static void pxa3xx_smemc_resume(void)
 	__raw_writel(csadrcfg[1], CSADRCFG1);
 	__raw_writel(csadrcfg[2], CSADRCFG2);
 	__raw_writel(csadrcfg[3], CSADRCFG3);
+	/* CSMSADRCFG wakes up in its default state (0), so we need to set it */
+	__raw_writel(0x2, CSMSADRCFG);
 }
 
 static struct syscore_ops smemc_syscore_ops = {
@@ -49,8 +52,19 @@ static struct syscore_ops smemc_syscore_ops = {
 
 static int __init smemc_init(void)
 {
-	if (cpu_is_pxa3xx())
+	if (cpu_is_pxa3xx()) {
+		/*
+		 * The only documentation we have on the
+		 * Chip Select Configuration Register (CSMSADRCFG) is that
+		 * it must be programmed to 0x2.
+		 * Moreover, in the bit definitions, the second bit
+		 * (CSMSADRCFG[1]) is called "SETALWAYS".
+		 * Other bits are reserved in this register.
+		 */
+		__raw_writel(0x2, CSMSADRCFG);
+
 		register_syscore_ops(&smemc_syscore_ops);
+	}
 
 	return 0;
 }

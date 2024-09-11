@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * This file defines the trace event structures that go into the ring
  * buffer directly. They are created via macros so that changes for them
@@ -31,7 +32,7 @@
  *	to be deciphered for the format file. Although these macros
  *	may become out of sync with the internal structure, they
  *	will create a compile error if it happens. Since the
- *	internel structures are just tracing helpers, this is not
+ *	internal structures are just tracing helpers, this is not
  *	an issue.
  *
  *	When an internal structure is used, it should use:
@@ -55,48 +56,51 @@
 /*
  * Function trace entry - function address and parent function address:
  */
-FTRACE_ENTRY(function, ftrace_entry,
+FTRACE_ENTRY_REG(function, ftrace_entry,
 
 	TRACE_FN,
 
 	F_STRUCT(
-		__field(	unsigned long,	ip		)
-		__field(	unsigned long,	parent_ip	)
+		__field_fn(	unsigned long,	ip		)
+		__field_fn(	unsigned long,	parent_ip	)
 	),
 
-	F_printk(" %lx <-- %lx", __entry->ip, __entry->parent_ip)
+	F_printk(" %ps <-- %ps",
+		 (void *)__entry->ip, (void *)__entry->parent_ip),
+
+	perf_ftrace_event_register
 );
 
 /* Function call entry */
-FTRACE_ENTRY(funcgraph_entry, ftrace_graph_ent_entry,
+FTRACE_ENTRY_PACKED(funcgraph_entry, ftrace_graph_ent_entry,
 
 	TRACE_GRAPH_ENT,
 
 	F_STRUCT(
 		__field_struct(	struct ftrace_graph_ent,	graph_ent	)
-		__field_desc(	unsigned long,	graph_ent,	func		)
-		__field_desc(	int,		graph_ent,	depth		)
+		__field_packed(	unsigned long,	graph_ent,	func		)
+		__field_packed(	int,		graph_ent,	depth		)
 	),
 
-	F_printk("--> %lx (%d)", __entry->func, __entry->depth)
+	F_printk("--> %ps (%d)", (void *)__entry->func, __entry->depth)
 );
 
 /* Function return entry */
-FTRACE_ENTRY(funcgraph_exit, ftrace_graph_ret_entry,
+FTRACE_ENTRY_PACKED(funcgraph_exit, ftrace_graph_ret_entry,
 
 	TRACE_GRAPH_RET,
 
 	F_STRUCT(
 		__field_struct(	struct ftrace_graph_ret,	ret	)
-		__field_desc(	unsigned long,	ret,		func	)
-		__field_desc(	unsigned long long, ret,	calltime)
-		__field_desc(	unsigned long long, ret,	rettime	)
-		__field_desc(	unsigned long,	ret,		overrun	)
-		__field_desc(	int,		ret,		depth	)
+		__field_packed(	unsigned long,	ret,		func	)
+		__field_packed(	int,		ret,		depth	)
+		__field_packed(	unsigned int,	ret,		overrun	)
+		__field_packed(	unsigned long long, ret,	calltime)
+		__field_packed(	unsigned long long, ret,	rettime	)
 	),
 
-	F_printk("<-- %lx (%d) (start: %llx  end: %llx) over: %d",
-		 __entry->func, __entry->depth,
+	F_printk("<-- %ps (%d) (start: %llx  end: %llx) over: %d",
+		 (void *)__entry->func, __entry->depth,
 		 __entry->calltime, __entry->rettime,
 		 __entry->depth)
 );
@@ -127,8 +131,7 @@ FTRACE_ENTRY(context_switch, ctx_switch_entry,
 	F_printk("%u:%u:%u  ==> %u:%u:%u [%03u]",
 		 __entry->prev_pid, __entry->prev_prio, __entry->prev_state,
 		 __entry->next_pid, __entry->next_prio, __entry->next_state,
-		 __entry->next_cpu
-		)
+		 __entry->next_cpu)
 );
 
 /*
@@ -146,8 +149,7 @@ FTRACE_ENTRY_DUP(wakeup, ctx_switch_entry,
 	F_printk("%u:%u:%u  ==+ %u:%u:%u [%03u]",
 		 __entry->prev_pid, __entry->prev_prio, __entry->prev_state,
 		 __entry->next_pid, __entry->next_prio, __entry->next_state,
-		 __entry->next_cpu
-		)
+		 __entry->next_cpu)
 );
 
 /*
@@ -162,14 +164,16 @@ FTRACE_ENTRY(kernel_stack, stack_entry,
 
 	F_STRUCT(
 		__field(	int,		size	)
-		__dynamic_array(unsigned long,	caller	)
+		__array(	unsigned long,	caller,	FTRACE_STACK_ENTRIES	)
 	),
 
-	F_printk("\t=> (%08lx)\n\t=> (%08lx)\n\t=> (%08lx)\n\t=> (%08lx)\n"
-		 "\t=> (%08lx)\n\t=> (%08lx)\n\t=> (%08lx)\n\t=> (%08lx)\n",
-		 __entry->caller[0], __entry->caller[1], __entry->caller[2],
-		 __entry->caller[3], __entry->caller[4], __entry->caller[5],
-		 __entry->caller[6], __entry->caller[7])
+	F_printk("\t=> %ps\n\t=> %ps\n\t=> %ps\n"
+		 "\t=> %ps\n\t=> %ps\n\t=> %ps\n"
+		 "\t=> %ps\n\t=> %ps\n",
+		 (void *)__entry->caller[0], (void *)__entry->caller[1],
+		 (void *)__entry->caller[2], (void *)__entry->caller[3],
+		 (void *)__entry->caller[4], (void *)__entry->caller[5],
+		 (void *)__entry->caller[6], (void *)__entry->caller[7])
 );
 
 FTRACE_ENTRY(user_stack, userstack_entry,
@@ -181,11 +185,13 @@ FTRACE_ENTRY(user_stack, userstack_entry,
 		__array(	unsigned long,	caller, FTRACE_STACK_ENTRIES	)
 	),
 
-	F_printk("\t=> (%08lx)\n\t=> (%08lx)\n\t=> (%08lx)\n\t=> (%08lx)\n"
-		 "\t=> (%08lx)\n\t=> (%08lx)\n\t=> (%08lx)\n\t=> (%08lx)\n",
-		 __entry->caller[0], __entry->caller[1], __entry->caller[2],
-		 __entry->caller[3], __entry->caller[4], __entry->caller[5],
-		 __entry->caller[6], __entry->caller[7])
+	F_printk("\t=> %ps\n\t=> %ps\n\t=> %ps\n"
+		 "\t=> %ps\n\t=> %ps\n\t=> %ps\n"
+		 "\t=> %ps\n\t=> %ps\n",
+		 (void *)__entry->caller[0], (void *)__entry->caller[1],
+		 (void *)__entry->caller[2], (void *)__entry->caller[3],
+		 (void *)__entry->caller[4], (void *)__entry->caller[5],
+		 (void *)__entry->caller[6], (void *)__entry->caller[7])
 );
 
 /*
@@ -201,11 +207,11 @@ FTRACE_ENTRY(bprint, bprint_entry,
 		__dynamic_array(	u32,	buf	)
 	),
 
-	F_printk("%08lx fmt:%p",
-		 __entry->ip, __entry->fmt)
+	F_printk("%ps: %s",
+		 (void *)__entry->ip, __entry->fmt)
 );
 
-FTRACE_ENTRY(print, print_entry,
+FTRACE_ENTRY_REG(print, print_entry,
 
 	TRACE_PRINT,
 
@@ -214,8 +220,36 @@ FTRACE_ENTRY(print, print_entry,
 		__dynamic_array(	char,	buf	)
 	),
 
-	F_printk("%08lx %s",
-		 __entry->ip, __entry->buf)
+	F_printk("%ps: %s",
+		 (void *)__entry->ip, __entry->buf),
+
+	ftrace_event_register
+);
+
+FTRACE_ENTRY(raw_data, raw_data_entry,
+
+	TRACE_RAW_DATA,
+
+	F_STRUCT(
+		__field(	unsigned int,	id	)
+		__dynamic_array(	char,	buf	)
+	),
+
+	F_printk("id:%04x %08x",
+		 __entry->id, (int)__entry->buf[0])
+);
+
+FTRACE_ENTRY(bputs, bputs_entry,
+
+	TRACE_BPUTS,
+
+	F_STRUCT(
+		__field(	unsigned long,	ip	)
+		__field(	const char *,	str	)
+	),
+
+	F_printk("%ps: %s",
+		 (void *)__entry->ip, __entry->str)
 );
 
 FTRACE_ENTRY(mmiotrace_rw, trace_mmiotrace_rw,
@@ -227,7 +261,7 @@ FTRACE_ENTRY(mmiotrace_rw, trace_mmiotrace_rw,
 		__field_desc(	resource_size_t, rw,	phys	)
 		__field_desc(	unsigned long,	rw,	value	)
 		__field_desc(	unsigned long,	rw,	pc	)
-		__field_desc(	int, 		rw,	map_id	)
+		__field_desc(	int,		rw,	map_id	)
 		__field_desc(	unsigned char,	rw,	opcode	)
 		__field_desc(	unsigned char,	rw,	width	)
 	),
@@ -246,7 +280,7 @@ FTRACE_ENTRY(mmiotrace_map, trace_mmiotrace_map,
 		__field_desc(	resource_size_t, map,	phys	)
 		__field_desc(	unsigned long,	map,	virt	)
 		__field_desc(	unsigned long,	map,	len	)
-		__field_desc(	int, 		map,	map_id	)
+		__field_desc(	int,		map,	map_id	)
 		__field_desc(	unsigned char,	map,	opcode	)
 	),
 
@@ -268,10 +302,102 @@ FTRACE_ENTRY(branch, trace_branch,
 		__array(	char,		func,	TRACE_FUNC_SIZE+1	)
 		__array(	char,		file,	TRACE_FILE_SIZE+1	)
 		__field(	char,		correct				)
+		__field(	char,		constant			)
 	),
 
-	F_printk("%u:%s:%s (%u)",
+	F_printk("%u:%s:%s (%u)%s",
 		 __entry->line,
-		 __entry->func, __entry->file, __entry->correct)
+		 __entry->func, __entry->file, __entry->correct,
+		 __entry->constant ? " CONSTANT" : "")
 );
 
+
+FTRACE_ENTRY(hwlat, hwlat_entry,
+
+	TRACE_HWLAT,
+
+	F_STRUCT(
+		__field(	u64,			duration	)
+		__field(	u64,			outer_duration	)
+		__field(	u64,			nmi_total_ts	)
+		__field_struct( struct timespec64,	timestamp	)
+		__field_desc(	s64,	timestamp,	tv_sec		)
+		__field_desc(	long,	timestamp,	tv_nsec		)
+		__field(	unsigned int,		nmi_count	)
+		__field(	unsigned int,		seqnum		)
+		__field(	unsigned int,		count		)
+	),
+
+	F_printk("cnt:%u\tts:%010llu.%010lu\tinner:%llu\touter:%llu\tcount:%d\tnmi-ts:%llu\tnmi-count:%u\n",
+		 __entry->seqnum,
+		 __entry->tv_sec,
+		 __entry->tv_nsec,
+		 __entry->duration,
+		 __entry->outer_duration,
+		 __entry->count,
+		 __entry->nmi_total_ts,
+		 __entry->nmi_count)
+);
+
+#define FUNC_REPEATS_GET_DELTA_TS(entry)				\
+	(((u64)(entry)->top_delta_ts << 32) | (entry)->bottom_delta_ts)	\
+
+FTRACE_ENTRY(func_repeats, func_repeats_entry,
+
+	TRACE_FUNC_REPEATS,
+
+	F_STRUCT(
+		__field(	unsigned long,	ip		)
+		__field(	unsigned long,	parent_ip	)
+		__field(	u16	,	count		)
+		__field(	u16	,	top_delta_ts	)
+		__field(	u32	,	bottom_delta_ts	)
+	),
+
+	F_printk(" %ps <-%ps\t(repeats:%u  delta: -%llu)",
+		 (void *)__entry->ip,
+		 (void *)__entry->parent_ip,
+		 __entry->count,
+		 FUNC_REPEATS_GET_DELTA_TS(__entry))
+);
+
+FTRACE_ENTRY(osnoise, osnoise_entry,
+
+	TRACE_OSNOISE,
+
+	F_STRUCT(
+		__field(	u64,			noise		)
+		__field(	u64,			runtime		)
+		__field(	u64,			max_sample	)
+		__field(	unsigned int,		hw_count	)
+		__field(	unsigned int,		nmi_count	)
+		__field(	unsigned int,		irq_count	)
+		__field(	unsigned int,		softirq_count	)
+		__field(	unsigned int,		thread_count	)
+	),
+
+	F_printk("noise:%llu\tmax_sample:%llu\thw:%u\tnmi:%u\tirq:%u\tsoftirq:%u\tthread:%u\n",
+		 __entry->noise,
+		 __entry->max_sample,
+		 __entry->hw_count,
+		 __entry->nmi_count,
+		 __entry->irq_count,
+		 __entry->softirq_count,
+		 __entry->thread_count)
+);
+
+FTRACE_ENTRY(timerlat, timerlat_entry,
+
+	TRACE_TIMERLAT,
+
+	F_STRUCT(
+		__field(	unsigned int,		seqnum		)
+		__field(	int,			context		)
+		__field(	u64,			timer_latency	)
+	),
+
+	F_printk("seq:%u\tcontext:%d\ttimer_latency:%llu\n",
+		 __entry->seqnum,
+		 __entry->context,
+		 __entry->timer_latency)
+);

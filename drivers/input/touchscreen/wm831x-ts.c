@@ -1,19 +1,14 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Touchscreen driver for WM831x PMICs
  *
  * Copyright 2011 Wolfson Microelectronics plc.
  * Author: Mark Brown <broonie@opensource.wolfsonmicro.com>
- *
- * This program is free software; you can redistribute  it and/or modify it
- * under  the terms of  the GNU General  Public License as published by the
- * Free Software Foundation;  either version 2 of the  License, or (at your
- * option) any later version.
  */
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/kernel.h>
-#include <linux/init.h>
 #include <linux/string.h>
 #include <linux/pm.h>
 #include <linux/input.h>
@@ -221,7 +216,7 @@ static void wm831x_ts_input_close(struct input_dev *idev)
 	synchronize_irq(wm831x_ts->pd_irq);
 
 	/* Make sure the IRQ completion work is quiesced */
-	flush_work_sync(&wm831x_ts->pd_data_work);
+	flush_work(&wm831x_ts->pd_data_work);
 
 	/* If we ended up with the pen down then make sure we revert back
 	 * to pen detection state for the next time we start up.
@@ -233,7 +228,7 @@ static void wm831x_ts_input_close(struct input_dev *idev)
 	}
 }
 
-static __devinit int wm831x_ts_probe(struct platform_device *pdev)
+static int wm831x_ts_probe(struct platform_device *pdev)
 {
 	struct wm831x_ts *wm831x_ts;
 	struct wm831x *wm831x = dev_get_drvdata(pdev->dev.parent);
@@ -245,8 +240,9 @@ static __devinit int wm831x_ts_probe(struct platform_device *pdev)
 	if (core_pdata)
 		pdata = core_pdata->touch;
 
-	wm831x_ts = kzalloc(sizeof(struct wm831x_ts), GFP_KERNEL);
-	input_dev = input_allocate_device();
+	wm831x_ts = devm_kzalloc(&pdev->dev, sizeof(struct wm831x_ts),
+				 GFP_KERNEL);
+	input_dev = devm_input_allocate_device(&pdev->dev);
 	if (!wm831x_ts || !input_dev) {
 		error = -ENOMEM;
 		goto err_alloc;
@@ -260,15 +256,16 @@ static __devinit int wm831x_ts_probe(struct platform_device *pdev)
 	 * If we have a direct IRQ use it, otherwise use the interrupt
 	 * from the WM831x IRQ controller.
 	 */
+	wm831x_ts->data_irq = wm831x_irq(wm831x,
+					 platform_get_irq_byname(pdev,
+								 "TCHDATA"));
 	if (pdata && pdata->data_irq)
 		wm831x_ts->data_irq = pdata->data_irq;
-	else
-		wm831x_ts->data_irq = platform_get_irq_byname(pdev, "TCHDATA");
 
+	wm831x_ts->pd_irq = wm831x_irq(wm831x,
+				       platform_get_irq_byname(pdev, "TCHPD"));
 	if (pdata && pdata->pd_irq)
 		wm831x_ts->pd_irq = pdata->pd_irq;
-	else
-		wm831x_ts->pd_irq = platform_get_irq_byname(pdev, "TCHPD");
 
 	if (pdata)
 		wm831x_ts->pressure = pdata->pressure;
@@ -293,7 +290,7 @@ static __devinit int wm831x_ts_probe(struct platform_device *pdev)
 		default:
 			dev_err(&pdev->dev, "Unsupported ISEL setting: %d\n",
 				pdata->isel);
-			/* Fall through */
+			fallthrough;
 		case 200:
 		case 0:
 			wm831x_set_bits(wm831x, WM831X_TOUCH_CONTROL_2,
@@ -320,14 +317,13 @@ static __devinit int wm831x_ts_probe(struct platform_device *pdev)
 
 	error = request_threaded_irq(wm831x_ts->data_irq,
 				     NULL, wm831x_ts_data_irq,
-				     irqf | IRQF_ONESHOT,
+				     irqf | IRQF_ONESHOT | IRQF_NO_AUTOEN,
 				     "Touchscreen data", wm831x_ts);
 	if (error) {
 		dev_err(&pdev->dev, "Failed to request data IRQ %d: %d\n",
 			wm831x_ts->data_irq, error);
 		goto err_alloc;
 	}
-	disable_irq(wm831x_ts->data_irq);
 
 	if (pdata && pdata->pd_irqf)
 		irqf = pdata->pd_irqf;
@@ -374,32 +370,26 @@ err_pd_irq:
 err_data_irq:
 	free_irq(wm831x_ts->data_irq, wm831x_ts);
 err_alloc:
-	input_free_device(input_dev);
-	kfree(wm831x_ts);
 
 	return error;
 }
 
-static __devexit int wm831x_ts_remove(struct platform_device *pdev)
+static int wm831x_ts_remove(struct platform_device *pdev)
 {
 	struct wm831x_ts *wm831x_ts = platform_get_drvdata(pdev);
 
 	free_irq(wm831x_ts->pd_irq, wm831x_ts);
 	free_irq(wm831x_ts->data_irq, wm831x_ts);
-	input_unregister_device(wm831x_ts->input_dev);
-	kfree(wm831x_ts);
 
-	platform_set_drvdata(pdev, NULL);
 	return 0;
 }
 
 static struct platform_driver wm831x_ts_driver = {
 	.driver = {
 		.name = "wm831x-touch",
-		.owner = THIS_MODULE,
 	},
 	.probe = wm831x_ts_probe,
-	.remove = __devexit_p(wm831x_ts_remove),
+	.remove = wm831x_ts_remove,
 };
 module_platform_driver(wm831x_ts_driver);
 

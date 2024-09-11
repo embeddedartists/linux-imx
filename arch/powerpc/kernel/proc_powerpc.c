@@ -1,19 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (C) 2001 Mike Corrigan & Dave Engebretsen IBM Corporation
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  */
 
 #include <linux/init.h>
@@ -24,57 +11,38 @@
 #include <asm/machdep.h>
 #include <asm/vdso_datapage.h>
 #include <asm/rtas.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/prom.h>
 
 #ifdef CONFIG_PPC64
 
-static loff_t page_map_seek( struct file *file, loff_t off, int whence)
+static loff_t page_map_seek(struct file *file, loff_t off, int whence)
 {
-	loff_t new;
-	struct proc_dir_entry *dp = PDE(file->f_path.dentry->d_inode);
-
-	switch(whence) {
-	case 0:
-		new = off;
-		break;
-	case 1:
-		new = file->f_pos + off;
-		break;
-	case 2:
-		new = dp->size + off;
-		break;
-	default:
-		return -EINVAL;
-	}
-	if ( new < 0 || new > dp->size )
-		return -EINVAL;
-	return (file->f_pos = new);
+	return fixed_size_llseek(file, off, whence, PAGE_SIZE);
 }
 
 static ssize_t page_map_read( struct file *file, char __user *buf, size_t nbytes,
 			      loff_t *ppos)
 {
-	struct proc_dir_entry *dp = PDE(file->f_path.dentry->d_inode);
-	return simple_read_from_buffer(buf, nbytes, ppos, dp->data, dp->size);
+	return simple_read_from_buffer(buf, nbytes, ppos,
+			PDE_DATA(file_inode(file)), PAGE_SIZE);
 }
 
 static int page_map_mmap( struct file *file, struct vm_area_struct *vma )
 {
-	struct proc_dir_entry *dp = PDE(file->f_path.dentry->d_inode);
-
-	if ((vma->vm_end - vma->vm_start) > dp->size)
+	if ((vma->vm_end - vma->vm_start) > PAGE_SIZE)
 		return -EINVAL;
 
-	remap_pfn_range(vma, vma->vm_start, __pa(dp->data) >> PAGE_SHIFT,
-						dp->size, vma->vm_page_prot);
+	remap_pfn_range(vma, vma->vm_start,
+			__pa(PDE_DATA(file_inode(file))) >> PAGE_SHIFT,
+			PAGE_SIZE, vma->vm_page_prot);
 	return 0;
 }
 
-static const struct file_operations page_map_fops = {
-	.llseek	= page_map_seek,
-	.read	= page_map_read,
-	.mmap	= page_map_mmap
+static const struct proc_ops page_map_proc_ops = {
+	.proc_lseek	= page_map_seek,
+	.proc_read	= page_map_read,
+	.proc_mmap	= page_map_mmap,
 };
 
 
@@ -82,11 +50,11 @@ static int __init proc_ppc64_init(void)
 {
 	struct proc_dir_entry *pde;
 
-	pde = proc_create_data("powerpc/systemcfg", S_IFREG|S_IRUGO, NULL,
-			       &page_map_fops, vdso_data);
+	pde = proc_create_data("powerpc/systemcfg", S_IFREG | 0444, NULL,
+			       &page_map_proc_ops, vdso_data);
 	if (!pde)
 		return 1;
-	pde->size = PAGE_SIZE;
+	proc_set_size(pde, PAGE_SIZE);
 
 	return 0;
 }

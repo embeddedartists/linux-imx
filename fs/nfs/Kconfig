@@ -1,6 +1,7 @@
+# SPDX-License-Identifier: GPL-2.0-only
 config NFS_FS
 	tristate "NFS client support"
-	depends on INET && FILE_LOCKING
+	depends on INET && FILE_LOCKING && MULTIUSER
 	select LOCKD
 	select SUNRPC
 	select NFS_ACL_SUPPORT if NFS_V3_ACL
@@ -29,9 +30,20 @@ config NFS_FS
 
 	  If unsure, say N.
 
-config NFS_V3
-	bool "NFS client support for NFS version 3"
+config NFS_V2
+	tristate "NFS client support for NFS version 2"
 	depends on NFS_FS
+	default y
+	help
+	  This option enables support for version 2 of the NFS protocol
+	  (RFC 1094) in the kernel's NFS client.
+
+	  If unsure, say Y.
+
+config NFS_V3
+	tristate "NFS client support for NFS version 3"
+	depends on NFS_FS
+	default y
 	help
 	  This option enables support for version 3 of the NFS protocol
 	  (RFC 1813) in the kernel's NFS client.
@@ -61,9 +73,10 @@ config NFS_V3_ACL
 	  If unsure, say N.
 
 config NFS_V4
-	bool "NFS client support for NFS version 4"
+	tristate "NFS client support for NFS version 4"
 	depends on NFS_FS
 	select SUNRPC_GSS
+	select KEYS
 	help
 	  This option enables support for version 4 of the NFS protocol
 	  (RFC 3530) in the kernel's NFS client.
@@ -74,29 +87,75 @@ config NFS_V4
 
 	  If unsure, say Y.
 
+config NFS_SWAP
+	bool "Provide swap over NFS support"
+	default n
+	depends on NFS_FS && SWAP
+	select SUNRPC_SWAP
+	help
+	  This option enables swapon to work on files located on NFS mounts.
+
 config NFS_V4_1
-	bool "NFS client support for NFSv4.1 (EXPERIMENTAL)"
-	depends on NFS_FS && NFS_V4 && EXPERIMENTAL
+	bool "NFS client support for NFSv4.1"
+	depends on NFS_V4
 	select SUNRPC_BACKCHANNEL
-	select PNFS_FILE_LAYOUT
 	help
 	  This option enables support for minor version 1 of the NFSv4 protocol
 	  (RFC 5661) in the kernel's NFS client.
 
 	  If unsure, say N.
 
+config NFS_V4_2
+	bool "NFS client support for NFSv4.2"
+	depends on NFS_V4_1
+	help
+	  This option enables support for minor version 2 of the NFSv4 protocol
+	  in the kernel's NFS client.
+
+	  If unsure, say N.
+
 config PNFS_FILE_LAYOUT
 	tristate
+	depends on NFS_V4_1
+	default NFS_V4
 
 config PNFS_BLOCK
 	tristate
-	depends on NFS_FS && NFS_V4_1 && BLK_DEV_DM
-	default m
+	depends on NFS_V4_1 && BLK_DEV_DM
+	default NFS_V4
 
-config PNFS_OBJLAYOUT
+config PNFS_FLEXFILE_LAYOUT
 	tristate
-	depends on NFS_FS && NFS_V4_1 && SCSI_OSD_ULD
-	default m
+	depends on NFS_V4_1 && NFS_V3
+	default NFS_V4
+
+config NFS_V4_1_IMPLEMENTATION_ID_DOMAIN
+	string "NFSv4.1 Implementation ID Domain"
+	depends on NFS_V4_1
+	default "kernel.org"
+	help
+	  This option defines the domain portion of the implementation ID that
+	  may be sent in the NFS exchange_id operation.  The value must be in
+	  the format of a DNS domain name and should be set to the DNS domain
+	  name of the distribution.
+	  If the NFS client is unchanged from the upstream kernel, this
+	  option should be set to the default "kernel.org".
+
+config NFS_V4_1_MIGRATION
+	bool "NFSv4.1 client support for migration"
+	depends on NFS_V4_1
+	default n
+	help
+	  This option makes the NFS client advertise to NFSv4.1 servers that
+          it can support NFSv4 migration.
+
+          The NFSv4.1 pieces of the Linux NFSv4 migration implementation are
+          still experimental.  If you are not an NFSv4 developer, say N here.
+
+config NFS_V4_SECURITY_LABEL
+	bool
+	depends on NFS_V4_2 && SECURITY
+	default y
 
 config ROOT_NFS
 	bool "Root file system on NFS"
@@ -105,7 +164,7 @@ config ROOT_NFS
 	  If you want your system to mount its root file system via NFS,
 	  choose Y here.  This is common practice for managing systems
 	  without local permanent storage.  For details, read
-	  <file:Documentation/filesystems/nfs/nfsroot.txt>.
+	  <file:Documentation/admin-guide/nfs/nfsroot.rst>.
 
 	  Most people say N here.
 
@@ -130,16 +189,28 @@ config NFS_USE_KERNEL_DNS
 	bool
 	depends on NFS_V4 && !NFS_USE_LEGACY_DNS
 	select DNS_RESOLVER
-	select KEYS
 	default y
 
-config NFS_USE_NEW_IDMAPPER
-	bool "Use the new idmapper upcall routine"
-	depends on NFS_V4 && KEYS
-	help
-	  Say Y here if you want NFS to use the new idmapper upcall functions.
-	  You will need /sbin/request-key (usually provided by the keyutils
-	  package).  For details, read
-	  <file:Documentation/filesystems/nfs/idmapper.txt>.
+config NFS_DEBUG
+	bool
+	depends on NFS_FS && SUNRPC_DEBUG
+	select CRC32
+	default y
 
-	  If you are unsure, say N.
+config NFS_DISABLE_UDP_SUPPORT
+       bool "NFS: Disable NFS UDP protocol support"
+       depends on NFS_FS
+       default y
+       help
+	 Choose Y here to disable the use of NFS over UDP. NFS over UDP
+	 on modern networks (1Gb+) can lead to data corruption caused by
+	 fragmentation during high loads.
+
+config NFS_V4_2_READ_PLUS
+	bool "NFS: Enable support for the NFSv4.2 READ_PLUS operation"
+	depends on NFS_V4_2
+	default n
+	help
+	 This is intended for developers only. The READ_PLUS operation has
+	 been shown to have issues under specific conditions and should not
+	 be used in production.

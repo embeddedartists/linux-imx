@@ -1,12 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Code to process dynamic relocations in the kernel.
  *
  * Copyright 2008 Paul Mackerras, IBM Corp.
- *
- *  This program is free software; you can redistribute it and/or
- *  modify it under the terms of the GNU General Public License
- *  as published by the Free Software Foundation; either version
- *  2 of the License, or (at your option) any later version.
  */
 
 #include <asm/ppc_asm.h>
@@ -69,8 +65,8 @@ _GLOBAL(relocate)
 	 * R_PPC64_RELATIVE ones.
 	 */
 	mtctr	r8
-5:	lwz	r0,12(9)	/* ELF64_R_TYPE(reloc->r_info) */
-	cmpwi	r0,R_PPC64_RELATIVE
+5:	ld	r0,8(9)		/* ELF64_R_TYPE(reloc->r_info) */
+	cmpdi	r0,R_PPC64_RELATIVE
 	bne	6f
 	ld	r6,0(r9)	/* reloc->r_offset */
 	ld	r0,16(r9)	/* reloc->r_addend */
@@ -81,7 +77,8 @@ _GLOBAL(relocate)
 
 6:	blr
 
-p_dyn:	.llong	__dynamic_start - 0b
-p_rela:	.llong	__rela_dyn_start - 0b
-p_st:	.llong	_stext - 0b
+.balign 8
+p_dyn:	.8byte	__dynamic_start - 0b
+p_rela:	.8byte	__rela_dyn_start - 0b
+p_st:	.8byte	_stext - 0b
 

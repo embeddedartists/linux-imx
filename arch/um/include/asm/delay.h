@@ -1,18 +1,30 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __UM_DELAY_H
 #define __UM_DELAY_H
+#include <asm-generic/delay.h>
+#include <linux/time-internal.h>
 
-/* Undefined on purpose */
-extern void __bad_udelay(void);
-extern void __bad_ndelay(void);
+static inline void um_ndelay(unsigned long nsecs)
+{
+	if (time_travel_mode == TT_MODE_INFCPU ||
+	    time_travel_mode == TT_MODE_EXTERNAL) {
+		time_travel_ndelay(nsecs);
+		return;
+	}
+	ndelay(nsecs);
+}
+#undef ndelay
+#define ndelay(n) um_ndelay(n)
 
-extern void __udelay(unsigned long usecs);
-extern void __ndelay(unsigned long usecs);
-extern void __delay(unsigned long loops);
-
-#define udelay(n) ((__builtin_constant_p(n) && (n) > 20000) ? \
-	__bad_udelay() : __udelay(n))
-
-#define ndelay(n) ((__builtin_constant_p(n) && (n) > 20000) ? \
-	__bad_ndelay() : __ndelay(n))
-
-#endif
+static inline void um_udelay(unsigned long usecs)
+{
+	if (time_travel_mode == TT_MODE_INFCPU ||
+	    time_travel_mode == TT_MODE_EXTERNAL) {
+		time_travel_ndelay(1000 * usecs);
+		return;
+	}
+	udelay(usecs);
+}
+#undef udelay
+#define udelay(n) um_udelay(n)
+#endif /* __UM_DELAY_H */

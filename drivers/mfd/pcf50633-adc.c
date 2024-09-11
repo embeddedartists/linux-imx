@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /* NXP PCF50633 ADC Driver
  *
  * (C) 2006-2008 by Openmoko, Inc.
@@ -7,11 +8,6 @@
  * Broken down from monstrous PCF50633 driver mainly by
  * Harald Welte, Andy Green and Werner Almesberger
  *
- *  This program is free software; you can redistribute  it and/or modify it
- *  under  the terms of  the GNU General  Public License as published by the
- *  Free Software Foundation;  either version 2 of the  License, or (at your
- *  option) any later version.
- *
  *  NOTE: This driver does not yet support subtractive ADC mode, which means
  *  you can do only one measurement per read request.
  */
@@ -19,7 +15,6 @@
 #include <linux/kernel.h>
 #include <linux/slab.h>
 #include <linux/module.h>
-#include <linux/init.h>
 #include <linux/device.h>
 #include <linux/platform_device.h>
 #include <linux/completion.h>
@@ -199,11 +194,11 @@ static void pcf50633_adc_irq(int irq, void *data)
 	kfree(req);
 }
 
-static int __devinit pcf50633_adc_probe(struct platform_device *pdev)
+static int pcf50633_adc_probe(struct platform_device *pdev)
 {
 	struct pcf50633_adc *adc;
 
-	adc = kzalloc(sizeof(*adc), GFP_KERNEL);
+	adc = devm_kzalloc(&pdev->dev, sizeof(*adc), GFP_KERNEL);
 	if (!adc)
 		return -ENOMEM;
 
@@ -218,7 +213,7 @@ static int __devinit pcf50633_adc_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int __devexit pcf50633_adc_remove(struct platform_device *pdev)
+static int pcf50633_adc_remove(struct platform_device *pdev)
 {
 	struct pcf50633_adc *adc = platform_get_drvdata(pdev);
 	int i, head;
@@ -236,7 +231,6 @@ static int __devexit pcf50633_adc_remove(struct platform_device *pdev)
 		kfree(adc->queue[i]);
 
 	mutex_unlock(&adc->queue_mutex);
-	kfree(adc);
 
 	return 0;
 }
@@ -246,7 +240,7 @@ static struct platform_driver pcf50633_adc_driver = {
 		.name = "pcf50633-adc",
 	},
 	.probe = pcf50633_adc_probe,
-	.remove = __devexit_p(pcf50633_adc_remove),
+	.remove = pcf50633_adc_remove,
 };
 
 module_platform_driver(pcf50633_adc_driver);

@@ -1,14 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Linux network device link state notification
  *
  * Author:
  *     Stefan Rompf <sux@loplof.de>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version
- * 2 of the License, or (at your option) any later version.
- *
  */
 
 #include <linux/module.h>
@@ -21,7 +16,7 @@
 #include <linux/spinlock.h>
 #include <linux/workqueue.h>
 #include <linux/bitops.h>
-#include <asm/types.h>
+#include <linux/types.h>
 
 
 enum lw_bits {
@@ -39,8 +34,11 @@ static DEFINE_SPINLOCK(lweventlist_lock);
 
 static unsigned char default_operstate(const struct net_device *dev)
 {
+	if (netif_testing(dev))
+		return IF_OPER_TESTING;
+
 	if (!netif_carrier_ok(dev))
-		return (dev->ifindex != dev->iflink ?
+		return (dev->ifindex != dev_get_iflink(dev) ?
 			IF_OPER_LOWERLAYERDOWN : IF_OPER_DOWN);
 
 	if (netif_dormant(dev))
@@ -60,11 +58,15 @@ static void rfc2863_policy(struct net_device *dev)
 	write_lock_bh(&dev_base_lock);
 
 	switch(dev->link_mode) {
+	case IF_LINK_MODE_TESTING:
+		if (operstate == IF_OPER_UP)
+			operstate = IF_OPER_TESTING;
+		break;
+
 	case IF_LINK_MODE_DORMANT:
 		if (operstate == IF_OPER_UP)
 			operstate = IF_OPER_DORMANT;
 		break;
-
 	case IF_LINK_MODE_DEFAULT:
 	default:
 		break;
@@ -76,12 +78,24 @@ static void rfc2863_policy(struct net_device *dev)
 }
 
 
+void linkwatch_init_dev(struct net_device *dev)
+{
+	/* Handle pre-registration link state changes */
+	if (!netif_carrier_ok(dev) || netif_dormant(dev) ||
+	    netif_testing(dev))
+		rfc2863_policy(dev);
+}
+
+
 static bool linkwatch_urgent_event(struct net_device *dev)
 {
 	if (!netif_running(dev))
 		return false;
 
-	if (dev->ifindex != dev->iflink)
+	if (dev->ifindex != dev_get_iflink(dev))
+		return true;
+
+	if (netif_is_lag_port(dev) || netif_is_lag_master(dev))
 		return true;
 
 	return netif_carrier_ok(dev) &&	qdisc_tx_changing(dev);
@@ -120,22 +134,13 @@ static void linkwatch_schedule_work(int urgent)
 		delay = 0;
 
 	/*
-	 * This is true if we've scheduled it immeditately or if we don't
-	 * need an immediate execution and it's already pending.
+	 * If urgent, schedule immediate execution; otherwise, don't
+	 * override the existing timer.
 	 */
-	if (schedule_delayed_work(&linkwatch_work, delay) == !delay)
-		return;
-
-	/* Don't bother if there is nothing urgent. */
-	if (!test_bit(LW_URGENT, &linkwatch_flags))
-		return;
-
-	/* It's already running which is good enough. */
-	if (!__cancel_delayed_work(&linkwatch_work))
-		return;
-
-	/* Otherwise we reschedule it again for immediate execution. */
-	schedule_delayed_work(&linkwatch_work, 0);
+	if (test_bit(LW_URGENT, &linkwatch_flags))
+		mod_delayed_work(system_wq, &linkwatch_work, 0);
+	else
+		schedule_delayed_work(&linkwatch_work, delay);
 }
 
 
@@ -145,7 +150,7 @@ static void linkwatch_do_dev(struct net_device *dev)
 	 * Make sure the above read is complete since it can be
 	 * rewritten as soon as we clear the bit below.
 	 */
-	smp_mb__before_clear_bit();
+	smp_mb__before_atomic();
 
 	/* We are about to handle this device,
 	 * so new events can be accepted
@@ -166,8 +171,15 @@ static void linkwatch_do_dev(struct net_device *dev)
 
 static void __linkwatch_run_queue(int urgent_only)
 {
+#define MAX_DO_DEV_PER_LOOP	100
+
+	int do_dev = MAX_DO_DEV_PER_LOOP;
 	struct net_device *dev;
 	LIST_HEAD(wrk);
+
+	/* Give urgent case more budget */
+	if (urgent_only)
+		do_dev += MAX_DO_DEV_PER_LOOP;
 
 	/*
 	 * Limit the number of linkwatch events to one
@@ -187,19 +199,24 @@ static void __linkwatch_run_queue(int urgent_only)
 	spin_lock_irq(&lweventlist_lock);
 	list_splice_init(&lweventlist, &wrk);
 
-	while (!list_empty(&wrk)) {
+	while (!list_empty(&wrk) && do_dev > 0) {
 
 		dev = list_first_entry(&wrk, struct net_device, link_watch_list);
 		list_del_init(&dev->link_watch_list);
 
-		if (urgent_only && !linkwatch_urgent_event(dev)) {
+		if (!netif_device_present(dev) ||
+		    (urgent_only && !linkwatch_urgent_event(dev))) {
 			list_add_tail(&dev->link_watch_list, &lweventlist);
 			continue;
 		}
 		spin_unlock_irq(&lweventlist_lock);
 		linkwatch_do_dev(dev);
+		do_dev--;
 		spin_lock_irq(&lweventlist_lock);
 	}
+
+	/* Add the remaining work back to lweventlist */
+	list_splice_init(&wrk, &lweventlist);
 
 	if (!list_empty(&lweventlist))
 		linkwatch_schedule_work(0);
