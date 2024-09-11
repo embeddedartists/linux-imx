@@ -109,9 +109,8 @@ static irqreturn_t fsl_sai_isr(int irq, void *devid)
 	flags &= FSL_SAI_CSR_xF_W_MASK;
 	xcsr &= ~FSL_SAI_CSR_xF_MASK;
 
-	if (flags) {
+	if (flags)
 		regmap_write(sai->regmap, FSL_SAI_TCSR(ofs), flags | xcsr);
-	}
 
 irq_rx:
 	/* Rx IRQ */
