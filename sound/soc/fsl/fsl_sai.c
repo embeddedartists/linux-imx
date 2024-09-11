@@ -110,7 +110,6 @@ static irqreturn_t fsl_sai_isr(int irq, void *devid)
 	xcsr &= ~FSL_SAI_CSR_xF_MASK;
 
 	if (flags) {
-		dev_dbg(dev, "isr: Write rest\n");
 		regmap_write(sai->regmap, FSL_SAI_TCSR(ofs), flags | xcsr);
 	}
 
