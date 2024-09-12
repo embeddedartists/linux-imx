@@ -880,6 +880,16 @@ dtb-$(CONFIG_SOC_IMX7D) += \
 	imx7d-12x12-lpddr3-val-sai.dtb \
 	imx7d-zii-rmu2.dtb \
 	imx7d-zii-rpu2.dtb \
+	imx7dea-com-kit_v2.dtb \
+	imx7dea-com-kit_v2-m4.dtb \
+	imx7dea-com-kit_v2-ov5640.dtb \
+	imx7dea-com-kit_v2-pcie.dtb \
+	imx7dea-com-ptp.dtb \
+	imx7dea-ucom-kit_v2.dtb \
+	imx7dea-ucom-kit_v2-m4.dtb \
+	imx7dea-ucom-kit_v2-ov5640.dtb \
+	imx7dea-ucom-kit_v2-pcie.dtb \
+	imx7dea-ucom-ptp.dtb \
 	imx7s-colibri-aster.dtb \
 	imx7s-colibri-eval-v3.dtb \
 	imx7s-colibri-iris.dtb \
