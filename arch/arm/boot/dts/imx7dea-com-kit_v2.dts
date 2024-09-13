@@ -136,7 +136,7 @@
 
 		simple-audio-card,codec {
 			sound-dai = <&wm8731>;
-			clocks = <&clks IMX7D_AUDIO_MCLK_ROOT_CLK>;
+			clocks = <&clks IMX7D_AUDIO_MCLK_ROOT_DIV>;
 		};
 	};
 
@@ -180,9 +180,9 @@
 		#sound-dai-cells = <0>;
 		compatible = "wlf,wm8731";
 		reg = <0x1a>;
-		clocks = <&clks IMX7D_AUDIO_MCLK_ROOT_CLK>;
+		clocks = <&clks IMX7D_AUDIO_MCLK_ROOT_DIV>;
 
-		assigned-clocks = <&clks IMX7D_AUDIO_MCLK_ROOT_CLK>, 
+		assigned-clocks = <&clks IMX7D_AUDIO_MCLK_ROOT_DIV>, 
 				<&clks IMX7D_AUDIO_MCLK_ROOT_SRC>;
 		assigned-clock-parents = <&clks IMX7D_AUDIO_MCLK_ROOT_DIV>, 
 				<&clks IMX7D_PLL_AUDIO_POST_DIV>;
