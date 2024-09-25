@@ -333,7 +333,12 @@ dtb-$(CONFIG_SOC_IMX6SX) += \
 	imx6sx-softing-vining-2000.dtb \
 	imx6sx-udoo-neo-basic.dtb \
 	imx6sx-udoo-neo-extended.dtb \
-	imx6sx-udoo-neo-full.dtb
+	imx6sx-udoo-neo-full.dtb \
+	imx6sxea-com-kit_v2.dtb \
+	imx6sxea-com-kit_v2-m4.dtb \
+	imx6sxea-com-kit_v2-ov5640-pl.dtb \
+	imx6sxea-com-kit_v2-pcie.dtb \
+	imx6sxea-com-ptp.dtb
 dtb-$(CONFIG_SOC_IMX6UL) += \
 	imx6ul-14x14-evk.dtb \
 	imx6ul-14x14-evk-csi.dtb \
