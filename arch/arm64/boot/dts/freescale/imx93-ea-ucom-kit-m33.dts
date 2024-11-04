@@ -1,0 +1,55 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Copyright 2023 NXP
+ */
+
+#include "imx93-ea-ucom-kit.dts"
+
+/delete-node/ &ethosu_mem;
+
+/ {
+	/delete-node/ ethosu;
+
+	reserved-memory {
+
+		m33_reserved: m33@a5000000 {
+			no-map;
+			reg = <0 0xa5000000 0 0x1000000>;
+		};
+	};
+
+};
+
+&lpi2c2 {
+	/delete-property/ dmas;
+	/delete-property/ dma-names;
+};
+
+&lpi2c3 {
+	/delete-property/ dmas;
+	/delete-property/ dma-names;
+};
+
+&sai3 {
+	status = "disabled";
+};
+
+&micfil {
+	status = "disabled";
+};
+
+&edma1{
+	status = "disabled";
+};
+
+&edma2{
+	status = "disabled";
+};
+
+&sai1 {
+	status = "disabled";
+};
+
+&xcvr {
+	status = "disabled";
+};
