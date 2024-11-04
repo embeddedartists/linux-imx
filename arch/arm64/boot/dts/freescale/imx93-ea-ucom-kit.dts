@@ -61,8 +61,8 @@
 			no-map;
 		};
 
-		rsc_table: rsc-table@2021f000 {
-			reg = <0 0x2021f000 0 0x1000>;
+		rsc_table: rsc-table@2021e000 {
+			reg = <0 0x2021e000 0 0x1000>;
 			no-map;
 		};
 
@@ -214,7 +214,7 @@
 		ethphy1: ethernet-phy@1 {
 			reg = <1>;
 			eee-broken-1000t;           
-			reset-gpios = <&pcal6524 16 GPIO_ACTIVE_LOW>;
+			reset-gpios = <&pcal6524 15 GPIO_ACTIVE_LOW>;
 			reset-assert-us = <10000>;
 			reset-deassert-us = <80000>;
 			realtek,clkout-disable;
@@ -531,6 +531,10 @@
 		interrupts = <26 IRQ_TYPE_LEVEL_LOW>;
 		interrupt-names = "host-wake";
 	};
+};
+
+&wdog3 {
+	status = "okay";
 };
 
 &iomuxc {
