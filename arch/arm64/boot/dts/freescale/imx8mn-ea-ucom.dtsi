@@ -254,9 +254,10 @@
 	};
 
 	at24@55 {
-		compatible = "at,24c64";
+		compatible = "atmel,24c64";
 		pagesize = <32>;
 		reg = <0x55>;
+		read-only;
 	};
 };
 
