@@ -93,7 +93,7 @@
 
 	modem_reset: modem-reset {
 		compatible = "gpio-reset";
-		reset-gpios = <&pcal6524 19 GPIO_ACTIVE_LOW>;
+		reset-gpios = <&pca6416 0 GPIO_ACTIVE_LOW>;
 		initially-in-reset;
 		reset-delay-us = <2000>;
 		reset-post-delay-ms = <100>;
@@ -145,9 +145,12 @@
 		regulator-max-microvolt = <1800000>;
 	};
 
-	usdhc3_pwrseq: usdhc3_pwrseq {
+	usdhc3_pwrseq: usdhc3_pwrseq { /* WL_REG_ON*/
 		compatible = "mmc-pwrseq-simple";
-		reset-gpios = <&pcal6524 20 GPIO_ACTIVE_LOW>;
+		reset-gpios = <&pca6416 1 GPIO_ACTIVE_LOW>;
+		post-power-on-delay-ms = <120>;
+		power-off-delay-us = <100000>;
+		status = "okay";
 	};
 
 	clk_ov5640: clock {
@@ -759,14 +762,14 @@
 		>;
 	};
 
-	pinctrl_usdhc3: usdhc3grp {
+	pinctrl_usdhc3: usdhc3grp { /* For M.2 */
 		fsl,pins = <
-			MX93_PAD_SD3_CLK__USDHC3_CLK		0x15fe
-			MX93_PAD_SD3_CMD__USDHC3_CMD		0x13fe
-			MX93_PAD_SD3_DATA0__USDHC3_DATA0	0x13fe
-			MX93_PAD_SD3_DATA1__USDHC3_DATA1	0x13fe
-			MX93_PAD_SD3_DATA2__USDHC3_DATA2	0x13fe
-			MX93_PAD_SD3_DATA3__USDHC3_DATA3	0x13fe
+			MX93_PAD_SD3_CLK__USDHC3_CLK		0x158e  /* 0x158e = HYS,PD,Fast Slew Rate,DSE x3 */
+			MX93_PAD_SD3_CMD__USDHC3_CMD		0x138e  /* 0x158e = HYS,PU,Fast Slew Rate,DSE x3 */
+			MX93_PAD_SD3_DATA0__USDHC3_DATA0	0x138e
+			MX93_PAD_SD3_DATA1__USDHC3_DATA1	0x138e
+			MX93_PAD_SD3_DATA2__USDHC3_DATA2	0x138e
+			MX93_PAD_SD3_DATA3__USDHC3_DATA3	0x138e
 		>;
 	};
 
