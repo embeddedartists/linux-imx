@@ -13,7 +13,7 @@
 &lpuart5 {
 	bluetooth {
 		compatible = "infineon,cyw55572-bt";
-		shutdown-gpios = <&pcal6524 19 GPIO_ACTIVE_HIGH>;
+		shutdown-gpios = <&pca6416 0 GPIO_ACTIVE_HIGH>; /* BT_REG_ON */
 		max-speed = <3000000>;
 		brcm,requires-autobaud-mode;
 	};
