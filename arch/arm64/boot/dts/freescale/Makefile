@@ -97,9 +97,9 @@ dtb-$(CONFIG_ARCH_MXC) += imx8mm-icore-mx8mm-edimm2.2.dtb
 dtb-$(CONFIG_ARCH_MXC) += imx8mm-nitrogen-r2.dtb
 dtb-$(CONFIG_ARCH_MXC) += imx8mm-ea-ucom-kit_v2.dtb imx8mm-ea-ucom-kit_v2-m4.dtb imx8mm-ea-ucom-kit_v2-ov5640.dtb \
 			  imx8mm-ea-ucom-kit_v2-pcie.dtb imx8mm-ea-ucom-kit_v2-1mw.dtb \
-			  imx8mm-ea-ucom-kit_v2-2ea.dtb imx8mm-ea-ucom-kit_v2-pcie-2ea.dtb \
+			  imx8mm-ea-ucom-kit_v2-2ea.dtb imx8mm-ea-ucom-kit_v2-pcie-2ea.dtb imx8mm-ea-ucom-kit_v2-m2_usb.dtb \
 			  imx8mm-ea-ucom-kit_v3.dtb imx8mm-ea-ucom-kit_v3-m4.dtb imx8mm-ea-ucom-kit_v3-pcie.dtb \
-			  imx8mm-ea-ucom-kit_v3-2ea.dtb imx8mm-ea-ucom-kit_v3-pcie-2ea.dtb \
+			  imx8mm-ea-ucom-kit_v3-2ea.dtb imx8mm-ea-ucom-kit_v3-pcie-2ea.dtb imx8mm-ea-ucom-kit_v3-m2_usb.dtb \
 			  imx8mm-ea-ucom-kit_v3-ov5640.dtb imx8mm-ea-ucom-kit_v3-1mw.dtb imx8mm-ea-ucom-kit_v3-rk055hdmipi4m.dtb
 
 dtb-$(CONFIG_ARCH_MXC) += imx8mn-bsh-smm-s2.dtb
@@ -121,8 +121,10 @@ dtb-$(CONFIG_ARCH_MXC) += imx8mn-evk-iqaudio-dacplus.dtb imx8mn-evk-iqaudio-dacp
 			  imx8mn-evk-hifiberry-dac2.dtb
 dtb-$(CONFIG_ARCH_MXC) += imx8mn-ea-ucom-kit_v2.dtb imx8mn-ea-ucom-kit_v2-m4.dtb imx8mn-ea-ucom-kit_v2-ov5640.dtb \
 			  imx8mn-ea-ucom-kit_v2-usb-host.dtb imx8mn-ea-ucom-kit_v2-1mw.dtb imx8mn-ea-ucom-kit_v2-2ea.dtb \
+			  imx8mn-ea-ucom-kit_v2-m2_usb.dtb \
 			  imx8mn-ea-ucom-kit_v3.dtb imx8mn-ea-ucom-kit_v3-m4.dtb imx8mn-ea-ucom-kit_v3-ov5640.dtb \
-			  imx8mn-ea-ucom-kit_v3-usb-host.dtb imx8mn-ea-ucom-kit_v3-1mw.dtb imx8mn-ea-ucom-kit_v3-2ea.dtb
+			  imx8mn-ea-ucom-kit_v3-usb-host.dtb imx8mn-ea-ucom-kit_v3-1mw.dtb imx8mn-ea-ucom-kit_v3-2ea.dtb \
+			  imx8mn-ea-ucom-kit_v3-m2_usb.dtb
 dtb-$(CONFIG_ARCH_MXC) += imx8mp-evk.dtb imx8mp-evk-rm67191.dtb imx8mp-evk-it6263-lvds-dual-channel.dtb \
 			  imx8mp-evk-pcie-ep.dtb  imx8mp-evk-rpmsg.dtb imx8mp-evk-ecspi-slave.dtb \
 			  imx8mp-evk-jdi-wuxga-lvds-panel.dtb imx8mp-evk-flexcan2.dtb \
@@ -387,7 +389,7 @@ dtb-$(CONFIG_ARCH_MXC) += imx93-11x11-evk.dtb \
 			  imx93-11x11-evk-ld.dtb \
 			  imx93-11x11-evk-iw612-otbr.dtb \
 			  imx93-11x11-evk-rpmsg.dtb imx93-11x11-evk-rpmsg-lpv.dtb
-dtb-$(CONFIG_ARCH_MXC) += imx93-ea-ucom-kit.dtb imx93-ea-ucom-kit-2ea.dtb imx93-ea-ucom-kit-m33.dtb
+dtb-$(CONFIG_ARCH_MXC) += imx93-ea-ucom-kit.dtb imx93-ea-ucom-kit-2ea.dtb imx93-ea-ucom-kit-m33.dtb imx93-ea-ucom-kit-m2_usb.dtb
 
 dtb-$(CONFIG_ARCH_MXC) += imx91-11x11-evk.dtb \
 			  imx91-11x11-evk-flexspi-m2.dtb imx91-11x11-evk-flexspi-nand-m2.dtb \

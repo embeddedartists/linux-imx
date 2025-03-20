@@ -1,0 +1,36 @@
+/*
+ * Copyright 2020 Embedded Artists AB
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/dts-v1/;
+ 
+#include "imx8mn-ea-ucom-kit_v2.dts"
+
+/* WL_REG_ON is normally controlled by usdhc1_pwrseq but the
+   SDIO interface is disabled when using the m.2 USB interface
+   so WL_REG_ON has to be hogged here to force it HIGH. */
+&gpio_buff {
+	hog_WL_REG_ON {
+		gpio-hog;
+		gpios = <1 0>;
+		output-high;
+	};
+};
+
+&usdhc1_pwrseq {
+	status = "disabled";
+};
+
+&usdhc1 {
+	status = "disabled";
+};
