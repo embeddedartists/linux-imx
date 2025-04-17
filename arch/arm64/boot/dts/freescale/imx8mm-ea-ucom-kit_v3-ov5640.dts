@@ -10,7 +10,7 @@
  */
 
 /dts-v1/;
- 
+
 #include "imx8mm-ea-ucom-kit_v3.dts"
 
 / {
@@ -41,7 +41,7 @@
 	};
 };
 
-&csi1_bridge {
+&csi {
 	fsl,mipi-mode;
 	status = "okay";
 	port {
@@ -51,7 +51,7 @@
 	};
 };
 
-&mipi_csi_1 {
+&mipi_csi {
 	#address-cells = <1>;
 	#size-cells = <0>;
 	status = "okay";
