@@ -1,0 +1,118 @@
+/*
+ * Copyright 2018 NXP
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+#include "imx8mn-ea-ucom-kit_v2.dts"
+
+/ {
+
+	aliases {
+		/delete-property/ serial0;
+	};
+
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		m_core_reserved: m_core@80000000 {
+			no-map;
+			reg = <0 0x80000000 0 0x1000000>;
+		};
+
+		vdev0vring0: vdev0vring0@b8000000 {
+			reg = <0 0xb8000000 0 0x8000>;
+			no-map;
+		};
+
+		vdev0vring1: vdev0vring1@b8008000 {
+			reg = <0 0xb8008000 0 0x8000>;
+			no-map;
+		};
+
+		rsc_table: rsc-table@b80ff000 {
+			reg = <0 0xb80ff000 0 0x1000>;
+			no-map;
+		};
+
+		vdevbuffer: vdevbuffer@b8400000 {
+			compatible = "shared-dma-pool";
+			reg = <0 0xb8400000 0 0x100000>;
+			no-map;
+		};
+
+
+	};
+
+	sound-wm8731 {
+		status = "disabled";
+	};
+
+	imx8mn-cm7 {
+		compatible = "fsl,imx8mn-cm7";
+		rsc-da = <0xb8000000>;
+		clocks = <&clk IMX8MN_CLK_DUMMY>;
+		mbox-names = "tx", "rx", "rxdb";
+		mboxes = <&mu 0 1
+			  &mu 1 1
+			  &mu 3 1>;
+		memory-region = <&vdevbuffer>, <&vdev0vring0>, <&vdev0vring1>, <&rsc_table>;
+		status = "okay";
+		fsl,startup-delay-ms = <500>;
+	};
+};
+
+&clk {
+	init-on-array = <
+	IMX8MN_CLK_UART4_ROOT
+	>;
+};
+
+/*
+ * ATTENTION: M core may use IPs like below
+ * ECSPI2, GPIO1/GPIO5, GPT1, I2C3, I2S3, WDOG1, UART4, PWM3, SDMA1/3 and PDM
+ */
+
+&ecspi2 {
+	status = "disabled";
+};
+
+&flexspi {
+	status = "disabled";
+};
+
+&i2c3 {
+	status = "disabled";
+};
+
+&pwm3 {
+	status = "disabled";
+};
+
+&sai2 {
+	status = "disabled";
+};
+
+&sai3 {
+	status = "disabled";
+};
+
+&uart4 {
+	status = "disabled";
+};
+
+&sdma3 {
+	status = "disabled";
+};
+
+

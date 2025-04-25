@@ -1,0 +1,90 @@
+/*
+ * Copyright 2020 Embedded Artists AB
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+#include "imx8mn-ea-ucom-kit_v2.dts"
+
+&modem_reset {
+	reset-gpios = <&gpio2 6 GPIO_ACTIVE_LOW>;
+};
+
+&usdhc1_pwrseq {
+	reset-gpios = <&gpio2 10 GPIO_ACTIVE_LOW>; /* WL REG ON */
+};
+
+&pinctrl_usdhc1_gpio {
+	fsl,pins = <
+		MX8MN_IOMUXC_SD1_DATA7_GPIO2_IO9	0x1c4
+		MX8MN_IOMUXC_SD1_RESET_B_GPIO2_IO10	0x1c4 /* WL_REG_ON */
+		MX8MN_IOMUXC_SD1_DATA4_GPIO2_IO6        0x1c4 /* BT_REG_ON */
+		MX8MN_IOMUXC_SD1_DATA5_GPIO2_IO7	0xC6  /* BT_DEV_WAKE */
+	>;
+};
+
+&pinctrl_usdhc1_200mhz {
+	fsl,pins = <
+		MX8MN_IOMUXC_SD1_CLK_USDHC1_CLK		0x196
+		MX8MN_IOMUXC_SD1_CMD_USDHC1_CMD		0x1d6
+		MX8MN_IOMUXC_SD1_DATA0_USDHC1_DATA0	0x1d6
+		MX8MN_IOMUXC_SD1_DATA1_USDHC1_DATA1	0x1d6
+		MX8MN_IOMUXC_SD1_DATA2_USDHC1_DATA2	0x1d6
+		MX8MN_IOMUXC_SD1_DATA3_USDHC1_DATA3	0x1d6
+	>;
+};
+
+/* Expansion Board */
+&pinctrl_exp_conn {
+	fsl,pins = <
+								/* GPIO_H Not Connected */
+								/* GPIO_J Not Connected */
+		/*MX8MN_IOMUXC_GPIO1_IO00_GPIO1_IO0	0xC6	   GPIO_K ADV7535 INT (on adapter board) */
+		MX8MN_IOMUXC_GPIO1_IO08_GPIO1_IO8	0xC6	/* GPIO_P */
+								/* GPIO_Q Not Connected */
+								/* GPIO_R Not Connected */
+								/* GPIO_S Not Connected */
+								/* GPIO_T Not Connected */
+								/* GPIO_U Not Connected */
+								/* GPIO_V Not Connected */
+								/* GPIO_W Not Connected */
+								/* GPIO_X Not Connected */
+								/* GPIO_Y Not Connected */
+								/* GPIO_Z Not Connected */
+								/* GPIO_AA Not Connected */
+								/* GPIO_AB Not Connected */
+								/* GPIO_AC Not Connected */
+								/* GPIO_AD Not Connected */
+								/* GPIO_AE Not Connected */
+								/* GPIO_AF Not Connected */
+								/* GPIO_AG Not Connected */
+								/* GPIO_AH Not Connected */
+		MX8MN_IOMUXC_SD1_RESET_B_GPIO2_IO10	0xC6	/* GPIO_AJ */
+		/*MX8MN_IOMUXC_SD1_DATA5_GPIO2_IO7	0xC6	   GPIO_AK BT_DEV_WAKE */
+		MX8MN_IOMUXC_SD1_DATA4_GPIO2_IO6	0xC6	/* GPIO_AL */
+		/*MX8MN_IOMUXC_SD2_WP_GPIO2_IO20	0xC6	   GPIO_AP MIDI DSI (on adapter board) */
+								/* GPIO_AQ Not Connected */
+								/* GPIO_AR Not Connected */
+								/* GPIO_AS Not Connected */
+								/* GPIO_AT Not Connected */
+								/* GPIO_AU Not Connected */
+								/* GPIO_AV Not Connected */
+	>;
+};
+
+&gpio2 {
+	bt_dev_wake_gpio { /* TODO: Could likely remove this but it needs to be verified */
+		gpio-hog;
+		gpios = <7 GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "BT_DEV_WAKE";
+	};
+};
