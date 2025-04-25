@@ -1,0 +1,28 @@
+#include "imx93-ea-ucom-kit.dts"
+
+/* WL_REG_ON is normally controlled by usdhc3_pwrseq but the
+   SDIO interface is disabled when using the m.2 USB interface
+   so WL_REG_ON has to be hogged here to force it HIGH.
+
+   BT_REG_ON has to be HIGH, otherwise the Bluetooth interface
+   will be disabled. */
+&pca6416 {
+	hog_BT_REG_ON {
+		gpio-hog;
+		gpios = <0 0>;
+		output-high;
+	};
+	hog_WL_REG_ON {
+		gpio-hog;
+		gpios = <1 0>;
+		output-high;
+	};
+};
+
+&usdhc3_pwrseq {
+	status = "disabled";
+};
+
+&usdhc3 {
+	status = "disabled";
+};
