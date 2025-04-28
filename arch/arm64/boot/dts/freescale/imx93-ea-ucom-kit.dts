@@ -161,7 +161,7 @@
 
 };
 
-	
+
 &adc1 {
 	vref-supply = <&reg_vref_1v8>;
 	status = "okay";
@@ -227,7 +227,7 @@
 
 		ethphy1: ethernet-phy@1 {
 			reg = <1>;
-			eee-broken-1000t;           
+			eee-broken-1000t;
 			reset-gpios = <&pcal6524 15 GPIO_ACTIVE_LOW>;
 			reset-assert-us = <10000>;
 			reset-deassert-us = <80000>;
@@ -314,17 +314,16 @@
 		csi_id = <0>;
 
 		powerdown-gpios = <&pcal6524 3 GPIO_ACTIVE_HIGH>;
-		reset-gpios = <&gpio1 10 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&gpio1 10 GPIO_ACTIVE_LOW>;
 		mclk = <12000000>;
 		mclk_source = <0>;
 		mipi_csi;
 		status = "okay";
 		port {
 			ov5640_mipi1_ep: endpoint {
-				remote-endpoint = <&mipi_csi_ep>;
+				remote-endpoint = <&mipi_csi_in>;
 				data-lanes = <1 2>;
-				/*clock-langes = <0>;*/
-				bus-type = <4>;
+				clock-langes = <0>;
 			};
 		};
 	};
@@ -807,15 +806,13 @@
 };
 
 
-&cameradev {
-	status = "okay";
-};
-
-&isi_0 {
+&isi {
 	status = "okay";
 
-	cap_device {
-		status = "okay";
+	port {
+		isi_in: endpoint {
+			remote-endpoint = <&mipi_csi_out>;
+		};
 	};
 };
 
@@ -824,18 +821,32 @@
 };
 
 &mipi_csi {
-	#address-cells = <1>;
-	#size-cells = <0>;
 	status = "okay";
 
-	port@0 {
-		reg = <0>;
-		mipi_csi_ep: endpoint {
-			remote-endpoint = <&ov5640_mipi1_ep>;
-			data-lanes = <2>;
-			cfg-clk-range = <28>;
-			hs-clk-range = <0x32>;
-			bus-type = <4>;
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+
+		port@0 {
+			reg = <0>;
+			mipi_csi_in: endpoint {
+				remote-endpoint = <&ov5640_mipi1_ep>;
+				data-lanes = <1 2>;
+				clock-lanes = <0>;
+			};
+		};
+
+		port@1 {
+			reg = <1>;
+
+			mipi_csi_out: endpoint {
+				remote-endpoint = <&isi_in>;
+			};
 		};
 	};
+};
+
+&dphy_rx {
+	status = "okay";
 };
