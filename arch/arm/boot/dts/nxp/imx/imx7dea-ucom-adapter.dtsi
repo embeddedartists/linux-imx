@@ -1,0 +1,103 @@
+/*
+ * Copyright (C) 2015 Freescale Semiconductor, Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+/dts-v1/;
+
+#include <dt-bindings/input/input.h>
+#include "imx7dea-ucom.dtsi"
+
+/ {
+	bd71815-wled {
+		compatible = "leds-regulator";
+		name = "bd71815-wled";
+		/* <0> = default off */
+		brightness = <0>;
+		vled-supply = <&wled_reg>;
+		status = "okay";
+	};
+};
+
+
+&iomuxc {
+
+	imx7d-ucom-adapter {
+
+		pinctrl_qspi1_1: qspi1grp_1 {
+			fsl,pins = <
+				MX7D_PAD_EPDC_DATA00__QSPI_A_DATA0 0x51
+				MX7D_PAD_EPDC_DATA01__QSPI_A_DATA1 0x51
+				MX7D_PAD_EPDC_DATA02__QSPI_A_DATA2 0x51
+				MX7D_PAD_EPDC_DATA03__QSPI_A_DATA3 0x51
+				MX7D_PAD_EPDC_DATA05__QSPI_A_SCLK 0x51
+				MX7D_PAD_EPDC_DATA06__QSPI_A_SS0_B 0x51
+			>;
+		};
+
+		pinctrl_enet1: enet1grp {
+			fsl,pins = <
+				MX7D_PAD_GPIO1_IO10__ENET1_MDIO		0x3
+				MX7D_PAD_GPIO1_IO11__ENET1_MDC		0x3
+				MX7D_PAD_ENET1_RGMII_TXC__ENET1_RGMII_TXC	0x3
+				MX7D_PAD_ENET1_RGMII_TD0__ENET1_RGMII_TD0	0x3
+				MX7D_PAD_ENET1_RGMII_TD1__ENET1_RGMII_TD1	0x3
+				MX7D_PAD_ENET1_RGMII_TD2__ENET1_RGMII_TD2	0x3
+				MX7D_PAD_ENET1_RGMII_TD3__ENET1_RGMII_TD3	0x3
+				MX7D_PAD_ENET1_RGMII_TX_CTL__ENET1_RGMII_TX_CTL	0x1
+				MX7D_PAD_ENET1_RGMII_RXC__ENET1_RGMII_RXC	0x1
+				MX7D_PAD_ENET1_RGMII_RD0__ENET1_RGMII_RD0	0x1
+				MX7D_PAD_ENET1_RGMII_RD1__ENET1_RGMII_RD1	0x1
+				MX7D_PAD_ENET1_RGMII_RD2__ENET1_RGMII_RD2	0x1
+				MX7D_PAD_ENET1_RGMII_RD3__ENET1_RGMII_RD3	0x1
+				MX7D_PAD_ENET1_RGMII_RX_CTL__ENET1_RGMII_RX_CTL	0x1
+				MX7D_PAD_ENET1_COL__GPIO7_IO15                  0x1
+				MX7D_PAD_ENET1_RX_CLK__GPIO7_IO13               0x1
+			>;
+		};
+
+	};
+};
+
+&qspi1 {
+        pinctrl-names = "default";
+        pinctrl-0 = <&pinctrl_qspi1_1>;
+        status = "okay";
+        ddrsmp=<0>;
+
+        flash0: n25q256a@0 {
+                #address-cells = <1>;
+                #size-cells = <1>;
+                compatible = "jedec,spi-nor";
+                spi-max-frequency = <29000000>;
+                /* take off one dummy cycle */
+                spi-nor,ddr-quad-read-dummy = <6>;
+                reg = <0>;
+        };
+};
+
+&fec1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_enet1>;
+	pinctrl-assert-gpios = <&gpio7 15 GPIO_ACTIVE_LOW>;
+	assigned-clocks = <&clks IMX7D_ENET1_TIME_ROOT_SRC>,
+			  <&clks IMX7D_ENET1_TIME_ROOT_CLK>;
+	assigned-clock-parents = <&clks IMX7D_PLL_ENET_MAIN_100M_CLK>;
+	assigned-clock-rates = <0>, <100000000>;
+	phy-mode = "rgmii-id";
+	phy-handle = <&ethphy0>;
+	fsl,magic-packet;
+	status = "okay";
+
+	mdio {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		ethphy0: ethernet-phy@1 {
+			reg = <1>;
+		};
+	};
+};
