@@ -101,6 +101,7 @@ dtb-$(CONFIG_ARCH_MXC) += imx8mm-ea-ucom-kit_v2.dtb imx8mm-ea-ucom-kit_v2-m4.dtb
 			  imx8mm-ea-ucom-kit_v3.dtb imx8mm-ea-ucom-kit_v3-m4.dtb imx8mm-ea-ucom-kit_v3-pcie.dtb \
 			  imx8mm-ea-ucom-kit_v3-2ea.dtb imx8mm-ea-ucom-kit_v3-pcie-2ea.dtb imx8mm-ea-ucom-kit_v3-m2_usb.dtb \
 			  imx8mm-ea-ucom-kit_v3-ov5640.dtb imx8mm-ea-ucom-kit_v3-1mw.dtb imx8mm-ea-ucom-kit_v3-rk055hdmipi4m.dtb
+dtb-$(CONFIG_ARCH_MXC) += imx8mm-ea-som-kit.dtb imx8mm-ea-som-kit-deepx.dtb imx8mm-ea-som-kit-pcie-bkey.dtb imx8mm-ea-som-kit-pcie-ekey.dtb imx8mm-ea-som-kit-pcie-mkey.dtb
 
 dtb-$(CONFIG_ARCH_MXC) += imx8mn-bsh-smm-s2.dtb
 dtb-$(CONFIG_ARCH_MXC) += imx8mn-bsh-smm-s2pro.dtb
