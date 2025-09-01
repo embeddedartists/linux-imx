@@ -431,7 +431,8 @@
 	status = "disabled";
 };
 
-&uart1 { /* Bluetooth UART for m.2 connector on Carrier Board */
+/* Bluetooth UART for m.2 connector on Carrier Board */
+&uart1 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_uart1>;
 	status = "okay";
@@ -443,13 +444,15 @@
 	fsl,uart-has-rtscts;
 };
 
-&uart2 { /* Console */
+/* Console */
+&uart2 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_uart2>;
 	status = "okay";
 };
 
-&uart3 { /* Disabled as pins are used by Bluetooth for RTS/CTS */
+/* Disabled as pins are used by Bluetooth for RTS/CTS */
+&uart3 {
 	status = "disabled";
 };
 
@@ -475,22 +478,11 @@
 	vbus-supply = <&reg_usbotg2_vbus>;
 };
 
-/* Functionality differs depending on what is mounted on the SOM:
-   - If SOM has 2FY module mounted then usdhc2 is for Wi-Fi
-   - If SOM has no onboard 2FY module then usdhc2 is for uSD
-     connector on the Carrier Board */
-&usdhc2 {
-	pinctrl-names = "default", "state_100mhz", "state_200mhz";
-	pinctrl-0 = <&pinctrl_usdhc2>, <&pinctrl_usdhc2_gpio>;
-	pinctrl-1 = <&pinctrl_usdhc2_100mhz>, <&pinctrl_usdhc2_gpio>;
-	pinctrl-2 = <&pinctrl_usdhc2_200mhz>, <&pinctrl_usdhc2_gpio>;
-	bus-width = <4>;
-	cd-gpios = <&gpio2 12 GPIO_ACTIVE_LOW>;
-	vmmc-supply = <&reg_usdhc2_vmmc>;
-	status = "okay";
-};
-
-/* M.2 connector on carrier board */
+/* Functionality differs for usdhc1 depending on what is mounted on
+   the SOM. If the SOM has an onboard 2FY module mounted then usdhc1
+   is connected to that. If there is no 2FY module on the SOM then
+   usdhc1 is connected to the M.2 key E connector on the Carrier
+   Board. */
 &usdhc1 {
 	#address-cells = <1>;
 	#size-cells = <0>;
@@ -511,6 +503,18 @@
 		interrupts = <2 IRQ_TYPE_LEVEL_LOW>;  /* M2E_WL_HOST_WAKE active low for M.2. */
 		interrupt-names = "host-wake";
 	};
+};
+
+/* uSD connector on the Carrier Board */
+&usdhc2 {
+	pinctrl-names = "default", "state_100mhz", "state_200mhz";
+	pinctrl-0 = <&pinctrl_usdhc2>, <&pinctrl_usdhc2_gpio>;
+	pinctrl-1 = <&pinctrl_usdhc2_100mhz>, <&pinctrl_usdhc2_gpio>;
+	pinctrl-2 = <&pinctrl_usdhc2_200mhz>, <&pinctrl_usdhc2_gpio>;
+	bus-width = <4>;
+	cd-gpios = <&gpio2 12 GPIO_ACTIVE_LOW>;
+	vmmc-supply = <&reg_usdhc2_vmmc>;
+	status = "okay";
 };
 
 &wdog1 {
