@@ -301,6 +301,32 @@
 			"M2B_WDISABLE", "M2B_PEWAKE", "M2B_PERST", "M2M_PERST",
 			"M2M_PEWAKE", "M2BM_PWR_EN", "M2B_RESET", "SE050_EN_RST",
 			"SLS32AIA_RST", "I2C_EXT_IRQ", "I2C_EXT_RST", "MIPI_RST";
+
+		hog_M2BM_PWR_EN {
+			gpio-hog;
+			gpios = <17 0>;
+			output-high;
+		};
+		hog_SE050_EN_RST {
+			gpio-hog;
+			gpios = <19 0>;
+			output-high;
+		};
+		hog_SLS32AIA_RST {
+			gpio-hog;
+			gpios = <20 0>;
+			output-high;
+		};
+		hog_I2C_EXT_RST {
+			gpio-hog;
+			gpios = <22 0>;
+			output-high;
+		};
+		hog_MIPI_RST {
+			gpio-hog;
+			gpios = <23 0>;
+			output-high;
+		};
 	};
 
 	pcal6524_u6: gpio@23 {
@@ -320,6 +346,47 @@
 			"", "", "", "RGB_LED_RED",
 			"RGB_LED_BLUE", "RGB_LED_GREEN", "USER_LED_RED", "USER_LED_GREEN",
 			"USER_LED_YELLOW", "USER_BUTTON1", "USER_BUTTON2", "USER_BUTTON3";
+
+		hog_CSI0_RST_DATA {
+			gpio-hog;
+			gpios = <0 0>;
+			output-high;
+		};
+		hog_CSI0_PWR_CLK {
+			gpio-hog;
+			gpios = <1 0>;
+			output-high;
+		};
+		hog_CSI1_RST_DATA {
+			gpio-hog;
+			gpios = <2 0>;
+			output-high;
+		};
+		hog_CSI1_PWR_CLK {
+			gpio-hog;
+			gpios = <3 0>;
+			output-high;
+		};
+		hog_MIPI_CTP_RST {
+			gpio-hog;
+			gpios = <4 0>;
+			output-high;
+		};
+		hog_RGB_BL_PWR {
+			gpio-hog;
+			gpios = <6 0>;
+			output-low;
+		};
+		hog_RGB_CTP_RST {
+			gpio-hog;
+			gpios = <7 0>;
+			output-high;
+		};
+		hog_MIPI_BL_PWR_EN {
+			gpio-hog;
+			gpios = <9 0>;
+			output-low;
+		};
 	};
 
 	codec: audio-codec@1a {
@@ -347,11 +414,6 @@
 		clock-names = "mclk";
         };
 
-	rtc@68 {
-		compatible = "nxp,pcf8523";
-		reg = <0x68>;
-	};
-
 	/* MISSING CAM1 CSI Camera: Unknown I2C-address */
 
 	/* MISSING MIPI-DSI Display Capacitive Touch: Unknown I2C-address */
@@ -378,6 +440,11 @@
 	/* Missing SE05x security processor: reg 0x48 but how to declare it? */
 
 	/* Missing SLS32AIA010MK secure element: reg 0x30 but how to declare it? */
+
+	rtc@68 {
+		compatible = "nxp,pcf8523";
+		reg = <0x68>;
+	};
 };
 
 &lcdif {
