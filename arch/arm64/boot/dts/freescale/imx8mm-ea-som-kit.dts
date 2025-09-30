@@ -394,37 +394,42 @@
 		reg = <0x1a>;
 		#sound-dai-cells = <0>;
 		
-		/* From 
-		 * arch/arm/boot/dts/nxp/imx/imx6dl-b1x5pv2.dtsi
-		 * arch/arm64/boot/dts/renesas/r8a779g0-white-hawk-ard-audio-da7212.dtso
-		 */
-
 		VDDA-supply = <&buck5_reg>; /* 1v8 */
 		VDDSP-supply = <&buck4_reg>; /* 3v3 */
 		VDDMIC-supply = <&buck4_reg>; /* 3v3 */
 		VDDIO-supply = <&buck4_reg>; /* 3v3 */
 
-		/*dlg,micbias1-lvl = <2500>;*/
-		/*dlg,micbias2-lvl = <2500>;*/
-		/*dlg,dmic-data-sel = "lrise_rfall";*/
-		/*dlg,dmic-samplephase = "between_clkedge";*/
-		/*dlg,dmic-clkrate = <3000000>;*/
-
 		clocks = <&clk IMX8MM_CLK_SAI2_ROOT>;
 		clock-names = "mclk";
-        };
-
-	/* MISSING CAM1 CSI Camera: Unknown I2C-address */
+	};
 
 	/* MISSING MIPI-DSI Display Capacitive Touch: Unknown I2C-address */
 
+	/* MISSING EUI-48 address memory: reg 0x52 but how to declare it? */
+	eui48_eeprom: eeprom@52 {
+		compatible = "atmel,24c02";
+		reg = <0x52>;
+		pagesize = <16>;
+
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		/*
+		 * Expose the EUI-48 stored at offset 0xFA (depends on device)
+		 * as an nvmem cell named "mac-address".
+		 */
+		macaddr: mac-address@fa {
+			reg = <0xfa 6>;  /* offset 0xFA, length 6 bytes */
+		};
+	};
+};
+
+&i2c2 {
 	adv_bridge: adv7535@3d {
 		compatible = "adi,adv7535";
 		reg = <0x3d>;
 		adi,dsi-lanes = <4>;
 		status = "okay";
-		/*interrupt-parent = <&pcal6524_u6>;
-		interrupts = <10 IRQ_TYPE_LEVEL_LOW>;  / * ADV_IRQ */
 
 		port {
 			adv7535_from_dsim: endpoint {
@@ -432,14 +437,6 @@
 			};
 		};
 	};
-
-	/* MISSING EUI-48 address memory: reg 0x52 but how to declare it? */
-};
-
-&i2c2 {
-	/* Missing SE05x security processor: reg 0x48 but how to declare it? */
-
-	/* Missing SLS32AIA010MK secure element: reg 0x30 but how to declare it? */
 
 	rtc@68 {
 		compatible = "nxp,pcf8523";
@@ -618,4 +615,13 @@
 		spi-max-frequency = <500000>;
 	};
 };
+
+/* Uncomment the fec1 node below to have the MAC addresses read from
+ * the EUI-48 chip instead of the default which is from the EEPROM on
+ * the SOM board.
+ */
+/*&fec1 {
+    nvmem-cells = <&macaddr>;
+    nvmem-cell-names = "mac-address";
+};*/
 
