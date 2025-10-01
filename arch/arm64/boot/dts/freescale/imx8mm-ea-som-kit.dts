@@ -1,0 +1,627 @@
+/*
+ * Copyright 2025 Embedded Artists AB
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/dts-v1/;
+
+#include <dt-bindings/phy/phy-imx8-pcie.h>
+#include "imx8mm-ea-som.dtsi"
+
+/ {
+	model = "Embedded Artists i.MX8MM SOM Kit";
+	compatible = "fsl,imx8mmea-som", "fsl,imx8mm";
+
+	chosen {
+		bootargs = "console=ttymxc1,115200 earlycon=ec_imx6q,0x30890000,115200";
+		stdout-path = &uart2;
+	};
+
+	modem_reset: modem-reset {
+		compatible = "gpio-reset";
+		reset-gpios = <&pcal6524_u5 3 GPIO_ACTIVE_LOW>; /* M2E_BT_REG_ON */
+		initially-in-reset;
+		reset-delay-us = <2000>;
+		reset-post-delay-ms = <100>;
+		#reset-cells = <0>;
+	};
+
+
+	pcie0_refclk: pcie0-refclk {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <100000000>;
+	};
+
+	reg_pcie0: regulator-pcie {
+		compatible = "regulator-fixed";
+		regulator-name = "MPCIE_3V3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpio = <&pcal6524_u5 0 GPIO_ACTIVE_HIGH>; /* M2E_WL_REG_ON */
+		enable-active-high;
+	};
+
+	regulators {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		reg_usdhc2_vmmc: regulator-usdhc2 {
+			compatible = "regulator-fixed";
+			regulator-name = "VSD_3V3";
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+			gpio = <&gpio2 19 GPIO_ACTIVE_HIGH>;
+			off-on-delay = <20000>;
+			enable-active-high;
+		};
+
+		reg_usbotg1_vbus: regulator-usbotg1 {
+			compatible = "regulator-fixed";
+			regulator-name = "usbotg_vbus";
+			regulator-min-microvolt = <5000000>;
+			regulator-max-microvolt = <5000000>;
+			gpio = <&gpio1 12 GPIO_ACTIVE_HIGH>;
+			off-on-delay = <20000>;
+			enable-active-high;
+		};
+
+		reg_usbotg2_vbus: regulator-usbotg2 {
+			compatible = "regulator-fixed";
+			regulator-name = "usbotg_vbus";
+			regulator-min-microvolt = <5000000>;
+			regulator-max-microvolt = <5000000>;
+			gpio = <&gpio1 11 GPIO_ACTIVE_HIGH>;
+			off-on-delay = <20000>;
+			enable-active-high;
+		};
+
+		/* add construct for "fmac" to control WL_REG_ON signal */
+		usdhc1_pwrseq: usdhc1_pwrseq {
+			compatible = "mmc-pwrseq-simple";
+			reset-gpios = <&pcal6524_u5 0 GPIO_ACTIVE_LOW>; /* M2E_WL_REG_ON */
+			post-power-on-delay-ms = <120>;
+			status = "okay";
+		};
+
+	};
+
+	sound-da7217 {
+		compatible = "simple-audio-card";
+		simple-audio-card,name = "da7217-audio";
+		simple-audio-card,format = "i2s";
+		simple-audio-card,frame-master = <&cpudai>;
+		simple-audio-card,bitclock-master = <&cpudai>;
+		simple-audio-card,widgets = "Speaker", "Ext Spk";
+		simple-audio-card,routing = "Ext Spk", "LINE";
+
+		cpudai: simple-audio-card,cpu {
+			sound-dai = <&sai2>;
+			dai-tdm-slot-num = <2>;
+			dai-tdm-slot-width = <32>;
+		};
+
+		simple-audio-card,codec {
+			sound-dai = <&codec>;
+			clocks = <&clk IMX8MM_CLK_SAI2_ROOT>;
+		};
+	};
+
+};
+
+&iomuxc {
+	pinctrl-names = "default";
+
+	imx8mmea-som-kit {
+
+		pinctrl_mipi_dsi_en: mipi_dsi_en {
+			fsl,pins = <
+				MX8MM_IOMUXC_GPIO1_IO08_GPIO1_IO8		0x16
+			>;
+		};
+
+		pinctrl_pcie0: pcie0grp {
+			fsl,pins = <
+				MX8MM_IOMUXC_I2C4_SCL_PCIE1_CLKREQ_B	0x61    /* open drain, pull up */
+				MX8MM_IOMUXC_NAND_DATA02_GPIO3_IO8      0x06    /* Reset for onboard DeepX */
+			>;
+		};
+
+		pinctrl_sai2: sai2grp {
+			fsl,pins = <
+				MX8MM_IOMUXC_SAI2_MCLK_SAI2_MCLK	0xd6
+				MX8MM_IOMUXC_SAI2_TXD0_SAI2_TX_DATA0	0xd6
+				MX8MM_IOMUXC_SAI2_TXC_SAI2_TX_BCLK	0xd6
+				MX8MM_IOMUXC_SAI2_RXD0_SAI2_RX_DATA0	0xd6
+				MX8MM_IOMUXC_SAI2_TXFS_SAI2_TX_SYNC	0xd6
+			>;
+		};
+
+		pinctrl_uart1: uart1grp {
+			fsl,pins = <
+				MX8MM_IOMUXC_UART1_RXD_UART1_DCE_RX	0x140
+				MX8MM_IOMUXC_UART1_TXD_UART1_DCE_TX	0x140
+				MX8MM_IOMUXC_UART3_RXD_UART1_DCE_CTS_B	0x140
+				MX8MM_IOMUXC_UART3_TXD_UART1_DCE_RTS_B	0x140
+			>;
+		};
+
+		pinctrl_uart2: uart2grp {
+			fsl,pins = <
+				MX8MM_IOMUXC_UART2_RXD_UART2_DCE_RX	0x140
+				MX8MM_IOMUXC_UART2_TXD_UART2_DCE_TX	0x140
+			>;
+		};
+
+		pinctrl_usdhc1: usdhc1grp {
+			fsl,pins = <
+				MX8MM_IOMUXC_SD1_CLK_USDHC1_CLK		0x190
+				MX8MM_IOMUXC_SD1_CMD_USDHC1_CMD		0x1d0
+				MX8MM_IOMUXC_SD1_DATA0_USDHC1_DATA0	0x1d0
+				MX8MM_IOMUXC_SD1_DATA1_USDHC1_DATA1	0x1d0
+				MX8MM_IOMUXC_SD1_DATA2_USDHC1_DATA2	0x1d0
+				MX8MM_IOMUXC_SD1_DATA3_USDHC1_DATA3	0x1d0
+			>;
+		};
+
+		pinctrl_usdhc1_100mhz: usdhc1grp100mhz {
+			fsl,pins = <
+				MX8MM_IOMUXC_SD1_CLK_USDHC1_CLK		0x194
+				MX8MM_IOMUXC_SD1_CMD_USDHC1_CMD		0x1d4
+				MX8MM_IOMUXC_SD1_DATA0_USDHC1_DATA0	0x1d4
+				MX8MM_IOMUXC_SD1_DATA1_USDHC1_DATA1	0x1d4
+				MX8MM_IOMUXC_SD1_DATA2_USDHC1_DATA2	0x1d4
+				MX8MM_IOMUXC_SD1_DATA3_USDHC1_DATA3	0x1d4
+			>;
+		};
+
+		pinctrl_usdhc1_200mhz: usdhc1grp200mhz {
+			fsl,pins = <
+				MX8MM_IOMUXC_SD1_CLK_USDHC1_CLK		0x192
+				MX8MM_IOMUXC_SD1_CMD_USDHC1_CMD		0x1d4
+				MX8MM_IOMUXC_SD1_DATA0_USDHC1_DATA0	0x1d4
+				MX8MM_IOMUXC_SD1_DATA1_USDHC1_DATA1	0x1d4
+				MX8MM_IOMUXC_SD1_DATA2_USDHC1_DATA2	0x1d4
+				MX8MM_IOMUXC_SD1_DATA3_USDHC1_DATA3	0x1d4
+			>;
+		};
+
+		pinctrl_usdhc2_gpio: usdhc2grpgpio {
+			fsl,pins = <
+				MX8MM_IOMUXC_SD2_RESET_B_GPIO2_IO19     0x41
+				MX8MM_IOMUXC_SD2_CD_B_GPIO2_IO12	0x1c4
+			>;
+		};
+
+		pinctrl_usdhc2: usdhc2grp {
+			fsl,pins = <
+				MX8MM_IOMUXC_SD2_CLK_USDHC2_CLK		0x190
+				MX8MM_IOMUXC_SD2_CMD_USDHC2_CMD		0x1d0
+				MX8MM_IOMUXC_SD2_DATA0_USDHC2_DATA0	0x1d0
+				MX8MM_IOMUXC_SD2_DATA1_USDHC2_DATA1	0x1d0
+				MX8MM_IOMUXC_SD2_DATA2_USDHC2_DATA2	0x1d0
+				MX8MM_IOMUXC_SD2_DATA3_USDHC2_DATA3	0x1d0
+				MX8MM_IOMUXC_GPIO1_IO04_USDHC2_VSELECT	0x1d0
+			>;
+		};
+
+		pinctrl_usdhc2_100mhz: usdhc2grp100mhz {
+			fsl,pins = <
+				MX8MM_IOMUXC_SD2_CLK_USDHC2_CLK		0x194
+				MX8MM_IOMUXC_SD2_CMD_USDHC2_CMD		0x1d4
+				MX8MM_IOMUXC_SD2_DATA0_USDHC2_DATA0	0x1d4
+				MX8MM_IOMUXC_SD2_DATA1_USDHC2_DATA1	0x1d4
+				MX8MM_IOMUXC_SD2_DATA2_USDHC2_DATA2	0x1d4
+				MX8MM_IOMUXC_SD2_DATA3_USDHC2_DATA3	0x1d4
+				MX8MM_IOMUXC_GPIO1_IO04_USDHC2_VSELECT	0x1d0
+			>;
+		};
+
+		pinctrl_usdhc2_200mhz: usdhc2grp200mhz {
+			fsl,pins = <
+				MX8MM_IOMUXC_SD2_CLK_USDHC2_CLK		0x196
+				MX8MM_IOMUXC_SD2_CMD_USDHC2_CMD		0x1d6
+				MX8MM_IOMUXC_SD2_DATA0_USDHC2_DATA0	0x1d6
+				MX8MM_IOMUXC_SD2_DATA1_USDHC2_DATA1	0x1d6
+				MX8MM_IOMUXC_SD2_DATA2_USDHC2_DATA2	0x1d6
+				MX8MM_IOMUXC_SD2_DATA3_USDHC2_DATA3	0x1d6
+				MX8MM_IOMUXC_GPIO1_IO04_USDHC2_VSELECT	0x1d0
+			>;
+		};
+
+		pinctrl_wdog: wdoggrp {
+			fsl,pins = <
+				MX8MM_IOMUXC_GPIO1_IO02_WDOG1_WDOG_B		0xc6
+			>;
+		};
+
+		pinctrl_pwm1: pwm1grp {
+			fsl,pins = <
+				MX8MM_IOMUXC_GPIO1_IO01_PWM1_OUT		0x06
+			>;
+		};
+
+		pinctrl_usbotg1: usbotg1grp {
+			fsl,pins = <
+				MX8MM_IOMUXC_GPIO1_IO12_GPIO1_IO12		0x1d6     /* USB1_PWR_EN */
+				MX8MM_IOMUXC_GPIO1_IO13_USB1_OTG_OC		0x1d6
+			>;
+		};
+		pinctrl_usbotg2: usbotg2grp {
+			fsl,pins = <
+				MX8MM_IOMUXC_GPIO1_IO11_GPIO1_IO11		0x1d6     /* USB2_PWR_EN */
+			>;
+		};
+		pinctrl_pcal6524_u5: pcal6524u5grp {
+			fsl,pins = <
+				MX8MM_IOMUXC_GPIO1_IO00_GPIO1_IO0		0x1d6     /* GPIO_A-IRQ */
+			>;
+		};
+		pinctrl_pcal6524_u6: pcal6524u6grp {
+			fsl,pins = <
+				MX8MM_IOMUXC_GPIO1_IO08_GPIO1_IO8		0x1d6     /* GPIO_B-IRQ */
+			>;
+		};
+		pinctrl_ecspi1: ecspi1grp {
+			fsl,pins = <
+				MX8MM_IOMUXC_ECSPI1_SCLK_ECSPI1_SCLK		0x80  /* MIKROE-SCK */
+				MX8MM_IOMUXC_ECSPI1_MOSI_ECSPI1_MOSI		0x80  /* MIKROE-MOSI */
+				MX8MM_IOMUXC_ECSPI1_MISO_ECSPI1_MISO		0x80  /* MIKROE-MISO */
+				MX8MM_IOMUXC_ECSPI1_SS0_GPIO5_IO9		0x80  /* MIKROE-CS */
+			>;
+		};
+	};
+};
+
+&i2c1 {
+	pcal6524_u5: gpio@21 {
+		compatible = "nxp,pcal6524";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_pcal6524_u5>;
+		reg = <0x21>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		interrupt-controller;
+		#interrupt-cells = <2>;
+		interrupt-parent = <&gpio1>;
+		interrupts = <0 IRQ_TYPE_EDGE_BOTH>;
+		gpio-line-names = "M2E_WL_REG_ON_3V3", "M2E_WL_DEV_WAKE", "M2E_WL_HOST_WAKE", "M2E_BT_REG_ON", 
+			"M2E_BT_DEV_WAKE", "M2E_BT_HOST_WAKE", "M2E_SDIO_RST", "M2E_PERST", 
+			"M2E_PEWAKE", "M2E_ALERT", "M2E_PWR_EN", "M2B_PWR_OFF",
+			"M2B_WDISABLE", "M2B_PEWAKE", "M2B_PERST", "M2M_PERST",
+			"M2M_PEWAKE", "M2BM_PWR_EN", "M2B_RESET", "SE050_EN_RST",
+			"SLS32AIA_RST", "I2C_EXT_IRQ", "I2C_EXT_RST", "MIPI_RST";
+
+		hog_M2BM_PWR_EN {
+			gpio-hog;
+			gpios = <17 0>;
+			output-high;
+		};
+		hog_SE050_EN_RST {
+			gpio-hog;
+			gpios = <19 0>;
+			output-high;
+		};
+		hog_SLS32AIA_RST {
+			gpio-hog;
+			gpios = <20 0>;
+			output-high;
+		};
+		hog_I2C_EXT_RST {
+			gpio-hog;
+			gpios = <22 0>;
+			output-high;
+		};
+		hog_MIPI_RST {
+			gpio-hog;
+			gpios = <23 0>;
+			output-high;
+		};
+	};
+
+	pcal6524_u6: gpio@23 {
+		compatible = "nxp,pcal6524";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_pcal6524_u6>;
+		reg = <0x23>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		interrupt-controller;
+		#interrupt-cells = <2>;
+		interrupt-parent = <&gpio1>;
+		interrupts = <8 IRQ_TYPE_EDGE_BOTH>;
+		gpio-line-names = "CSI0_RST-DATA", "CSI0_PWR-CLK", "CSI1_RST-DATA", "CSI1_PWR-CLK", 
+			"MIPI_CTP_RST", "MIPI_CTP_IRQ", "RGB_BL_PWR", "RGB_CTP_RST",
+			"RGB_CTP_IRQ", "MIPI_BL_PWR_EN", "ADV_IRQ", "",
+			"", "", "", "RGB_LED_RED",
+			"RGB_LED_BLUE", "RGB_LED_GREEN", "USER_LED_RED", "USER_LED_GREEN",
+			"USER_LED_YELLOW", "USER_BUTTON1", "USER_BUTTON2", "USER_BUTTON3";
+
+		hog_CSI0_RST_DATA {
+			gpio-hog;
+			gpios = <0 0>;
+			output-high;
+		};
+		hog_CSI0_PWR_CLK {
+			gpio-hog;
+			gpios = <1 0>;
+			output-high;
+		};
+		hog_CSI1_RST_DATA {
+			gpio-hog;
+			gpios = <2 0>;
+			output-high;
+		};
+		hog_CSI1_PWR_CLK {
+			gpio-hog;
+			gpios = <3 0>;
+			output-high;
+		};
+		hog_MIPI_CTP_RST {
+			gpio-hog;
+			gpios = <4 0>;
+			output-high;
+		};
+		hog_RGB_BL_PWR {
+			gpio-hog;
+			gpios = <6 0>;
+			output-low;
+		};
+		hog_RGB_CTP_RST {
+			gpio-hog;
+			gpios = <7 0>;
+			output-high;
+		};
+		hog_MIPI_BL_PWR_EN {
+			gpio-hog;
+			gpios = <9 0>;
+			output-low;
+		};
+	};
+
+	codec: audio-codec@1a {
+		compatible = "dlg,da7212";
+		reg = <0x1a>;
+		#sound-dai-cells = <0>;
+		
+		VDDA-supply = <&buck5_reg>; /* 1v8 */
+		VDDSP-supply = <&buck4_reg>; /* 3v3 */
+		VDDMIC-supply = <&buck4_reg>; /* 3v3 */
+		VDDIO-supply = <&buck4_reg>; /* 3v3 */
+
+		clocks = <&clk IMX8MM_CLK_SAI2_ROOT>;
+		clock-names = "mclk";
+	};
+
+	/* MISSING MIPI-DSI Display Capacitive Touch: Unknown I2C-address */
+
+	/* MISSING EUI-48 address memory: reg 0x52 but how to declare it? */
+	eui48_eeprom: eeprom@52 {
+		compatible = "atmel,24c02";
+		reg = <0x52>;
+		pagesize = <16>;
+
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		/*
+		 * Expose the EUI-48 stored at offset 0xFA (depends on device)
+		 * as an nvmem cell named "mac-address".
+		 */
+		macaddr: mac-address@fa {
+			reg = <0xfa 6>;  /* offset 0xFA, length 6 bytes */
+		};
+	};
+};
+
+&i2c2 {
+	adv_bridge: adv7535@3d {
+		compatible = "adi,adv7535";
+		reg = <0x3d>;
+		adi,dsi-lanes = <4>;
+		status = "okay";
+
+		port {
+			adv7535_from_dsim: endpoint {
+				remote-endpoint = <&dsim_to_adv7535>;
+			};
+		};
+	};
+
+	rtc@68 {
+		compatible = "nxp,pcf8523";
+		reg = <0x68>;
+	};
+};
+
+&lcdif {
+	status = "okay";
+};
+
+&mipi_dsi {
+	status = "okay";
+
+	port@1 {
+		dsim_to_adv7535: endpoint {
+			remote-endpoint = <&adv7535_from_dsim>;
+			attach-bridge;
+		};
+	};
+};
+
+&sai2 {
+	#sound-dai-cells = <0>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_sai2>;
+	assigned-clocks = <&clk IMX8MM_CLK_SAI2>;
+	assigned-clock-parents = <&clk IMX8MM_AUDIO_PLL2_OUT>;
+	assigned-clock-rates = <11289600>;
+	fsl,sai-mclk-direction-output;
+	status = "okay";
+};
+
+&pcie_phy {
+	fsl,refclk-pad-mode = <IMX8_PCIE_REFCLK_PAD_INPUT>;
+	fsl,tx-deemph-gen1 = <0x2d>;
+	fsl,tx-deemph-gen2 = <0xf>;
+	clocks = <&pcie0_refclk>;
+	status = "disabled";
+};
+
+&pcie0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_pcie0>;
+	reset-gpio = <&pcal6524_u5  7 GPIO_ACTIVE_LOW>;   /* M2E_PERST# */
+	clocks = <&clk IMX8MM_CLK_PCIE1_ROOT>,
+		 <&clk IMX8MM_CLK_PCIE1_AUX>,
+		 <&pcie0_refclk>;
+	clock-names = "pcie", "pcie_aux", "pcie_bus";
+	assigned-clocks = <&clk IMX8MM_CLK_PCIE1_AUX>,
+			  <&clk IMX8MM_CLK_PCIE1_CTRL>;
+	assigned-clock-rates = <10000000>, <250000000>;
+	assigned-clock-parents = <&clk IMX8MM_SYS_PLL2_50M>,
+				 <&clk IMX8MM_SYS_PLL2_250M>;
+	vpcie-supply = <&reg_pcie0>;
+	status = "disabled";
+};
+
+/* Bluetooth UART for m.2 connector on Carrier Board */
+&uart1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart1>;
+	status = "okay";
+
+	assigned-clocks = <&clk IMX8MM_CLK_UART1>;
+	assigned-clock-parents = <&clk IMX8MM_SYS_PLL1_80M>;
+
+	resets = <&modem_reset>;
+	fsl,uart-has-rtscts;
+};
+
+/* Console */
+&uart2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart2>;
+	status = "okay";
+};
+
+/* Disabled as pins are used by Bluetooth for RTS/CTS */
+&uart3 {
+	status = "disabled";
+};
+
+&usbotg1 {
+	dr_mode = "otg";
+	picophy,pre-emp-curr-control = <3>;
+	picophy,dc-vol-level-adjust = <7>;
+	status = "okay";
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_usbotg1>;
+	vbus-supply = <&reg_usbotg1_vbus>;
+};
+
+&usbotg2 {
+	dr_mode = "host";
+	picophy,pre-emp-curr-control = <3>;
+	picophy,dc-vol-level-adjust = <7>;
+	status = "okay";
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_usbotg2>;
+	vbus-supply = <&reg_usbotg2_vbus>;
+};
+
+/* Functionality differs for usdhc1 depending on what is mounted on
+   the SOM. If the SOM has an onboard 2FY module mounted then usdhc1
+   is connected to that. If there is no 2FY module on the SOM then
+   usdhc1 is connected to the M.2 key E connector on the Carrier
+   Board. */
+&usdhc1 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	pinctrl-names = "default", "state_100mhz", "state_200mhz";
+	pinctrl-0 = <&pinctrl_usdhc1>;
+	pinctrl-1 = <&pinctrl_usdhc1_100mhz>;
+	pinctrl-2 = <&pinctrl_usdhc1_200mhz>;
+	keep-power-in-suspend;
+	non-removable;
+	pm-ignore-notify;
+	cap-power-off;
+	mmc-pwrseq = <&usdhc1_pwrseq>;
+	status = "okay";
+	brcmf: bcrmf@1 {
+		reg = <1>;
+		compatible = "brcm,bcm4329-fmac";
+		interrupt-parent = <&pcal6524_u5>;
+		interrupts = <2 IRQ_TYPE_LEVEL_LOW>;  /* M2E_WL_HOST_WAKE active low for M.2. */
+		interrupt-names = "host-wake";
+	};
+};
+
+/* uSD connector on the Carrier Board */
+&usdhc2 {
+	pinctrl-names = "default", "state_100mhz", "state_200mhz";
+	pinctrl-0 = <&pinctrl_usdhc2>, <&pinctrl_usdhc2_gpio>;
+	pinctrl-1 = <&pinctrl_usdhc2_100mhz>, <&pinctrl_usdhc2_gpio>;
+	pinctrl-2 = <&pinctrl_usdhc2_200mhz>, <&pinctrl_usdhc2_gpio>;
+	bus-width = <4>;
+	cd-gpios = <&gpio2 12 GPIO_ACTIVE_LOW>;
+	vmmc-supply = <&reg_usdhc2_vmmc>;
+	status = "okay";
+};
+
+&wdog1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_wdog>;
+	fsl,ext-reset-output;
+	status = "okay";
+};
+
+&pwm1 {
+	status= "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_pwm1>;
+};
+
+&snvs_pwrkey {
+	status= "okay";   /* Enables SW5 ON/OFF */
+};
+
+/* SPI interface for the MIKROE connector. Can also be used for the SPI interface
+   of the 2EL M.2 module. */
+&ecspi1 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	fsl,spi-num-chipselects = <1>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_ecspi1>;
+	cs-gpios = <&gpio5 9 GPIO_ACTIVE_LOW>;
+	status = "okay";
+
+	spidev0: spi@0 {
+		reg = <0>;
+		compatible = "rohm,dh2228fv";
+		spi-max-frequency = <500000>;
+	};
+};
+
+/* Uncomment the fec1 node below to have the MAC addresses read from
+ * the EUI-48 chip instead of the default which is from the EEPROM on
+ * the SOM board.
+ */
+/*&fec1 {
+    nvmem-cells = <&macaddr>;
+    nvmem-cell-names = "mac-address";
+};*/
+

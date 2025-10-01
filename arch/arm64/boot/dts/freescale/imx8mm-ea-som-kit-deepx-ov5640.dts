@@ -1,0 +1,100 @@
+/*
+ * Copyright 2025 Embedded Artists AB
+ *
+ * The code contained herein is licensed under the GNU General Public
+ * License. You may obtain a copy of the GNU General Public License
+ * Version 2 or later at the following locations:
+ *
+ * http://www.opensource.org/licenses/gpl-license.html
+ * http://www.gnu.org/copyleft/gpl.html
+ */
+
+/* For using onboard DeepX module with mipi camera OV5640.
+   PCIe on Carrier Board not available.
+   SDIO in M.2 key E connector on Carrier Board not available.
+*/
+/dts-v1/;
+
+#include "imx8mm-ea-som-kit-deepx.dts"
+
+/ {
+
+	regulators {
+		compatible = "simple-bus";
+
+		reg_vref_1v8: regulator-vref-1v8 {
+			compatible = "regulator-fixed";
+			regulator-name = "vref-1v8";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+		};
+
+		reg_vref_2v5: regulator-vref-2v5 {
+			compatible = "regulator-fixed";
+			regulator-name = "vref-2v5";
+			regulator-min-microvolt = <2500000>;
+			regulator-max-microvolt = <2500000>;
+		};
+
+		reg_vref_3v3: regulator-vref-3v3 {
+			compatible = "regulator-fixed";
+			regulator-name = "vref-3v3";
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+		};
+	};
+};
+
+&csi {
+	status = "okay";
+};
+
+&mipi_csi {
+	status = "okay";
+	ports {
+		port@0 {
+			imx8mm_mipi_csi_in: endpoint {
+				remote-endpoint = <&ov5640_mipi1_ep>;
+				data-lanes = <1 2>;
+			};
+		};
+
+	};
+};
+
+
+&i2c1 {
+	camera@3c {
+		compatible = "ovti,ov5640";
+		reg = <0x3c>;
+		status = "okay";
+		clocks = <&clk IMX8MM_CLK_CLKO1>;
+		clock-names = "xclk";
+		assigned-clocks = <&clk IMX8MM_CLK_CLKO1>;
+		assigned-clock-parents = <&clk IMX8MM_CLK_24M>;
+		assigned-clock-rates = <24000000>;
+		csi_id = <0>;
+
+		AVDD-supply = <&reg_vref_2v5>;
+		DVDD-supply = <&reg_vref_3v3>;
+		DOVDD-supply = <&reg_vref_1v8>;
+
+		powerdown-gpios = <&pcal6524_u6 1 GPIO_ACTIVE_HIGH>;  /* CSI0_PWR-CLK */
+		reset-gpios = <&pcal6524_u6 0 GPIO_ACTIVE_HIGH>;  /* CSI0_RST-DATA */
+		mclk = <12000000>;
+		mclk_source = <0>;
+		mipi_csi;
+		port {
+			ov5640_mipi1_ep: endpoint {
+				remote-endpoint = <&imx8mm_mipi_csi_in>;
+				clock-lanes = <0>;
+				data-lanes = <1 2>;
+			};
+		};
+	};
+};
+
+&pcal6524_u6 {
+	/delete-node/ hog_CSI0_RST_DATA;
+	/delete-node/ hog_CSI0_PWR_CLK;
+};

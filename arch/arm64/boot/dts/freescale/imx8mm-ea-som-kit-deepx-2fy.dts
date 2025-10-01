@@ -1,0 +1,71 @@
+/*
+ * Copyright 2025 Embedded Artists AB
+ *
+ * The code contained herein is licensed under the GNU General Public
+ * License. You may obtain a copy of the GNU General Public License
+ * Version 2 or later at the following locations:
+ *
+ * http://www.opensource.org/licenses/gpl-license.html
+ * http://www.gnu.org/copyleft/gpl.html
+ */
+
+/* For using onboard DeepX module and onboard 2FY.
+   PCIe on Carrier Board not available.
+   SDIO in M.2 key E connector on Carrier Board not available.
+*/
+
+/dts-v1/;
+
+#include "imx8mm-ea-som-kit-deepx.dts"
+
+
+/* Delete clashes from included DT */
+/ {
+	/delete-node/ modem-reset;
+};
+
+&uart1 {
+	/delete-property/ resets;
+};
+
+/* Change to correct WL_REG_ON and BT_REG_ON */
+&iomuxc {
+	imx8mmea-som-kit {
+		pinctrl_uart1_gpio: uart1grpgpio {
+			fsl,pins = <
+				MX8MM_IOMUXC_SD1_DATA4_GPIO2_IO6	0x16	/* BT_REG_ON */
+			>;
+		};
+		pinctrl_usdhc1_gpio: usdhc1grpgpio {
+			fsl,pins = <
+				MX8MM_IOMUXC_SD1_RESET_B_GPIO2_IO10     0x16	/* WL_REG_ON_1V8 */
+				MX8MM_IOMUXC_SD1_DATA7_GPIO2_IO9	0x156	/* WL_HOST_WAKE_1V8 */
+			>;
+		};
+	};
+};
+
+/* Add child node to serial port node to create serdev device */
+&uart1 {
+	pinctrl-0 = <&pinctrl_uart1>, <&pinctrl_uart1_gpio>;
+	bluetooth {
+		compatible = "infineon,cyw55572-bt";
+		shutdown-gpios = <&gpio2 6 GPIO_ACTIVE_HIGH>; /* BT_REG_ON */
+		max-speed = <3000000>;
+		brcm,requires-autobaud-mode;
+	};
+};
+
+&usdhc1_pwrseq {
+	reset-gpios = <&gpio2 10 GPIO_ACTIVE_LOW>; /* WL_REG_ON_1V8 */
+};
+
+&usdhc1 {
+	pinctrl-0 = <&pinctrl_usdhc1>, <&pinctrl_usdhc1_gpio>;
+	pinctrl-1 = <&pinctrl_usdhc1_100mhz>, <&pinctrl_usdhc1_gpio>;
+	pinctrl-2 = <&pinctrl_usdhc1_200mhz>, <&pinctrl_usdhc1_gpio>;
+	brcmf: bcrmf@1 {
+		interrupt-parent = <&gpio2>;
+		interrupts = <9 IRQ_TYPE_LEVEL_LOW>;  /* WL_HOST_WAKE_1V8 */
+	};
+};
