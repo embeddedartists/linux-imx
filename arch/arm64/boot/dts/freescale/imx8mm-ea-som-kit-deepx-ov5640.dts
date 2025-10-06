@@ -80,7 +80,7 @@
 		DOVDD-supply = <&reg_vref_1v8>;
 
 		powerdown-gpios = <&pcal6524_u6 1 GPIO_ACTIVE_HIGH>;  /* CSI0_PWR-CLK */
-		reset-gpios = <&pcal6524_u6 0 GPIO_ACTIVE_HIGH>;  /* CSI0_RST-DATA */
+		reset-gpios = <&pcal6524_u6 0 GPIO_ACTIVE_LOW>;  /* CSI0_RST-DATA */
 		mclk = <12000000>;
 		mclk_source = <0>;
 		mipi_csi;
