@@ -160,7 +160,9 @@ static const struct mxc_isi_format_info mxc_isi_formats[] = {
 	}, {
 		.mbus_code	= MEDIA_BUS_FMT_RGB888_1X24,
 		.fourcc		= V4L2_PIX_FMT_ABGR32,
-		.type		= MXC_ISI_VIDEO_CAP | MXC_ISI_VIDEO_M2M_CAP,
+		.type		= MXC_ISI_VIDEO_CAP | MXC_ISI_VIDEO_M2M_OUT
+				| MXC_ISI_VIDEO_M2M_CAP,
+		.isi_in_format	= CHNL_MEM_RD_CTRL_IMG_TYPE_XRGB8,
 		.isi_out_format	= CHNL_IMG_CTRL_FORMAT_ARGB8888,
 		.mem_planes	= 1,
 		.color_planes	= 1,
@@ -178,7 +180,9 @@ static const struct mxc_isi_format_info mxc_isi_formats[] = {
 	}, {
 		.mbus_code	= MEDIA_BUS_FMT_RGB888_1X24,
 		.fourcc		= V4L2_PIX_FMT_RGBA32,
-		.type		= MXC_ISI_VIDEO_CAP | MXC_ISI_VIDEO_M2M_CAP,
+		.type		= MXC_ISI_VIDEO_CAP | MXC_ISI_VIDEO_M2M_OUT
+				| MXC_ISI_VIDEO_M2M_CAP,
+		.isi_in_format	= CHNL_MEM_RD_CTRL_IMG_TYPE_XBGR8,
 		.isi_out_format	= CHNL_IMG_CTRL_FORMAT_ABGR8888,
 		.mem_planes	= 1,
 		.color_planes	= 1,
@@ -196,7 +200,9 @@ static const struct mxc_isi_format_info mxc_isi_formats[] = {
 	}, {
 		.mbus_code	= MEDIA_BUS_FMT_RGB888_1X24,
 		.fourcc		= V4L2_PIX_FMT_RGBX32,
-		.type		= MXC_ISI_VIDEO_CAP | MXC_ISI_VIDEO_M2M_CAP,
+		.type		= MXC_ISI_VIDEO_CAP | MXC_ISI_VIDEO_M2M_OUT
+				| MXC_ISI_VIDEO_M2M_CAP,
+		.isi_in_format	= CHNL_MEM_RD_CTRL_IMG_TYPE_XBGR8,
 		.isi_out_format	= CHNL_IMG_CTRL_FORMAT_XBGR888,
 		.mem_planes	= 1,
 		.color_planes	= 1,
@@ -494,7 +500,7 @@ mxc_isi_format_try(struct mxc_isi_pipe *pipe, struct v4l2_pix_format_mplane *pix
 	unsigned int max_width;
 	unsigned int i;
 
-	max_width = pipe->id == pipe->isi->pdata->num_channels - 1
+	max_width = (!pipe->bypass && pipe->id == pipe->isi->pdata->num_channels - 1)
 		  ? MXC_ISI_MAX_WIDTH_UNCHAINED
 		  : MXC_ISI_MAX_WIDTH_CHAINED;
 
@@ -689,7 +695,7 @@ static void mxc_isi_video_frame_write_done(struct mxc_isi_pipe *pipe,
 	}
 
 	mxc_isi_channel_set_outbuf(pipe, next_buf->dma_addrs, buf_id);
-	mxc_isi_channel_set_max_size(pipe, &next_buf->v4l2_buf, pdata->buf_max_size);
+	mxc_isi_channel_set_max_size(pipe, &video->pix, pdata->buf_max_size);
 	next_buf->id = buf_id;
 
 	/*
@@ -880,7 +886,7 @@ static void mxc_isi_video_queue_first_buffers(struct mxc_isi_video *video)
 		buf = list_first_entry(list, struct mxc_isi_buffer, list);
 
 		mxc_isi_channel_set_outbuf(video->pipe, buf->dma_addrs, buf_id);
-		mxc_isi_channel_set_max_size(video->pipe, &buf->v4l2_buf, pdata->buf_max_size);
+		mxc_isi_channel_set_max_size(video->pipe, &video->pix, pdata->buf_max_size);
 		buf->id = buf_id;
 		list_move_tail(&buf->list, &video->out_active);
 	}
@@ -1330,6 +1336,7 @@ static int mxc_isi_video_enum_framesizes(struct file *file, void *priv,
 					 struct v4l2_frmsizeenum *fsize)
 {
 	struct mxc_isi_video *video = video_drvdata(file);
+	const struct mxc_isi_pipe *pipe = video->pipe;
 	const struct mxc_isi_format_info *info;
 	unsigned int max_width;
 	unsigned int h_align;
@@ -1345,7 +1352,7 @@ static int mxc_isi_video_enum_framesizes(struct file *file, void *priv,
 	h_align = max_t(unsigned int, info->hsub, 1);
 	v_align = max_t(unsigned int, info->vsub, 1);
 
-	max_width = video->pipe->id == video->pipe->isi->pdata->num_channels - 1
+	max_width = (!pipe->bypass && pipe->id == pipe->isi->pdata->num_channels - 1)
 		  ? MXC_ISI_MAX_WIDTH_UNCHAINED
 		  : MXC_ISI_MAX_WIDTH_CHAINED;
 

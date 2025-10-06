@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 #
-# (C) COPYRIGHT 2012-2024 ARM Limited. All rights reserved.
+# (C) COPYRIGHT 2012-2025 ARM Limited. All rights reserved.
 #
 # This program is free software and is provided to you under the terms of the
 # GNU General Public License version 2 as published by the Free Software
@@ -75,6 +75,7 @@ config MALI_NO_MALI_DEFAULT_GPU
 
 menu "Platform specific options"
 source "$(MALI_KCONFIG_EXT_PREFIX)drivers/gpu/arm/midgard/platform/Kconfig"
+
 endmenu
 
 config MALI_CSF_SUPPORT
@@ -326,15 +327,6 @@ config MALI_HW_ERRATA_1485982_USE_CLOCK_ALTERNATIVE
 	  slowest clock will be selected.
 
 endif
-
-config MALI_ARBITRATION
-	tristate "Enable Virtualization reference code"
-	depends on MALI_MIDGARD
-	default n
-	help
-	  Enables the build of several reference modules used in the reference
-	  virtualization setup for Mali
-	  If unsure, say N.
 
 config MALI_TRACE_POWER_GPU_WORK_PERIOD
 	bool "Enable per-application GPU metrics tracepoints"

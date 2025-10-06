@@ -83,7 +83,6 @@
 		regulator-max-microvolt = <3300000>;
 		gpio = <&gpio2 6 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
-		regulator-always-on;
 	};
 
 	reg_usb_vbus: regulator-vbus {
@@ -684,7 +683,6 @@
 		assigned-clock-rates = <24000000>;
 		csi_id = <0>;
 		powerdown-gpios = <&gpio4 1 GPIO_ACTIVE_HIGH>;
-		reset-gpios = <&gpio4 0 GPIO_ACTIVE_LOW>;
 		mclk = <24000000>;
 		mclk_source = <0>;
 		mipi_csi;
@@ -876,12 +874,12 @@
 };
 
 &usb3_phy0 {
-	fsl,phy-tx-vref-tune = <0xe>;
-	fsl,phy-tx-preemp-amp-tune = <3>;
-	fsl,phy-tx-vboost-level = <5>;
-	fsl,phy-comp-dis-tune = <7>;
-	fsl,pcs-tx-deemph-3p5db = <0x21>;
-	fsl,phy-pcs-tx-swing-full = <0x7f>;
+	fsl,phy-tx-vref-tune-percent = <122>;
+	fsl,phy-tx-preemp-amp-tune-microamp = <1800>;
+	fsl,phy-tx-vboost-level-microvolt = <1156>;
+	fsl,phy-comp-dis-tune-percent = <115>;
+	fsl,phy-pcs-tx-deemph-3p5db-attenuation-db = <33>;
+	fsl,phy-pcs-tx-swing-full-percent = <100>;
 	status = "okay";
 };
 
@@ -908,8 +906,8 @@
 };
 
 &usb3_phy1 {
-	fsl,phy-tx-preemp-amp-tune = <3>;
-	fsl,phy-tx-vref-tune = <0xb>;
+	fsl,phy-tx-preemp-amp-tune-microamp = <1800>;
+	fsl,phy-tx-vref-tune-percent = <116>;
 	status = "okay";
 };
 

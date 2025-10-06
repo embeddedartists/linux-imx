@@ -14,6 +14,7 @@ obj-$(CONFIG_DRM_IMX8MP_LDB) += imx8mp-ldb.o
 obj-$(CONFIG_DRM_IMX93_LDB) += imx93-ldb.o
 obj-$(CONFIG_DRM_IMX93_PARALLEL_DISPLAY_FORMAT) += imx93-parallel-disp-fmt.o
 
+obj-$(CONFIG_DRM_IMX_DCIF) += dcif/
 obj-$(CONFIG_DRM_IMX_DCNANO) += dcnano/
 obj-$(CONFIG_DRM_IMX_DPU) += dpu/
 obj-$(CONFIG_DRM_IMX95_DPU) += dpu95/

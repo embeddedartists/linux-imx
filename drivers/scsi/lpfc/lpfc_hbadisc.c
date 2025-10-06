@@ -155,6 +155,7 @@ lpfc_dev_loss_tmo_callbk(struct fc_rport *rport)
 	struct lpfc_hba   *phba;
 	struct lpfc_work_evt *evtp;
 	unsigned long iflags;
+	bool nvme_reg = false;
 
 	ndlp = ((struct lpfc_rport_data *)rport->dd_data)->pnode;
 	if (!ndlp)
@@ -177,48 +178,65 @@ lpfc_dev_loss_tmo_callbk(struct fc_rport *rport)
 	/* Don't schedule a worker thread event if the vport is going down. */
 	if (test_bit(FC_UNLOADING, &vport->load_flag) ||
 	    !test_bit(HBA_SETUP, &phba->hba_flag)) {
+
 		spin_lock_irqsave(&ndlp->lock, iflags);
 		ndlp->rport = NULL;
 
+		if (ndlp->fc4_xpt_flags & NVME_XPT_REGD)
+			nvme_reg = true;
+
 		/* The scsi_transport is done with the rport so lpfc cannot
-		 * call to unregister. Remove the scsi transport reference
-		 * and clean up the SCSI transport node details.
+		 * call to unregister.
 		 */
-		if (ndlp->fc4_xpt_flags & (NLP_XPT_REGD | SCSI_XPT_REGD)) {
+		if (ndlp->fc4_xpt_flags & SCSI_XPT_REGD) {
 			ndlp->fc4_xpt_flags &= ~SCSI_XPT_REGD;
 
-			/* NVME transport-registered rports need the
-			 * NLP_XPT_REGD flag to complete an unregister.
+			/* If NLP_XPT_REGD was cleared in lpfc_nlp_unreg_node,
+			 * unregister calls were made to the scsi and nvme
+			 * transports and refcnt was already decremented. Clear
+			 * the NLP_XPT_REGD flag only if the NVME Rport is
+			 * confirmed unregistered.
 			 */
-			if (!(ndlp->fc4_xpt_flags & NVME_XPT_REGD))
+			if (!nvme_reg && ndlp->fc4_xpt_flags & NLP_XPT_REGD) {
 				ndlp->fc4_xpt_flags &= ~NLP_XPT_REGD;
+				spin_unlock_irqrestore(&ndlp->lock, iflags);
+				lpfc_nlp_put(ndlp); /* may free ndlp */
+			} else {
+				spin_unlock_irqrestore(&ndlp->lock, iflags);
+			}
+		} else {
 			spin_unlock_irqrestore(&ndlp->lock, iflags);
-			lpfc_nlp_put(ndlp);
-			spin_lock_irqsave(&ndlp->lock, iflags);
 		}
+
+		spin_lock_irqsave(&ndlp->lock, iflags);
 
 		/* Only 1 thread can drop the initial node reference.  If
 		 * another thread has set NLP_DROPPED, this thread is done.
 		 */
-		if (!(ndlp->fc4_xpt_flags & NVME_XPT_REGD) &&
-		    !(ndlp->nlp_flag & NLP_DROPPED)) {
-			ndlp->nlp_flag |= NLP_DROPPED;
+		if (nvme_reg || (ndlp->nlp_flag & NLP_DROPPED)) {
 			spin_unlock_irqrestore(&ndlp->lock, iflags);
-			lpfc_nlp_put(ndlp);
 			return;
 		}
 
+		ndlp->nlp_flag |= NLP_DROPPED;
 		spin_unlock_irqrestore(&ndlp->lock, iflags);
+		lpfc_nlp_put(ndlp);
 		return;
 	}
 
 	if (ndlp->nlp_state == NLP_STE_MAPPED_NODE)
 		return;
 
-	/* check for recovered fabric node */
-	if (ndlp->nlp_state == NLP_STE_UNMAPPED_NODE &&
-	    ndlp->nlp_DID == Fabric_DID)
+	/* Ignore callback for a mismatched (stale) rport */
+	if (ndlp->rport != rport) {
+		lpfc_vlog_msg(vport, KERN_WARNING, LOG_NODE,
+			      "6788 fc rport mismatch: d_id x%06x ndlp x%px "
+			      "fc rport x%px node rport x%px state x%x "
+			      "refcnt %u\n",
+			      ndlp->nlp_DID, ndlp, rport, ndlp->rport,
+			      ndlp->nlp_state, kref_read(&ndlp->kref));
 		return;
+	}
 
 	if (rport->port_name != wwn_to_u64(ndlp->nlp_portname.u.wwn))
 		lpfc_printf_vlog(vport, KERN_ERR, LOG_TRACE_EVENT,
@@ -5610,6 +5628,7 @@ static struct lpfc_nodelist *
 __lpfc_findnode_did(struct lpfc_vport *vport, uint32_t did)
 {
 	struct lpfc_nodelist *ndlp;
+	struct lpfc_nodelist *np = NULL;
 	uint32_t data1;
 
 	list_for_each_entry(ndlp, &vport->fc_nodes, nlp_listp) {
@@ -5624,14 +5643,20 @@ __lpfc_findnode_did(struct lpfc_vport *vport, uint32_t did)
 					 ndlp, ndlp->nlp_DID,
 					 ndlp->nlp_flag, data1, ndlp->nlp_rpi,
 					 ndlp->active_rrqs_xri_bitmap);
-			return ndlp;
+
+			/* Check for new or potentially stale node */
+			if (ndlp->nlp_state != NLP_STE_UNUSED_NODE)
+				return ndlp;
+			np = ndlp;
 		}
 	}
 
-	/* FIND node did <did> NOT FOUND */
-	lpfc_printf_vlog(vport, KERN_INFO, LOG_NODE,
-			 "0932 FIND node did x%x NOT FOUND.\n", did);
-	return NULL;
+	if (!np)
+		/* FIND node did <did> NOT FOUND */
+		lpfc_printf_vlog(vport, KERN_INFO, LOG_NODE,
+				 "0932 FIND node did x%x NOT FOUND.\n", did);
+
+	return np;
 }
 
 struct lpfc_nodelist *

@@ -472,7 +472,7 @@ static bool virtblk_prep_rq_batch(struct request *req)
 }
 
 static void virtblk_add_req_batch(struct virtio_blk_vq *vq,
-					struct request **rqlist)
+		struct rq_list *rqlist)
 {
 	struct request *req;
 	unsigned long flags;
@@ -499,11 +499,10 @@ static void virtblk_add_req_batch(struct virtio_blk_vq *vq,
 		virtqueue_notify(vq->vq);
 }
 
-static void virtio_queue_rqs(struct request **rqlist)
+static void virtio_queue_rqs(struct rq_list *rqlist)
 {
-	struct request *submit_list = NULL;
-	struct request *requeue_list = NULL;
-	struct request **requeue_lastp = &requeue_list;
+	struct rq_list submit_list = { };
+	struct rq_list requeue_list = { };
 	struct virtio_blk_vq *vq = NULL;
 	struct request *req;
 
@@ -515,9 +514,9 @@ static void virtio_queue_rqs(struct request **rqlist)
 		vq = this_vq;
 
 		if (virtblk_prep_rq_batch(req))
-			rq_list_add(&submit_list, req); /* reverse order */
+			rq_list_add_tail(&submit_list, req);
 		else
-			rq_list_add_tail(&requeue_lastp, req);
+			rq_list_add_tail(&requeue_list, req);
 	}
 
 	if (vq)
@@ -1210,11 +1209,12 @@ static int virtblk_poll(struct blk_mq_hw_ctx *hctx, struct io_comp_batch *iob)
 
 	while ((vbr = virtqueue_get_buf(vq->vq, &len)) != NULL) {
 		struct request *req = blk_mq_rq_from_pdu(vbr);
+		u8 status = virtblk_vbr_status(vbr);
 
 		found++;
 		if (!blk_mq_complete_request_remote(req) &&
-		    !blk_mq_add_to_batch(req, iob, virtblk_vbr_status(vbr),
-						virtblk_complete_batch))
+		    !blk_mq_add_to_batch(req, iob, status != VIRTIO_BLK_S_OK,
+					 virtblk_complete_batch))
 			virtblk_request_done(req);
 	}
 
@@ -1587,9 +1587,12 @@ static void virtblk_remove(struct virtio_device *vdev)
 static int virtblk_freeze(struct virtio_device *vdev)
 {
 	struct virtio_blk *vblk = vdev->priv;
+	struct request_queue *q = vblk->disk->queue;
 
 	/* Ensure no requests in virtqueues before deleting vqs. */
-	blk_mq_freeze_queue(vblk->disk->queue);
+	blk_mq_freeze_queue(q);
+	blk_mq_quiesce_queue_nowait(q);
+	blk_mq_unfreeze_queue(q);
 
 	/* Ensure we don't receive any more interrupts */
 	virtio_reset_device(vdev);
@@ -1613,8 +1616,8 @@ static int virtblk_restore(struct virtio_device *vdev)
 		return ret;
 
 	virtio_device_ready(vdev);
+	blk_mq_unquiesce_queue(vblk->disk->queue);
 
-	blk_mq_unfreeze_queue(vblk->disk->queue);
 	return 0;
 }
 #endif

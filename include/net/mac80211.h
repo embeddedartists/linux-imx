@@ -7,7 +7,7 @@
  * Copyright 2007-2010	Johannes Berg <johannes@sipsolutions.net>
  * Copyright 2013-2014  Intel Mobile Communications GmbH
  * Copyright (C) 2015 - 2017 Intel Deutschland GmbH
- * Copyright (C) 2018 - 2024 Intel Corporation
+ * Copyright (C) 2018 - 2025 Intel Corporation
  */
 
 #ifndef MAC80211_H
@@ -2826,6 +2826,11 @@ struct ieee80211_txq {
  *	implements MLO, so operation can continue on other links when one
  *	link is switching.
  *
+ * @IEEE80211_HW_STRICT: strictly enforce certain things mandated by the spec
+ *	but otherwise ignored/worked around for interoperability. This is a
+ *	HW flag so drivers can opt in according to their own control, e.g. in
+ *	testing.
+ *
  * @NUM_IEEE80211_HW_FLAGS: number of hardware flags, used for sizing arrays
  */
 enum ieee80211_hw_flags {
@@ -2885,6 +2890,7 @@ enum ieee80211_hw_flags {
 	IEEE80211_HW_DISALLOW_PUNCTURING,
 	IEEE80211_HW_DISALLOW_PUNCTURING_5GHZ,
 	IEEE80211_HW_HANDLES_QUIET_CSA,
+	IEEE80211_HW_STRICT,
 
 	/* keep last, obviously */
 	NUM_IEEE80211_HW_FLAGS
@@ -3797,7 +3803,7 @@ enum ieee80211_reconfig_type {
  * @was_assoc: set if this call is due to deauth/disassoc
  *	while just having been associated
  * @link_id: the link id on which the frame will be TX'ed.
- *	Only used with the mgd_prepare_tx() method.
+ *	0 for a non-MLO connection.
  */
 struct ieee80211_prep_tx_info {
 	u16 duration;
@@ -6770,14 +6776,12 @@ void ieee80211_chswitch_done(struct ieee80211_vif *vif, bool success,
 /**
  * ieee80211_channel_switch_disconnect - disconnect due to channel switch error
  * @vif: &struct ieee80211_vif pointer from the add_interface callback.
- * @block_tx: if %true, do not send deauth frame.
  *
  * Instruct mac80211 to disconnect due to a channel switch error. The channel
  * switch can request to block the tx and so, we need to make sure we do not send
  * a deauth frame in this case.
  */
-void ieee80211_channel_switch_disconnect(struct ieee80211_vif *vif,
-					 bool block_tx);
+void ieee80211_channel_switch_disconnect(struct ieee80211_vif *vif);
 
 /**
  * ieee80211_request_smps - request SM PS transition

@@ -96,13 +96,12 @@ int vpu_notify_eos(struct vpu_inst *inst)
 
 int vpu_notify_source_change(struct vpu_inst *inst)
 {
-	static const struct v4l2_event ev = {
-		.id = 0,
+	const struct v4l2_event ev = {
 		.type = V4L2_EVENT_SOURCE_CHANGE,
-		.u.src_change.changes = V4L2_EVENT_SRC_CH_RESOLUTION
+		.u.src_change.changes = inst->changes
 	};
 
-	vpu_trace(inst->dev, "[%d]\n", inst->id);
+	vpu_trace(inst->dev, "[%d] source change 0x%x\n", inst->id, inst->changes);
 	v4l2_event_queue_fh(&inst->fh, &ev);
 	return 0;
 }
@@ -501,14 +500,25 @@ static int vpu_vb2_queue_setup(struct vb2_queue *vq,
 		call_void_vop(inst, release);
 	}
 
+	if (V4L2_TYPE_IS_CAPTURE(vq->type))
+		call_void_vop(inst, reset_frame_store);
+
 	return 0;
 }
 
 static int vpu_vb2_buf_init(struct vb2_buffer *vb)
 {
 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
+	struct vpu_vb2_buffer *vpu_buf = to_vpu_vb2_buffer(vbuf);
+	struct vpu_inst *inst = vb2_get_drv_priv(vb->vb2_queue);
 
+	vpu_buf->fs_id = -1;
 	vpu_set_buffer_state(vbuf, VPU_BUF_STATE_IDLE);
+
+	if (!inst->ops->attach_frame_store || V4L2_TYPE_IS_OUTPUT(vb->type))
+		return 0;
+
+	call_void_vop(inst, attach_frame_store, vb);
 	return 0;
 }
 
@@ -663,6 +673,8 @@ static int vpu_m2m_queue_init(void *priv, struct vb2_queue *src_vq, struct vb2_q
 	src_vq->mem_ops = &vb2_dma_contig_memops;
 	if (inst->type == VPU_CORE_TYPE_DEC && inst->use_stream_buffer)
 		src_vq->mem_ops = &vb2_vmalloc_memops;
+	else
+		src_vq->allow_cache_hints = 1;
 	src_vq->drv_priv = inst;
 	src_vq->buf_struct_size = sizeof(struct vpu_vb2_buffer);
 	src_vq->min_queued_buffers = 1;
@@ -680,6 +692,8 @@ static int vpu_m2m_queue_init(void *priv, struct vb2_queue *src_vq, struct vb2_q
 	dst_vq->mem_ops = &vb2_dma_contig_memops;
 	if (inst->type == VPU_CORE_TYPE_ENC && inst->use_stream_buffer)
 		dst_vq->mem_ops = &vb2_vmalloc_memops;
+	else
+		dst_vq->allow_cache_hints = 1;
 	dst_vq->drv_priv = inst;
 	dst_vq->buf_struct_size = sizeof(struct vpu_vb2_buffer);
 	dst_vq->min_queued_buffers = 1;

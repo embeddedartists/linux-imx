@@ -70,7 +70,7 @@
 			u32 second_dw_mask = (mask) & ((1 << _bit_off) - 1); \
 			_HWS_SET32(p, (v) >> _bit_off, byte_off, 0, (mask) >> _bit_off); \
 			_HWS_SET32(p, (v) & second_dw_mask, (byte_off) + DW_SIZE, \
-				    (bit_off) % BITS_IN_DW, second_dw_mask); \
+				    (bit_off + BITS_IN_DW) % BITS_IN_DW, second_dw_mask); \
 		} else { \
 			_HWS_SET32(p, v, byte_off, (bit_off), (mask)); \
 		} \
@@ -558,6 +558,9 @@ hws_definer_conv_outer(struct mlx5hws_definer_conv_data *cd,
 	HWS_SET_HDR(fc, match_param, IP_PROTOCOL_O,
 		    outer_headers.ip_protocol,
 		    eth_l3_outer.protocol_next_header);
+	HWS_SET_HDR(fc, match_param, IP_VERSION_O,
+		    outer_headers.ip_version,
+		    eth_l3_outer.ip_version);
 	HWS_SET_HDR(fc, match_param, IP_TTL_O,
 		    outer_headers.ttl_hoplimit,
 		    eth_l3_outer.time_to_live_hop_limit);

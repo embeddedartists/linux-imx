@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
 /*
  *
- * (C) COPYRIGHT 2010-2024 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2010-2025 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -52,6 +52,12 @@
 #include "mali_kbase_pbha.h"
 #include "arbiter/mali_kbase_arbiter_pm.h"
 #include <mali_kbase_io.h>
+
+static uint64_t neural_allowed_mask = UINT64_MAX;
+module_param(neural_allowed_mask, ullong, 0444);
+MODULE_PARM_DESC(
+	neural_allowed_mask,
+	"Additional optional bitmask to restrict which neural engine cores any CSG can enable");
 
 #if defined(CONFIG_DEBUG_FS) && !IS_ENABLED(CONFIG_MALI_NO_MALI)
 
@@ -123,8 +129,6 @@ static void kbase_device_all_as_term(struct kbase_device *kbdev)
 
 static int pcm_prioritized_process_cb(struct notifier_block *nb, unsigned long action, void *data)
 {
-#if MALI_USE_CSF
-
 	struct kbase_device *const kbdev =
 		container_of(nb, struct kbase_device, pcm_prioritized_process_nb);
 	struct pcm_prioritized_process_notifier_data *const notifier_data = data;
@@ -142,8 +146,6 @@ static int pcm_prioritized_process_cb(struct notifier_block *nb, unsigned long a
 	}
 
 	return ret;
-
-#endif /* MALI_USE_CSF */
 
 	return 0;
 }
@@ -352,9 +354,16 @@ int kbase_device_misc_init(struct kbase_device *const kbdev)
 		kbdev->oom_notifier_block.notifier_call = NULL;
 	}
 
-#if MALI_USE_CSF
 	atomic_set(&kbdev->fence_signal_timeout_enabled, 1);
-#endif
+
+	if ((kbdev->gpu_props.impl_tech == THREAD_FEATURES_IMPLEMENTATION_TECHNOLOGY_FPGA) ||
+	    (kbdev->gpu_props.impl_tech == THREAD_FEATURES_IMPLEMENTATION_TECHNOLOGY_SOFTWARE)) {
+		kbdev->kcpu_fence_signal_timeout_ms = KCPU_FENCE_SIGNAL_TIMEOUT_MS_FPGA;
+	} else {
+		kbdev->kcpu_fence_signal_timeout_ms = KCPU_FENCE_SIGNAL_TIMEOUT_MS;
+	}
+
+	kbdev->csf.neural_allowed_mask = neural_allowed_mask;
 
 	return 0;
 
@@ -379,7 +388,7 @@ void kbase_device_misc_term(struct kbase_device *kbdev)
 	if (kbdev->oom_notifier_block.notifier_call)
 		unregister_oom_notifier(&kbdev->oom_notifier_block);
 
-#if MALI_USE_CSF && IS_ENABLED(CONFIG_SYNC_FILE)
+#if IS_ENABLED(CONFIG_SYNC_FILE)
 	if (atomic_read(&kbdev->live_fence_metadata) > 0)
 		dev_warn(kbdev->dev, "Terminating Kbase device with live fence metadata!");
 #endif

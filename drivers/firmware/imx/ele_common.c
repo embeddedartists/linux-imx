@@ -98,13 +98,12 @@ int ele_msg_send(struct se_if_device_ctx *dev_ctx,
 	 * carried in the message.
 	 */
 	if (header->size << 2 != tx_msg_sz) {
-		err = -EINVAL;
 		dev_err(priv->dev,
 			"%s: User buf hdr: 0x%x, sz mismatced with input-sz (%d != %d).",
 			dev_ctx->devname,
 			*(u32 *)header,
 			header->size << 2, tx_msg_sz);
-		goto exit;
+		return -EINVAL;
 	}
 
 	err = mbox_send_message(priv->tx_chan, tx_msg);
@@ -117,7 +116,6 @@ int ele_msg_send(struct se_if_device_ctx *dev_ctx,
 	err = tx_msg_sz;
 	se_dump_to_logfl(dev_ctx, SE_DUMP_MU_SND_BUFS, tx_msg_sz, tx_msg);
 
-exit:
 	return err;
 }
 
@@ -136,7 +134,7 @@ int ele_msg_send_rcv(struct se_if_device_ctx *dev_ctx,
 	guard(mutex)(&priv->se_if_cmd_lock);
 
 	/* Capture request timer */
-	ktime_get_ts64(&priv->time_frame.t_start);
+	ktime_get_raw_ts64(&priv->time_frame.t_start);
 	priv->waiting_rsp_clbk_hdl.dev_ctx = dev_ctx;
 	priv->waiting_rsp_clbk_hdl.rx_msg_sz = exp_rx_msg_sz;
 	priv->waiting_rsp_clbk_hdl.rx_msg = rx_msg;
@@ -158,7 +156,7 @@ int ele_msg_send_rcv(struct se_if_device_ctx *dev_ctx,
 	priv->waiting_rsp_clbk_hdl.dev_ctx = NULL;
 
 	/* Capture response timer */
-	ktime_get_ts64(&priv->time_frame.t_end);
+	ktime_get_raw_ts64(&priv->time_frame.t_end);
 exit:
 	return err;
 }

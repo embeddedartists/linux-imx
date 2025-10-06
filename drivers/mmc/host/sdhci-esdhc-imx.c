@@ -34,6 +34,7 @@
 #define ESDHC_SYS_CTRL_RESET_TUNING	(1 << 28)
 #define ESDHC_SYS_CTRL_RST_FIFO		(1 << 22)
 #define ESDHC_SYS_CTRL_DTOCV_MASK	0x0f
+#define ESDHC_SYS_CTRL_DTOCV_SHIFT	16
 #define	ESDHC_CTRL_D3CD			0x08
 #define ESDHC_BURST_LEN_EN_INCR		(1 << 27)
 /* VENDOR SPEC register */
@@ -83,8 +84,10 @@
 #define  ESDHC_TUNE_CTRL_STEP		1
 #define  ESDHC_TUNE_CTRL_MIN		0
 #define  ESDHC_TUNE_CTRL_MAX		((1 << 7) - 1)
+#define ESDHC_TUNE_CTRL_STATUS_TAP_SEL_MASK		0x7fff0000
 #define ESDHC_TUNE_CTRL_STATUS_TAP_SEL_PRE_MASK		0x7f000000
 #define ESDHC_TUNE_CTRL_STATUS_TAP_SEL_PRE_SHIFT	24
+#define ESDHC_TUNE_CTRL_STATUS_TAP_SEL_POST_SHIFT	16
 #define ESDHC_TUNE_CTRL_STATUS_DLY_CELL_SET_PRE_SHIFT	8
 #define ESDHC_TUNE_CTRL_STATUS_DLY_CELL_SET_OUT_SHIFT	4
 #define ESDHC_TUNE_CTRL_STATUS_DLY_CELL_SET_POST_SHIFT	0
@@ -213,6 +216,8 @@
 #define ESDHC_FLAG_SKIP_CD_WAKE		BIT(18)
 /* need request bus freq during low power */
 #define ESDHC_FLAG_BUSFREQ		BIT(19)
+/* the controller has dummy pad for clock loopback */
+#define ESDHC_FLAG_DUMMY_PAD		BIT(20)
 
 #define ESDHC_AUTO_TUNING_WINDOW	3
 
@@ -323,6 +328,7 @@ static struct esdhc_soc_data usdhc_s32g2_data = {
 			| ESDHC_FLAG_HAVE_CAP1 | ESDHC_FLAG_HS200
 			| ESDHC_FLAG_HS400 | ESDHC_FLAG_HS400_ES
 			| ESDHC_FLAG_SKIP_ERR004536 | ESDHC_FLAG_SKIP_CD_WAKE,
+	.quirks = SDHCI_QUIRK_NO_LED,
 };
 
 static struct esdhc_soc_data usdhc_imx7ulp_data = {
@@ -366,8 +372,18 @@ static struct esdhc_soc_data usdhc_imx8mq_data = {
 	.quirks = SDHCI_QUIRK_NO_LED,
 };
 
+static struct esdhc_soc_data usdhc_imx95_data = {
+	.flags = ESDHC_FLAG_USDHC | ESDHC_FLAG_MAN_TUNING
+			| ESDHC_FLAG_HAVE_CAP1 | ESDHC_FLAG_HS200
+			| ESDHC_FLAG_HS400 | ESDHC_FLAG_HS400_ES
+			| ESDHC_FLAG_STATE_LOST_IN_LPMODE
+			| ESDHC_FLAG_BUSFREQ | ESDHC_FLAG_DUMMY_PAD,
+	.quirks = SDHCI_QUIRK_NO_LED,
+};
+
 static struct esdhc_soc_data usdhc_s32v234_data = {
 	.flags = ESDHC_FLAG_USDHC,
+	.quirks = SDHCI_QUIRK_NO_LED,
 };
 
 struct pltfm_imx_data {
@@ -415,6 +431,8 @@ static const struct of_device_id imx_esdhc_dt_ids[] = {
 	{ .compatible = "fsl,imx8qxp-usdhc", .data = &usdhc_imx8qxp_data, },
 	{ .compatible = "fsl,imx8mm-usdhc", .data = &usdhc_imx8mm_data, },
 	{ .compatible = "fsl,imx8mq-usdhc", .data = &usdhc_imx8mq_data, },
+	{ .compatible = "fsl,imx94-usdhc", .data = &usdhc_imx95_data, },
+	{ .compatible = "fsl,imx95-usdhc", .data = &usdhc_imx95_data, },
 	{ .compatible = "fsl,imxrt1050-usdhc", .data = &usdhc_imxrt1050_data, },
 	{ .compatible = "nxp,s32g2-usdhc", .data = &usdhc_s32g2_data, },
 	{ .compatible = "fsl,s32v234-usdhc", .data = &usdhc_s32v234_data, },
@@ -763,23 +781,17 @@ static void esdhc_writew_le(struct sdhci_host *host, u16 val, int reg)
 		writel(new_val, host->ioaddr + ESDHC_VENDOR_SPEC);
 		if (imx_data->socdata->flags & ESDHC_FLAG_STD_TUNING) {
 			u32 v = readl(host->ioaddr + SDHCI_AUTO_CMD_STATUS);
-			u32 m = readl(host->ioaddr + ESDHC_MIX_CTRL);
-			if (val & SDHCI_CTRL_TUNED_CLK) {
+			if (val & SDHCI_CTRL_TUNED_CLK)
 				v |= ESDHC_MIX_CTRL_SMPCLK_SEL;
-			} else {
+			else
 				v &= ~ESDHC_MIX_CTRL_SMPCLK_SEL;
-				m &= ~ESDHC_MIX_CTRL_FBCLK_SEL;
-			}
 
-			if (val & SDHCI_CTRL_EXEC_TUNING) {
+			if (val & SDHCI_CTRL_EXEC_TUNING)
 				v |= ESDHC_MIX_CTRL_EXE_TUNE;
-				m |= ESDHC_MIX_CTRL_FBCLK_SEL;
-			} else {
+			else
 				v &= ~ESDHC_MIX_CTRL_EXE_TUNE;
-			}
 
 			writel(v, host->ioaddr + SDHCI_AUTO_CMD_STATUS);
-			writel(m, host->ioaddr + ESDHC_MIX_CTRL);
 		}
 		return;
 	case SDHCI_TRANSFER_MODE:
@@ -1112,7 +1124,6 @@ static void esdhc_reset_tuning(struct sdhci_host *host)
 		ctrl &= ~ESDHC_MIX_CTRL_AUTO_TUNE_EN;
 		if (imx_data->socdata->flags & ESDHC_FLAG_MAN_TUNING) {
 			ctrl &= ~ESDHC_MIX_CTRL_SMPCLK_SEL;
-			ctrl &= ~ESDHC_MIX_CTRL_FBCLK_SEL;
 			writel(ctrl, host->ioaddr + ESDHC_MIX_CTRL);
 			writel(0, host->ioaddr + ESDHC_TUNE_CTRL_STATUS);
 		} else if (imx_data->socdata->flags & ESDHC_FLAG_STD_TUNING) {
@@ -1207,8 +1218,7 @@ static void esdhc_prepare_tuning(struct sdhci_host *host, u32 val)
 		"warning! RESET_ALL never complete before sending tuning command\n");
 
 	reg = readl(host->ioaddr + ESDHC_MIX_CTRL);
-	reg |= ESDHC_MIX_CTRL_EXE_TUNE | ESDHC_MIX_CTRL_SMPCLK_SEL |
-			ESDHC_MIX_CTRL_FBCLK_SEL;
+	reg |= ESDHC_MIX_CTRL_EXE_TUNE | ESDHC_MIX_CTRL_SMPCLK_SEL;
 	writel(reg, host->ioaddr + ESDHC_MIX_CTRL);
 	writel(val << ESDHC_TUNE_CTRL_STATUS_DLY_CELL_SET_PRE_SHIFT,
 				host->ioaddr + ESDHC_TUNE_CTRL_STATUS);
@@ -1242,7 +1252,7 @@ static int esdhc_executing_tuning(struct sdhci_host *host, u32 opcode)
 {
 	int min, max, avg, ret;
 	int win_length, target_min, target_max, target_win_length;
-	u32 clk_tune_ctrl_status;
+	u32 clk_tune_ctrl_status, temp;
 
 	min = ESDHC_TUNE_CTRL_MIN;
 	max = ESDHC_TUNE_CTRL_MIN;
@@ -1297,6 +1307,13 @@ static int esdhc_executing_tuning(struct sdhci_host *host, u32 opcode)
 				ESDHC_AUTO_TUNING_WINDOW <<
 					ESDHC_TUNE_CTRL_STATUS_DLY_CELL_SET_POST_SHIFT;
 	writel(clk_tune_ctrl_status, host->ioaddr + ESDHC_TUNE_CTRL_STATUS);
+	ret = readl_poll_timeout(host->ioaddr + ESDHC_TUNE_CTRL_STATUS, temp,
+				 clk_tune_ctrl_status ==
+				 (temp & ESDHC_TUNE_CTRL_STATUS_TAP_SEL_MASK) >>
+				  ESDHC_TUNE_CTRL_STATUS_TAP_SEL_POST_SHIFT, 1, 10);
+	if (ret == -ETIMEDOUT)
+		dev_warn(mmc_dev(host->mmc),
+			 "clock tuning control status not set in 10us\n");
 
 	ret = mmc_send_tuning(host->mmc, opcode, NULL);
 	esdhc_post_tuning(host);
@@ -1452,6 +1469,16 @@ static void esdhc_set_uhs_signaling(struct sdhci_host *host, unsigned timing)
 		break;
 	}
 
+	if (!(imx_data->socdata->flags & ESDHC_FLAG_DUMMY_PAD) &&
+	    (timing == MMC_TIMING_UHS_SDR104 ||
+	     timing == MMC_TIMING_MMC_HS200 ||
+	     timing == MMC_TIMING_MMC_HS400))
+		m |= ESDHC_MIX_CTRL_FBCLK_SEL;
+	else
+		m &= ~ESDHC_MIX_CTRL_FBCLK_SEL;
+
+	writel(m, host->ioaddr + ESDHC_MIX_CTRL);
+
 	esdhc_change_pinstate(host, timing);
 }
 
@@ -1474,12 +1501,15 @@ static unsigned int esdhc_get_max_timeout_count(struct sdhci_host *host)
 
 static void esdhc_set_timeout(struct sdhci_host *host, struct mmc_command *cmd)
 {
-	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
-	struct pltfm_imx_data *imx_data = sdhci_pltfm_priv(pltfm_host);
+	bool too_big = false;
+	u8 count = sdhci_calc_timeout(host, cmd, &too_big);
 
-	/* use maximum timeout counter */
-	esdhc_clrset_le(host, ESDHC_SYS_CTRL_DTOCV_MASK,
-			esdhc_is_usdhc(imx_data) ? 0xF : 0xE,
+	/*
+	 * usdhc SDHCI_TIMEOUT_CONTROL register bit[7] used to control
+	 * hardware reset pin of the card. Write 0 to bit[7] will reset
+	 * the card. Only write bit[0] ~ bit[3] here.
+	 */
+	esdhc_clrset_le(host, ESDHC_SYS_CTRL_DTOCV_MASK, count,
 			SDHCI_TIMEOUT_CONTROL);
 }
 
@@ -1698,7 +1728,9 @@ static void sdhc_esdhc_tuning_restore(struct sdhci_host *host)
 		writel(reg, host->ioaddr + ESDHC_TUNING_CTRL);
 
 		reg = readl(host->ioaddr + ESDHC_MIX_CTRL);
-		reg |= ESDHC_MIX_CTRL_SMPCLK_SEL | ESDHC_MIX_CTRL_FBCLK_SEL;
+		reg |= ESDHC_MIX_CTRL_SMPCLK_SEL;
+		if (!(imx_data->socdata->flags & ESDHC_FLAG_DUMMY_PAD))
+			reg |= ESDHC_MIX_CTRL_FBCLK_SEL;
 		writel(reg, host->ioaddr + ESDHC_MIX_CTRL);
 
 		writel(imx_data->boarddata.saved_tuning_delay_cell <<
@@ -1928,6 +1960,8 @@ static int sdhci_esdhc_imx_probe(struct platform_device *pdev)
 		 * to distinguish the card type.
 		 */
 		host->mmc_host_ops.init_card = usdhc_init_card;
+
+		host->max_timeout_count = 0xF;
 	}
 
 	if (imx_data->socdata->flags & ESDHC_FLAG_MAN_TUNING)

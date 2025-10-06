@@ -122,14 +122,6 @@ static int enetc_rx_mode_show(struct seq_file *s, void *data)
 	seq_printf(s, "Unicast Promisc:0x%lx. Multicast Promisc:0x%lx\n",
 		   val & PSIPMMR_SI_MAC_UP, (val & PSIPMMR_SI_MAC_MP) >> 16);
 
-	/* Use MAC hash filter */
-	if (!pf->num_mac_fe) {
-		for (i = 0; i < pf->num_vfs + 1; i++)
-			enetc_show_si_mac_hash_filter(s, hw, i);
-
-		return 0;
-	}
-
 	seq_printf(s, "The total number of entries in MAC filter table is %d\n",
 		   pf->num_mac_fe);
 	/* Use MAC exact match table */
@@ -144,8 +136,10 @@ static int enetc_rx_mode_show(struct seq_file *s, void *data)
 			   keye->mac_addr, le16_to_cpu(maft_data.cfge.si_bitmap));
 	}
 
-	for (i = 0; i < pf->num_vfs; i++)
-		enetc_show_si_mac_hash_filter(s, hw, i + 1);
+	seq_puts(s, "\n");
+
+	for (i = 0; i < pf->num_vfs + 1; i++)
+		enetc_show_si_mac_hash_filter(s, hw, i);
 
 	return 0;
 }
@@ -362,6 +356,9 @@ static int enetc_txr_show(struct seq_file *s, void *data)
 		val = enetc_txbdr_rd(hw, i, ENETC_TBMR);
 		seq_printf(s, "TX BDR mode:0x%x\n", val);
 
+		if (!netif_running(si->ndev))
+			continue;
+
 		for (j = 0; j < txr->bd_count; j++) {
 			txbd = ENETC_TXBD(*txr, j);
 			enetc_txr_bd_show(s, txbd, j);
@@ -409,6 +406,9 @@ static int enetc_rxr_show(struct seq_file *s, void *data)
 		seq_printf(s, "HW PIR:%u\n", val);
 		val = enetc_rxbdr_rd(hw, i, ENETC_RBMR);
 		seq_printf(s, "RX BDR mode:0x%x\n", val);
+
+		if (!netif_running(si->ndev))
+			continue;
 
 		for (j = 0; j < rxr->bd_count; j++) {
 			rxbd = &((union enetc_rx_bd *)rxr->bd_base)[j];

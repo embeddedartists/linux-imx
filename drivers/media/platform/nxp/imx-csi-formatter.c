@@ -133,7 +133,7 @@ static const struct formatter_pix_format formats[] = {
 		.code = MEDIA_BUS_FMT_RGB565_1X16,
 		.data_type = MIPI_CSI2_DT_RGB565,
 	}, {
-		.code = MEDIA_BUS_FMT_BGR888_1X24,
+		.code = MEDIA_BUS_FMT_RGB888_1X24,
 		.data_type = MIPI_CSI2_DT_RGB888,
 	},
 	/* RAW (Bayer and greyscale) formats. */
@@ -877,7 +877,7 @@ static const struct of_device_id csi_formatter_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, csi_formatter_of_match);
 
-static struct platform_driver dwc_csi_device_driver = {
+static struct platform_driver csi_formatter_device_driver = {
 	.driver = {
 		.owner          = THIS_MODULE,
 		.name           = CSI_FORMATTER_DRV_NAME,
@@ -888,7 +888,7 @@ static struct platform_driver dwc_csi_device_driver = {
 	.remove = csi_formatter_remove,
 };
 
-module_platform_driver(dwc_csi_device_driver);
+module_platform_driver(csi_formatter_device_driver);
 
 MODULE_DESCRIPTION("NXP CSI Pixel Formatter driver");
 MODULE_LICENSE("GPL");

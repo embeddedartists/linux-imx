@@ -6,7 +6,7 @@
  * "David Plowman <david.plowman@raspberrypi.com>" and
  * "Nick Hollinghurst <nick.hollinghurst@raspberrypi.com>"
  *
- * Copyright 2023-2024 NXP
+ * Copyright 2023-2025 NXP
  * Author: Aymen Sghaier (aymen.sghaier@nxp.com)
  */
 
@@ -39,7 +39,7 @@ static int neoisp_regfield_alloc(struct device *dev, struct neoisp_dev_s *neoisp
 	struct reg_field default_regf = REG_FIELD(0, 0, 31);
 
 	for (idx = 0; idx < NEOISP_FIELD_COUNT; idx++) {
-		default_regf.reg = neoisp_fields_a[idx];
+		default_regf.reg = neoispd->info->regs[idx];
 		neoispd->regs.fields[idx] =
 			devm_regmap_field_alloc(dev, neoispd->regmap, default_regf);
 		if (IS_ERR(neoispd->regs.fields[idx]))
@@ -168,6 +168,15 @@ static int neoisp_node_buffer_prepare(struct vb2_buffer *vb)
 	__u32 num_planes = NODE_IS_MPLANE(node) ?
 		node->format.fmt.pix_mp.num_planes : 1;
 	__u32 i;
+
+	if (NODE_IS_META(node) && NODE_IS_OUTPUT(node) &&
+	    vb->planes[0].bytesused != node->format.fmt.meta.buffersize) {
+		dev_err(&neoispd->pdev->dev,
+				"%s: Meta buffer size mismatch for node %s got %d expected %d\n",
+				__func__, NODE_NAME(node),
+				vb->planes[0].bytesused, node->format.fmt.meta.buffersize);
+		return -EINVAL;
+	}
 
 	for (i = 0; i < num_planes; i++) {
 		size = NODE_IS_MPLANE(node)
@@ -536,58 +545,6 @@ static int neoisp_set_packetizer(struct neoisp_dev_s *neoispd)
 }
 
 /*
- * The pixel depth is NEOISP_PIPELINE0_BPP (20 bits) in pipeline0 and
- * NEOISP_PIPELINE1_BPP (16 bits) in pipeline1.
- * Input pixel may have a depth ranging from 8 to 20 bits, so a gain may
- * have to be applied to reach that target.
- * Gain can be applied in:
- *    HDR Decompression block using ratio register whose format is u7.5
- *       giving a maximum gain of ~128 corresponding
- *       to a maximum bitshift of NEOISP_HDR_SHIFT_MAX (7 bits).
- *    OBWB0/1 blocks that are used solely to apply additional gain
- *       when HDR Decompression gain limit is reached.
- * If HDR Decompression gain is sufficient, then OBWB0/1 is set to 1 (u8.8 format).
- */
-static void neoisp_update_pipeline_bit_width(struct neoisp_reg_params_s *regp, __u32 ibpp)
-{
-	__u32 hdr_shift, hdr_ratio0, obwb_shift, obwb_gain;
-
-	/* input path 0 */
-	hdr_shift = min(NEOISP_PIPELINE0_BPP - ibpp, NEOISP_HDR_SHIFT_MAX);
-	obwb_shift = NEOISP_PIPELINE0_BPP - ibpp - hdr_shift;
-
-	regp->decompress_input0.knee_point1 = min((1u << ibpp), NEOISP_HDR_KNPOINT_MAX);
-	regp->decompress_input0.knee_offset0 = 0;
-	hdr_ratio0 = (1 << (hdr_shift + NEOISP_HDR_SHIFT_RADIX)) - 1;
-	regp->decompress_input0.knee_ratio0 = hdr_ratio0;
-	regp->decompress_input0.knee_ratio4 = hdr_ratio0;
-	regp->decompress_input0.knee_npoint0 = 0;
-
-	obwb_gain = 1 << (obwb_shift + NEOISP_OBWB_SHIFT_RADIX);
-	regp->obwb[0].b_ctrl_gain = obwb_gain;
-	regp->obwb[0].gb_ctrl_gain = obwb_gain;
-	regp->obwb[0].gr_ctrl_gain = obwb_gain;
-	regp->obwb[0].r_ctrl_gain = obwb_gain;
-
-	/* input path 1 */
-	hdr_shift = min(NEOISP_PIPELINE1_BPP - ibpp, NEOISP_HDR_SHIFT_MAX);
-	obwb_shift = NEOISP_PIPELINE1_BPP - ibpp - hdr_shift;
-
-	regp->decompress_input1.knee_point1 = min((1u << ibpp), NEOISP_HDR_KNPOINT_MAX);
-	regp->decompress_input1.knee_offset0 = 0;
-	hdr_ratio0 = (1 << (hdr_shift + NEOISP_HDR_SHIFT_RADIX)) - 1;
-	regp->decompress_input1.knee_ratio0 = hdr_ratio0;
-	regp->decompress_input1.knee_ratio4 = hdr_ratio0;
-	regp->decompress_input1.knee_npoint0 = 0;
-
-	obwb_gain = 1 << (obwb_shift + NEOISP_OBWB_SHIFT_RADIX);
-	regp->obwb[1].b_ctrl_gain = obwb_gain;
-	regp->obwb[1].gb_ctrl_gain = obwb_gain;
-	regp->obwb[1].gr_ctrl_gain = obwb_gain;
-	regp->obwb[1].r_ctrl_gain = obwb_gain;
-}
-
-/*
  * Check if sensor is monochrome, then update concerned parameters.
  */
 static void neoisp_update_monochrome(struct neoisp_reg_params_s *regs, __u32 pixfmt)
@@ -677,13 +634,12 @@ static int neoisp_set_pipe_conf(struct neoisp_dev_s *neoispd)
 	inp1_addr = get_addr(buf_inp1, 0) + (nd->crop.left * ibpp) + (nd->crop.top * inp1_stride);
 	cfg->img_conf_cam0_ibpp1 = nd->neoisp_format->bpp_enc;
 
-	regmap_field_write(neoispd->regs.fields[NEO_PIPE_CONF_IMG_CONF_CAM0_IDX],
+	regmap_field_update_bits_base(neoispd->regs.fields[NEO_PIPE_CONF_IMG_CONF_CAM0_IDX],
+			NEO_PIPE_CONF_IMG_CONF_CAM0_IBPP0_MASK
+			| NEO_PIPE_CONF_IMG_CONF_CAM0_IBPP1_MASK,
 			NEO_PIPE_CONF_IMG_CONF_CAM0_IBPP0_SET(cfg->img_conf_cam0_ibpp0)
-			| NEO_PIPE_CONF_IMG_CONF_CAM0_INALIGN0_SET(cfg->img_conf_cam0_inalign0)
-			| NEO_PIPE_CONF_IMG_CONF_CAM0_LPALIGN0_SET(cfg->img_conf_cam0_lpalign0)
-			| NEO_PIPE_CONF_IMG_CONF_CAM0_IBPP1_SET(cfg->img_conf_cam0_ibpp1)
-			| NEO_PIPE_CONF_IMG_CONF_CAM0_INALIGN1_SET(cfg->img_conf_cam0_inalign1)
-			| NEO_PIPE_CONF_IMG_CONF_CAM0_LPALIGN1_SET(cfg->img_conf_cam0_lpalign1));
+			| NEO_PIPE_CONF_IMG_CONF_CAM0_IBPP1_SET(cfg->img_conf_cam0_ibpp1),
+			NULL, false, false);
 	regmap_field_write(neoispd->regs.fields[NEO_PIPE_CONF_IMG_SIZE_CAM0_IDX],
 			NEO_PIPE_CONF_IMG_SIZE_CAM0_WIDTH_SET(width)
 			| NEO_PIPE_CONF_IMG_SIZE_CAM0_HEIGHT_SET(height));
@@ -791,11 +747,10 @@ static void neoisp_queue_job(struct neoisp_dev_s *neoispd,
 		struct neoisp_node_group_s *node_group)
 {
 	neoisp_set_packetizer(neoispd);
+	neoisp_set_pipe_conf(neoispd);
 
 	neoisp_update_ctx(neoispd, node_group->id);
 	neoisp_program_ctx(neoispd, node_group->id);
-
-	neoisp_set_pipe_conf(neoispd);
 
 	/* kick off the hw */
 	regmap_field_write(neoispd->regs.fields[NEO_PIPE_CONF_TRIG_CAM0_IDX],
@@ -1002,7 +957,8 @@ static int neoisp_prepare_node_streaming(struct neoisp_node_s *node)
 	 * Check if this is input0 node to preload default params
 	 */
 	if (node->id == NEOISP_INPUT0_NODE) {
-		neoisp_update_pipeline_bit_width(&params->regs, node->neoisp_format->bit_depth);
+		if (neoispd->info->gain_adjust)
+			neoispd->info->gain_adjust(&params->regs, node->neoisp_format->bit_depth);
 		neoisp_update_head_color(&params->regs, pixfmt);
 		neoisp_update_monochrome(&params->regs, pixfmt);
 	}
@@ -1379,6 +1335,7 @@ static int neoisp_try_fmt(struct v4l2_format *f, struct neoisp_node_s *node)
 {
 	const struct neoisp_fmt_s *fmt;
 	u32 pixfmt = f->fmt.pix_mp.pixelformat;
+	struct neoisp_dev_s *neoispd = node->node_group->neoisp_dev;
 
 	if ((pixfmt == V4L2_META_FMT_NEO_ISP_STATS)
 			|| (pixfmt == V4L2_META_FMT_NEO_ISP_PARAMS))
@@ -1398,8 +1355,16 @@ static int neoisp_try_fmt(struct v4l2_format *f, struct neoisp_node_s *node)
 	f->fmt.pix_mp.pixelformat = fmt->fourcc;
 	f->fmt.pix_mp.num_planes = fmt->num_planes;
 	f->fmt.pix_mp.field = V4L2_FIELD_NONE;
-	f->fmt.pix_mp.width = max(min(f->fmt.pix_mp.width, 65536u), 64u);
-	f->fmt.pix_mp.height = max(min(f->fmt.pix_mp.height, 65536u), 64u);
+
+	if (f->fmt.pix_mp.width % 16 != 0 || f->fmt.pix_mp.height % 2 != 0) {
+		dev_warn(&neoispd->pdev->dev,
+			 "Width and height must be a multiple of 16 and 2 respectively\n");
+		/* Round width and height to their respective nearest multiple */
+		f->fmt.pix_mp.width = (f->fmt.pix_mp.width + 8) / 16 * 16;
+		f->fmt.pix_mp.height = (f->fmt.pix_mp.height + 1) / 2 * 2;
+	}
+	f->fmt.pix_mp.width = clamp(f->fmt.pix_mp.width, NEOISP_MIN_W, NEOISP_MAX_W);
+	f->fmt.pix_mp.height = clamp(f->fmt.pix_mp.height, NEOISP_MIN_H, NEOISP_MAX_H);
 
 	/*
 	 * Fill in the actual color space when the requested one was
@@ -1670,15 +1635,15 @@ static void neoisp_get_stats(struct neoisp_dev_s *neoispd, struct neoisp_buffer_
 	memcpy(&dest->mems.hist, &src[offset], size);
 
 	/* get drc local sum stats from memory */
-	neoisp_get_offsize(NEO_DRC_LOCAL_SUM_MAP, &offset, &size);
+	neoisp_get_offsize(neoispd->info->mems->drc_local_sum, &offset, &size);
 	memcpy(&dest->mems.drc.drc_local_sum, &src[offset], size);
 
 	/* get drc hist roi0 stats from memory */
-	neoisp_get_offsize(NEO_DRC_GLOBAL_HIST_ROI0_MAP, &offset, &size);
+	neoisp_get_offsize(neoispd->info->mems->drc_global_hist_roi0, &offset, &size);
 	memcpy(&dest->mems.drc.drc_global_hist_roi0, &src[offset], size);
 
 	/* get drc hist roi1 stats from memory */
-	neoisp_get_offsize(NEO_DRC_GLOBAL_HIST_ROI1_MAP, &offset, &size);
+	neoisp_get_offsize(neoispd->info->mems->drc_global_hist_roi1, &offset, &size);
 	memcpy(&dest->mems.drc.drc_global_hist_roi1, &src[offset], size);
 }
 
@@ -1974,7 +1939,7 @@ err_unregister_queue:
 	return ret;
 }
 
-static int neoisp_init_group(struct neoisp_dev_s *neoispd, struct neoisp_info_s *info, __u32 id)
+static int neoisp_init_group(struct neoisp_dev_s *neoispd, __u32 id)
 {
 	struct neoisp_node_group_s *node_group = &neoispd->node_group[id];
 	struct v4l2_device *v4l2_dev;
@@ -1992,7 +1957,7 @@ static int neoisp_init_group(struct neoisp_dev_s *neoispd, struct neoisp_info_s 
 	/* Register v4l2_device and media_device */
 	mdev = &node_group->mdev;
 	mdev->dev = &neoispd->pdev->dev;
-	mdev->hw_revision = info->neoisp_hw_ver;
+	mdev->hw_revision = neoispd->info->neoisp_hw_ver;
 	strscpy(mdev->model, NEOISP_NAME, sizeof(mdev->model));
 	snprintf(mdev->bus_info, sizeof(mdev->bus_info),
 			"platform:%s", dev_name(&neoispd->pdev->dev));
@@ -2125,14 +2090,14 @@ static int neoisp_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct neoisp_dev_s *neoisp_dev;
-	struct neoisp_info_s *info;
 	int num_groups, ret, irq;
 
 	neoisp_dev = devm_kzalloc(dev, sizeof(*neoisp_dev), GFP_KERNEL);
 	if (!neoisp_dev)
 		return -ENOMEM;
 	neoisp_dev->pdev = pdev;
-	info = (struct neoisp_info_s *)of_device_get_match_data(dev);
+	platform_set_drvdata(pdev, neoisp_dev);
+	neoisp_dev->info = (struct neoisp_info_s *)of_device_get_match_data(dev);
 
 	ret = devm_clk_bulk_get_all(dev, &neoisp_dev->clks);
 	if (ret < 0) {
@@ -2172,8 +2137,6 @@ static int neoisp_probe(struct platform_device *pdev)
 	if (irq < 0)
 		return irq;
 
-	platform_set_drvdata(pdev, neoisp_dev);
-
 	pm_runtime_set_autosuspend_delay(&pdev->dev, NEOISP_SUSPEND_TIMEOUT_MS);
 	pm_runtime_use_autosuspend(&pdev->dev);
 	pm_runtime_enable(&pdev->dev);
@@ -2195,7 +2158,7 @@ static int neoisp_probe(struct platform_device *pdev)
 	 * device
 	 */
 	for (num_groups = 0; num_groups < NEOISP_NODE_GROUPS_COUNT; num_groups++) {
-		ret = neoisp_init_group(neoisp_dev, info, num_groups);
+		ret = neoisp_init_group(neoisp_dev, num_groups);
 		if (ret)
 			goto disable_nodes_err;
 	}
@@ -2305,12 +2268,38 @@ static const struct dev_pm_ops neoisp_pm = {
 	SET_RUNTIME_PM_OPS(neoisp_runtime_suspend, neoisp_runtime_resume, NULL)
 };
 
+/*
+ * The gain adjustment should be done for v2 only, as the 12-bit format is managed in a specific
+ * way. Both versions use LPALIGN0/1 bit field to select LSB or MSB alignment. However, LPALIGN0/1
+ * is disabled for 12-bit operations in v2 and data is always aligned in the following manner:
+ * d[15] -> d[4]
+ *
+ * In this sense, a gain is applied to the HDR Decompression block to align the data on d[19] for
+ * input0 as other formats are defined. As the working BPP of input1 is 16-bit depth, the data is
+ * already MSB-aligned and do not need an extra gain.
+ */
+static void neoisp_gain_adjust_v2(struct neoisp_reg_params_s *regp, __u32 ibpp)
+{
+	if (ibpp == 12)
+		regp->decompress_input0.knee_ratio4 = 16 << NEOISP_HDR_SHIFT_RADIX;
+}
+
 static const struct neoisp_info_s neoisp_v1_data = {
 	.neoisp_hw_ver = NEO_ISP_V1,
+	.regs = neoisp_fields_a_v1,
+	.mems = &active_block_map[NEO_ISP_V1],
+};
+
+static const struct neoisp_info_s neoisp_v2_data = {
+	.neoisp_hw_ver = NEO_ISP_V2,
+	.regs = neoisp_fields_a_v2,
+	.mems = &active_block_map[NEO_ISP_V2],
+	.gain_adjust = neoisp_gain_adjust_v2,
 };
 
 static const struct of_device_id neoisp_dt_ids[] = {
 	{ .compatible = "nxp,imx95-a0-neoisp", .data = &neoisp_v1_data },
+	{ .compatible = "nxp,imx95-b0-neoisp", .data = &neoisp_v2_data },
 	{ },
 };
 MODULE_DEVICE_TABLE(of, neoisp_dt_ids);

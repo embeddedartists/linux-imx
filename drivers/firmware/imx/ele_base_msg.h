@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0+ */
 /*
- * Copyright 2024 NXP
+ * Copyright 2024-2025 NXP
  *
  * Header file for the EdgeLock Enclave Base API(s).
  */
@@ -49,6 +49,8 @@ struct dev_addn_info {
 	uint8_t  csal_state;
 	uint8_t  imem_state;
 	uint8_t  reserved2;
+	uint8_t  oem_pqc_srkh[DEV_GETINFO_OEM_SRKH_SZ];
+	uint8_t  reserved3[32];
 };
 
 struct ele_dev_info {
@@ -56,14 +58,13 @@ struct ele_dev_info {
 	struct dev_addn_info d_addn_info;
 };
 
-#define ELE_GET_INFO_BUFF_SZ		(sizeof(struct ele_dev_info) \
-						+ ELE_DEV_INFO_EXTRA_SZ)
+#define ELE_GET_INFO_BUFF_SZ		sizeof(struct ele_dev_info)
 
 #define GET_SERIAL_NUM_FROM_UID(x, uid_word_sz) \
 	(((u64)(((u32 *)(x))[(uid_word_sz) - 1]) << 32) | ((u32 *)(x))[0])
 
 #define ELE_MAX_DBG_DMP_PKT		30
-#define ELE_NON_DUMP_BUFFER_SZ		2
+#define ELE_NON_DUMP_BUFFER_SZ		3
 #define ELE_DEBUG_DUMP_REQ		0x21
 #define ELE_DEBUG_DUMP_REQ_SZ		0x4
 #define ELE_DEBUG_DUMP_RSP_SZ		0x5c
@@ -82,6 +83,10 @@ struct ele_dev_info {
 #define ELE_IMEM_STATE_MASK		0x00ff0000
 #define ELE_IMEM_EXPORT			0x1
 #define ELE_IMEM_IMPORT			0x2
+
+#define ELE_FW_GET_FWAUTH_REQ			0x02
+#define ELE_FW_AUTH_REQ_SZ		0x10
+#define ELE_FW_AUTH_RSP_MSG_SZ		0x08
 
 #define ELE_FW_AUTH_REQ			0x02
 #define ELE_FW_AUTH_REQ_SZ		0x10
@@ -115,6 +120,10 @@ struct ele_dev_info {
 #define ELE_V2X_FW_AUTH_REQ_SZ		0x10
 #define ELE_V2X_FW_AUTH_RSP_MSG_SZ	0x08
 
+#define ELE_GET_FW_VERSION_REQ		0x9d
+#define ELE_GET_FW_VERSION_REQ_SZ	0x04
+#define ELE_GET_FW_VERSION_RSP_SZ	0x10
+
 int ele_get_info(struct se_if_priv *priv, struct ele_dev_info *s_info);
 int ele_fetch_soc_info(struct se_if_priv *priv, void *data);
 int ele_ping(struct se_if_priv *priv);
@@ -131,4 +140,6 @@ int read_common_fuse(struct se_if_priv *priv,
 int ele_get_v2x_fw_state(struct se_if_priv *priv, uint32_t *state);
 int ele_v2x_fw_authenticate(struct se_if_priv *priv, phys_addr_t addr);
 int ele_debug_dump(struct se_if_priv *priv);
+int ele_get_fw_version(struct se_if_priv *priv, u32 *fw_ver_word,
+		       u32 *commit_sha1);
 #endif

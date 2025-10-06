@@ -1423,6 +1423,11 @@ static int check_slab(struct kmem_cache *s, struct slab *slab)
 			slab->inuse, slab->objects);
 		return 0;
 	}
+	if (slab->frozen) {
+		slab_err(s, slab, "Slab disabled since SLUB metadata consistency check failed");
+		return 0;
+	}
+
 	/* Slab_pad_check fixes things up after itself */
 	slab_pad_check(s, slab);
 	return 1;
@@ -1603,6 +1608,7 @@ bad:
 		slab_fix(s, "Marking all objects used");
 		slab->inuse = slab->objects;
 		slab->freelist = NULL;
+		slab->frozen = 1; /* mark consistency-failed slab as frozen */
 	}
 	return false;
 }
@@ -1954,6 +1960,11 @@ static inline void handle_failed_objexts_alloc(unsigned long obj_exts,
 #define OBJCGS_CLEAR_MASK	(__GFP_DMA | __GFP_RECLAIMABLE | \
 				__GFP_ACCOUNT | __GFP_NOFAIL)
 
+static inline void init_slab_obj_exts(struct slab *slab)
+{
+	slab->obj_exts = 0;
+}
+
 int alloc_slab_obj_exts(struct slab *slab, struct kmem_cache *s,
 		        gfp_t gfp, bool new_slab)
 {
@@ -2024,19 +2035,11 @@ static inline void free_slab_obj_exts(struct slab *slab)
 	slab->obj_exts = 0;
 }
 
-static inline bool need_slab_obj_ext(void)
-{
-	if (mem_alloc_profiling_enabled())
-		return true;
-
-	/*
-	 * CONFIG_MEMCG creates vector of obj_cgroup objects conditionally
-	 * inside memcg_slab_post_alloc_hook. No other users for now.
-	 */
-	return false;
-}
-
 #else /* CONFIG_SLAB_OBJ_EXT */
+
+static inline void init_slab_obj_exts(struct slab *slab)
+{
+}
 
 static int alloc_slab_obj_exts(struct slab *slab, struct kmem_cache *s,
 			       gfp_t gfp, bool new_slab)
@@ -2046,11 +2049,6 @@ static int alloc_slab_obj_exts(struct slab *slab, struct kmem_cache *s,
 
 static inline void free_slab_obj_exts(struct slab *slab)
 {
-}
-
-static inline bool need_slab_obj_ext(void)
-{
-	return false;
 }
 
 #endif /* CONFIG_SLAB_OBJ_EXT */
@@ -2084,7 +2082,7 @@ prepare_slab_obj_exts_hook(struct kmem_cache *s, gfp_t flags, void *p)
 static inline void
 alloc_tagging_slab_alloc_hook(struct kmem_cache *s, void *object, gfp_t flags)
 {
-	if (need_slab_obj_ext()) {
+	if (mem_alloc_profiling_enabled()) {
 		struct slabobj_ext *obj_exts;
 
 		obj_exts = prepare_slab_obj_exts_hook(s, flags, object);
@@ -2193,9 +2191,24 @@ bool memcg_slab_post_charge(void *p, gfp_t flags)
 
 	folio = virt_to_folio(p);
 	if (!folio_test_slab(folio)) {
-		return folio_memcg_kmem(folio) ||
-			(__memcg_kmem_charge_page(folio_page(folio, 0), flags,
-						  folio_order(folio)) == 0);
+		int size;
+
+		if (folio_memcg_kmem(folio))
+			return true;
+
+		if (__memcg_kmem_charge_page(folio_page(folio, 0), flags,
+					     folio_order(folio)))
+			return false;
+
+		/*
+		 * This folio has already been accounted in the global stats but
+		 * not in the memcg stats. So, subtract from the global and use
+		 * the interface which adds to both global and memcg stats.
+		 */
+		size = folio_size(folio);
+		node_stat_mod_folio(folio, NR_SLAB_UNRECLAIMABLE_B, -size);
+		lruvec_stat_mod_folio(folio, NR_SLAB_UNRECLAIMABLE_B, size);
+		return true;
 	}
 
 	slab = folio_slab(folio);
@@ -2547,8 +2560,12 @@ static __always_inline void account_slab(struct slab *slab, int order,
 static __always_inline void unaccount_slab(struct slab *slab, int order,
 					   struct kmem_cache *s)
 {
-	if (memcg_kmem_online() || need_slab_obj_ext())
-		free_slab_obj_exts(slab);
+	/*
+	 * The slab object extensions should now be freed regardless of
+	 * whether mem_alloc_profiling_enabled() or not because profiling
+	 * might have been disabled after slab->obj_exts got allocated.
+	 */
+	free_slab_obj_exts(slab);
 
 	mod_node_page_state(slab_pgdat(slab), cache_vmstat_idx(s),
 			    -(PAGE_SIZE << order));
@@ -2592,6 +2609,7 @@ static struct slab *allocate_slab(struct kmem_cache *s, gfp_t flags, int node)
 	slab->objects = oo_objects(oo);
 	slab->inuse = 0;
 	slab->frozen = 0;
+	init_slab_obj_exts(slab);
 
 	account_slab(slab, oo_order(oo), s, flags);
 
@@ -2744,7 +2762,8 @@ static void *alloc_single_from_partial(struct kmem_cache *s,
 	slab->inuse++;
 
 	if (!alloc_debug_processing(s, slab, object, orig_size)) {
-		remove_partial(n, slab);
+		if (folio_test_slab(slab_folio(slab)))
+			remove_partial(n, slab);
 		return NULL;
 	}
 

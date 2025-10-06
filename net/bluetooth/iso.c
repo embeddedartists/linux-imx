@@ -938,7 +938,7 @@ static int iso_sock_bind_bc(struct socket *sock, struct sockaddr *addr,
 
 	iso_pi(sk)->dst_type = sa->iso_bc->bc_bdaddr_type;
 
-	if (sa->iso_bc->bc_sid > 0x0f)
+	if (sa->iso_bc->bc_sid > 0x0f && sa->iso_bc->bc_sid != HCI_SID_INVALID)
 		return -EINVAL;
 
 	iso_pi(sk)->bc_sid = sa->iso_bc->bc_sid;
@@ -1129,6 +1129,7 @@ static int iso_listen_bis(struct sock *sk)
 		return -EHOSTUNREACH;
 
 	hci_dev_lock(hdev);
+	lock_sock(sk);
 
 	/* Fail if user set invalid QoS */
 	if (iso_pi(sk)->qos_user_set && !check_bcast_qos(&iso_pi(sk)->qos)) {
@@ -1158,10 +1159,10 @@ static int iso_listen_bis(struct sock *sk)
 		goto unlock;
 	}
 
-	hci_dev_put(hdev);
-
 unlock:
+	release_sock(sk);
 	hci_dev_unlock(hdev);
+	hci_dev_put(hdev);
 	return err;
 }
 
@@ -1188,6 +1189,7 @@ static int iso_sock_listen(struct socket *sock, int backlog)
 
 	BT_DBG("sk %p backlog %d", sk, backlog);
 
+	sock_hold(sk);
 	lock_sock(sk);
 
 	if (sk->sk_state != BT_BOUND) {
@@ -1200,10 +1202,16 @@ static int iso_sock_listen(struct socket *sock, int backlog)
 		goto done;
 	}
 
-	if (!bacmp(&iso_pi(sk)->dst, BDADDR_ANY))
+	if (!bacmp(&iso_pi(sk)->dst, BDADDR_ANY)) {
 		err = iso_listen_cis(sk);
-	else
+	} else {
+		/* Drop sock lock to avoid potential
+		 * deadlock with the hdev lock.
+		 */
+		release_sock(sk);
 		err = iso_listen_bis(sk);
+		lock_sock(sk);
+	}
 
 	if (err)
 		goto done;
@@ -1215,6 +1223,7 @@ static int iso_sock_listen(struct socket *sock, int backlog)
 
 done:
 	release_sock(sk);
+	sock_put(sk);
 	return err;
 }
 
@@ -1226,7 +1235,11 @@ static int iso_sock_accept(struct socket *sock, struct socket *newsock,
 	long timeo;
 	int err = 0;
 
-	lock_sock(sk);
+	/* Use explicit nested locking to avoid lockdep warnings generated
+	 * because the parent socket and the child socket are locked on the
+	 * same thread.
+	 */
+	lock_sock_nested(sk, SINGLE_DEPTH_NESTING);
 
 	timeo = sock_rcvtimeo(sk, arg->flags & O_NONBLOCK);
 
@@ -1257,7 +1270,7 @@ static int iso_sock_accept(struct socket *sock, struct socket *newsock,
 		release_sock(sk);
 
 		timeo = wait_woken(&wait, TASK_INTERRUPTIBLE, timeo);
-		lock_sock(sk);
+		lock_sock_nested(sk, SINGLE_DEPTH_NESTING);
 	}
 	remove_wait_queue(sk_sleep(sk), &wait);
 
@@ -1398,18 +1411,19 @@ static void iso_conn_big_sync(struct sock *sk)
 	 * change.
 	 */
 	hci_dev_lock(hdev);
+	lock_sock(sk);
 
 	if (!test_and_set_bit(BT_SK_BIG_SYNC, &iso_pi(sk)->flags)) {
-		err = hci_le_big_create_sync(hdev, iso_pi(sk)->conn->hcon,
-					     &iso_pi(sk)->qos,
-					     iso_pi(sk)->sync_handle,
-					     iso_pi(sk)->bc_num_bis,
-					     iso_pi(sk)->bc_bis);
+		err = hci_conn_big_create_sync(hdev, iso_pi(sk)->conn->hcon,
+					       &iso_pi(sk)->qos,
+					       iso_pi(sk)->sync_handle,
+					       iso_pi(sk)->bc_num_bis,
+					       iso_pi(sk)->bc_bis);
 		if (err)
-			bt_dev_err(hdev, "hci_le_big_create_sync: %d",
-				   err);
+			bt_dev_err(hdev, "hci_big_create_sync: %d", err);
 	}
 
+	release_sock(sk);
 	hci_dev_unlock(hdev);
 }
 
@@ -1418,39 +1432,57 @@ static int iso_sock_recvmsg(struct socket *sock, struct msghdr *msg,
 {
 	struct sock *sk = sock->sk;
 	struct iso_pinfo *pi = iso_pi(sk);
+	bool early_ret = false;
+	int err = 0;
 
 	BT_DBG("sk %p", sk);
 
 	if (test_and_clear_bit(BT_SK_DEFER_SETUP, &bt_sk(sk)->flags)) {
+		sock_hold(sk);
 		lock_sock(sk);
+
 		switch (sk->sk_state) {
 		case BT_CONNECT2:
 			if (test_bit(BT_SK_PA_SYNC, &pi->flags)) {
+				release_sock(sk);
 				iso_conn_big_sync(sk);
+				lock_sock(sk);
+
 				sk->sk_state = BT_LISTEN;
 			} else {
 				iso_conn_defer_accept(pi->conn->hcon);
 				sk->sk_state = BT_CONFIG;
 			}
-			release_sock(sk);
-			return 0;
+
+			early_ret = true;
+			break;
 		case BT_CONNECTED:
 			if (test_bit(BT_SK_PA_SYNC, &iso_pi(sk)->flags)) {
-				iso_conn_big_sync(sk);
-				sk->sk_state = BT_LISTEN;
 				release_sock(sk);
-				return 0;
+				iso_conn_big_sync(sk);
+				lock_sock(sk);
+
+				sk->sk_state = BT_LISTEN;
+				early_ret = true;
 			}
 
-			release_sock(sk);
 			break;
 		case BT_CONNECT:
 			release_sock(sk);
-			return iso_connect_cis(sk);
+			err = iso_connect_cis(sk);
+			lock_sock(sk);
+
+			early_ret = true;
+			break;
 		default:
-			release_sock(sk);
 			break;
 		}
+
+		release_sock(sk);
+		sock_put(sk);
+
+		if (early_ret)
+			return err;
 	}
 
 	return bt_sock_recvmsg(sock, msg, len, flags);
@@ -1566,7 +1598,7 @@ static int iso_sock_setsockopt(struct socket *sock, int level, int optname,
 			break;
 		}
 
-		err = bt_copy_from_sockptr(&opt, sizeof(opt), optval, optlen);
+		err = copy_safe_from_sockptr(&opt, sizeof(opt), optval, optlen);
 		if (err)
 			break;
 
@@ -1577,7 +1609,7 @@ static int iso_sock_setsockopt(struct socket *sock, int level, int optname,
 		break;
 
 	case BT_PKT_STATUS:
-		err = bt_copy_from_sockptr(&opt, sizeof(opt), optval, optlen);
+		err = copy_safe_from_sockptr(&opt, sizeof(opt), optval, optlen);
 		if (err)
 			break;
 
@@ -1596,7 +1628,7 @@ static int iso_sock_setsockopt(struct socket *sock, int level, int optname,
 			break;
 		}
 
-		err = bt_copy_from_sockptr(&qos, sizeof(qos), optval, optlen);
+		err = copy_safe_from_sockptr(&qos, sizeof(qos), optval, optlen);
 		if (err)
 			break;
 
@@ -1617,8 +1649,8 @@ static int iso_sock_setsockopt(struct socket *sock, int level, int optname,
 			break;
 		}
 
-		err = bt_copy_from_sockptr(iso_pi(sk)->base, optlen, optval,
-					   optlen);
+		err = copy_safe_from_sockptr(iso_pi(sk)->base, optlen, optval,
+					     optlen);
 		if (err)
 			break;
 
@@ -1822,7 +1854,7 @@ static void iso_conn_ready(struct iso_conn *conn)
 		if (test_bit(HCI_CONN_BIG_SYNC, &hcon->flags) ||
 		    test_bit(HCI_CONN_BIG_SYNC_FAILED, &hcon->flags)) {
 			ev = hci_recv_event_data(hcon->hdev,
-						 HCI_EVT_LE_BIG_SYNC_ESTABILISHED);
+						 HCI_EVT_LE_BIG_SYNC_ESTABLISHED);
 
 			/* Get reference to PA sync parent socket, if it exists */
 			parent = iso_get_sock(&hcon->src, &hcon->dst,
@@ -1931,6 +1963,9 @@ static bool iso_match_sid(struct sock *sk, void *data)
 {
 	struct hci_ev_le_pa_sync_established *ev = data;
 
+	if (iso_pi(sk)->bc_sid == HCI_SID_INVALID)
+		return true;
+
 	return ev->sid == iso_pi(sk)->bc_sid;
 }
 
@@ -1977,8 +2012,10 @@ int iso_connect_ind(struct hci_dev *hdev, bdaddr_t *bdaddr, __u8 *flags)
 	if (ev1) {
 		sk = iso_get_sock(&hdev->bdaddr, bdaddr, BT_LISTEN,
 				  iso_match_sid, ev1);
-		if (sk && !ev1->status)
+		if (sk && !ev1->status) {
 			iso_pi(sk)->sync_handle = le16_to_cpu(ev1->handle);
+			iso_pi(sk)->bc_sid = ev1->sid;
+		}
 
 		goto done;
 	}
@@ -2014,12 +2051,11 @@ int iso_connect_ind(struct hci_dev *hdev, bdaddr_t *bdaddr, __u8 *flags)
 
 			if (!test_bit(BT_SK_DEFER_SETUP, &bt_sk(sk)->flags) &&
 			    !test_and_set_bit(BT_SK_BIG_SYNC, &iso_pi(sk)->flags)) {
-				err = hci_le_big_create_sync(hdev,
-							     hcon,
-							     &iso_pi(sk)->qos,
-							     iso_pi(sk)->sync_handle,
-							     iso_pi(sk)->bc_num_bis,
-							     iso_pi(sk)->bc_bis);
+				err = hci_conn_big_create_sync(hdev, hcon,
+							       &iso_pi(sk)->qos,
+							       iso_pi(sk)->sync_handle,
+							       iso_pi(sk)->bc_num_bis,
+							       iso_pi(sk)->bc_bis);
 				if (err) {
 					bt_dev_err(hdev, "hci_le_big_create_sync: %d",
 						   err);

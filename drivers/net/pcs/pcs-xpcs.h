@@ -125,16 +125,17 @@
 
 int xpcs_read(struct dw_xpcs *xpcs, int dev, u32 reg);
 int xpcs_write(struct dw_xpcs *xpcs, int dev, u32 reg, u16 val);
-int xpcs_phy_read(struct dw_xpcs *xpcs, int dev, u32 reg);
-int xpcs_phy_write(struct dw_xpcs *xpcs, int dev, u32 reg, u16 val);
 int xpcs_read_vpcs(struct dw_xpcs *xpcs, int reg);
 int xpcs_write_vpcs(struct dw_xpcs *xpcs, int reg, u16 val);
 int nxp_sja1105_sgmii_pma_config(struct dw_xpcs *xpcs);
 int nxp_sja1110_sgmii_pma_config(struct dw_xpcs *xpcs);
 int nxp_sja1110_2500basex_pma_config(struct dw_xpcs *xpcs);
 int txgbe_xpcs_switch_mode(struct dw_xpcs *xpcs, phy_interface_t interface);
-void xpcs_phy_reg_lock(struct dw_xpcs *xpcs);
-int xpcs_phy_usxgmii_pma_config(struct dw_xpcs *xpcs);
+int imx95_xpcs_phy_xfi_config(struct dw_xpcs *xpcs);
+int imx95_xpcs_phy_sgmii_1g_config(struct dw_xpcs *xpcs);
+int imx95_xpcs_phy_sgmii_2p5g_config(struct dw_xpcs *xpcs);
+int imx94_xpcs_phy_sgmii_1g_config(struct dw_xpcs *xpcs);
+int imx94_xpcs_phy_sgmii_2p5g_config(struct dw_xpcs *xpcs);
 void xpcs_phy_reset(struct dw_xpcs *xpcs);
 u32 xpcs_phy_get_id(struct dw_xpcs *xpcs);
 int xpcs_phy_check_id(u32 id);

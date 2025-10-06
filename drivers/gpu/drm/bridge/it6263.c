@@ -26,6 +26,8 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_graph.h>
+#include <linux/of_platform.h>
+#include <linux/platform_device.h>
 #include <linux/regmap.h>
 
 #define REG_VENDOR_ID(n)	(0x00 + (n))	/* n: 0/1 */
@@ -338,6 +340,7 @@ struct it6263 {
 	struct gpio_desc *reset_gpio;
 	bool is_hdmi;
 	bool split_mode;
+	bool de_ssc_enable;
 };
 
 struct it6263_minimode {
@@ -403,7 +406,8 @@ static void it6263_reset(struct it6263 *it6263)
 static void it6263_lvds_reset(struct it6263 *it6263)
 {
 	/* AFE PLL reset */
-	lvds_update_bits(it6263, LVDS_REG_PLL, 0x1, 0x0);
+	lvds_update_bits(it6263, LVDS_REG_PLL,
+			 it6263->de_ssc_enable ? 0x07 : 0x1, 0x0);
 	usleep_range(1000, 2000);
 	lvds_update_bits(it6263, LVDS_REG_PLL, 0x1, 0x1);
 
@@ -414,6 +418,13 @@ static void it6263_lvds_reset(struct it6263 *it6263)
 	lvds_update_bits(it6263, LVDS_REG_SW_RST, SOFT_PCLK_DM_RST, 0x0);
 
 	usleep_range(1000, 2000);
+
+	if (!it6263->de_ssc_enable)
+		return;
+
+	lvds_update_bits(it6263, 0x2c, BIT(6), BIT(6));
+	usleep_range(1000, 2000);
+	lvds_update_bits(it6263, 0x2c, BIT(6), 0);
 }
 
 static void it6263_lvds_set_interface(struct it6263 *it6263)
@@ -447,11 +458,23 @@ static void it6263_lvds_set_afe(struct it6263 *it6263)
 	lvds_update_bits(it6263, LVDS_REG_PLL, 0x07, 0);
 }
 
+static void it6263_lvds_de_ssc_enable(struct it6263 *it6263)
+{
+	if (!it6263->de_ssc_enable)
+		return;
+
+	lvds_update_bits(it6263, LVDS_REG_PLL, 0x07, 0x07);
+	lvds_update_bits(it6263, 0x2c, BIT(6), BIT(6));
+	usleep_range(1000, 2000);
+	lvds_update_bits(it6263, 0x2c, BIT(6), 0);
+}
+
 static void it6263_lvds_config(struct it6263 *it6263)
 {
 	it6263_lvds_reset(it6263);
 	it6263_lvds_set_interface(it6263);
 	it6263_lvds_set_afe(it6263);
+	it6263_lvds_de_ssc_enable(it6263);
 }
 
 static void it6263_hdmi_config(struct it6263 *it6263)
@@ -1028,6 +1051,8 @@ static int it6263_probe(struct i2c_client *client)
 		goto unregister_lvds_i2c;
 	}
 
+	it6263->de_ssc_enable = of_property_read_bool(np, "de-ssc-enable");
+
 	it6263_reset(it6263);
 
 	ret = regmap_write(it6263->hdmi_regmap, HDMI_REG_SW_RST, HDMI_RST_ALL);
@@ -1084,6 +1109,7 @@ of_reconfig:
 
 	if (remote_node) {
 		int num_endpoints = 0;
+		struct platform_device *pdev;
 
 		/*
 		 * Remote node should have two endpoints (input and output: us)
@@ -1096,6 +1122,22 @@ of_reconfig:
 			num_endpoints++;
 
 		if (num_endpoints > 2) {
+			of_node_put(remote_node);
+			return ret;
+		}
+
+		/*
+		 * If the remote_node is an actual platform device, turning the node status to
+		 * 'disabled' will actually call device_del() which, in turn, will attempt to
+		 * purge all the supplier-consumer device links. However, in this case, since the
+		 * LDB driver is a supplier to IT6263, the device link is in DL_STATE_CONSUMER_PROBE
+		 * and we get a warning. If the remote node is not a supplier (channel@0,
+		 * lvds-channel@0, etc.) then there are no issues. So, only continue disabling the
+		 * nodes that are not resource suppliers for it6263.
+		 */
+		pdev = of_find_device_by_node(remote_node);
+		if (pdev) {
+			platform_device_put(pdev);
 			of_node_put(remote_node);
 			return ret;
 		}

@@ -39,6 +39,7 @@ enum reg_type {
  * struct fsl_mqs_soc_data - soc specific data
  *
  * @type: control register space type
+ * @sm_index: index from definition in system manager
  * @ctrl_off: control register offset
  * @en_mask: enable bit mask
  * @en_shift: enable bit shift
@@ -51,6 +52,7 @@ enum reg_type {
  */
 struct fsl_mqs_soc_data {
 	enum reg_type type;
+	int  sm_index;
 	int  ctrl_off;
 	int  en_mask;
 	int  en_shift;
@@ -82,7 +84,7 @@ static int fsl_mqs_sm_read(void *context, unsigned int reg, unsigned int *val)
 
 	if (IS_ENABLED(CONFIG_IMX_SCMI_MISC_DRV) &&
 	    mqs_priv->soc->ctrl_off == reg)
-		return scmi_imx_misc_ctrl_get(SCMI_IMX_CTRL_MQS1_SETTINGS, &num, val);
+		return scmi_imx_misc_ctrl_get(mqs_priv->soc->sm_index, &num, val);
 
 	return -EINVAL;
 };
@@ -93,7 +95,7 @@ static int fsl_mqs_sm_write(void *context, unsigned int reg, unsigned int val)
 
 	if (IS_ENABLED(CONFIG_IMX_SCMI_MISC_DRV) &&
 	    mqs_priv->soc->ctrl_off == reg)
-		return scmi_imx_misc_ctrl_set(SCMI_IMX_CTRL_MQS1_SETTINGS, val);
+		return scmi_imx_misc_ctrl_set(mqs_priv->soc->sm_index, val);
 
 	return -EINVAL;
 };
@@ -386,6 +388,7 @@ static const struct fsl_mqs_soc_data fsl_mqs_imx93_data = {
 
 static const struct fsl_mqs_soc_data fsl_mqs_imx95_aon_data = {
 	.type = TYPE_REG_SM,
+	.sm_index = SCMI_IMX95_CTRL_MQS1_SETTINGS,
 	.ctrl_off = 0x88,
 	.en_mask  = BIT(1),
 	.en_shift = 1,
@@ -410,12 +413,42 @@ static const struct fsl_mqs_soc_data fsl_mqs_imx95_netc_data = {
 	.div_shift = 9,
 };
 
+static const struct fsl_mqs_soc_data fsl_mqs_imx943_aon_data = {
+	.type = TYPE_REG_SM,
+	.sm_index = SCMI_IMX94_CTRL_MQS1_SETTINGS,
+	.ctrl_off = 0x88,
+	.en_mask  = BIT(1),
+	.en_shift = 1,
+	.rst_mask = BIT(2),
+	.rst_shift = 2,
+	.osr_mask = BIT(3),
+	.osr_shift = 3,
+	.div_mask = GENMASK(15, 8),
+	.div_shift = 8,
+};
+
+static const struct fsl_mqs_soc_data fsl_mqs_imx943_wakeup_data = {
+	.type = TYPE_REG_SM,
+	.sm_index = SCMI_IMX94_CTRL_MQS2_SETTINGS,
+	.ctrl_off = 0x10,
+	.en_mask  = BIT(1),
+	.en_shift = 1,
+	.rst_mask = BIT(2),
+	.rst_shift = 2,
+	.osr_mask = BIT(3),
+	.osr_shift = 3,
+	.div_mask = GENMASK(15, 8),
+	.div_shift = 8,
+};
+
 static const struct of_device_id fsl_mqs_dt_ids[] = {
 	{ .compatible = "fsl,imx8qm-mqs", .data = &fsl_mqs_imx8qm_data },
 	{ .compatible = "fsl,imx6sx-mqs", .data = &fsl_mqs_imx6sx_data },
 	{ .compatible = "fsl,imx93-mqs", .data = &fsl_mqs_imx93_data },
 	{ .compatible = "fsl,imx95-aonmix-mqs", .data = &fsl_mqs_imx95_aon_data },
 	{ .compatible = "fsl,imx95-netcmix-mqs", .data = &fsl_mqs_imx95_netc_data },
+	{ .compatible = "fsl,imx943-aonmix-mqs", .data = &fsl_mqs_imx943_aon_data },
+	{ .compatible = "fsl,imx943-wakeupmix-mqs", .data = &fsl_mqs_imx943_wakeup_data },
 	{}
 };
 MODULE_DEVICE_TABLE(of, fsl_mqs_dt_ids);

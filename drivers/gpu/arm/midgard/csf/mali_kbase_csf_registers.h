@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /*
  *
- * (C) COPYRIGHT 2018-2024 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2018-2025 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -180,6 +180,7 @@
 #define CSG_PROTM_SUSPEND_BUF_HI 0x004C /* () Protected mode suspend buffer, high word */
 #define CSG_CONFIG 0x0050 /* () CSG configuration options */
 #define CSG_ITER_TRACE_CONFIG 0x0054 /* () CSG trace configuration */
+#define CSG_ENDPOINT_TASK_LIMIT 0x0058 /* () Endpoint task limit configuration */
 #define CSG_DVS_BUF_LO 0x0060 /* () Normal mode deferred vertex shading work buffer, low word */
 #define CSG_DVS_BUF_HI 0x0064 /* () Normal mode deferred vertex shading work buffer, high word */
 
@@ -204,6 +205,7 @@
 #define GLB_GROUP_STRIDE 0x0014 /* () Stride between CSG interfaces */
 #define GLB_PRFCNT_SIZE 0x0018 /* () Size of CSF performance counters */
 #define GLB_INSTR_FEATURES 0x001C /* () TRACE_POINT instrumentation. (csf >= 1.1.0) */
+#define GLB_PRFCNT_FEATURES 0x0020 /* () Performance counter features */
 #define GROUP_CONTROL_0 0x1000 /* () CSG control and capabilities */
 #define GROUP_CONTROL(n) (GROUP_CONTROL_0 + (n)*256)
 #define GROUP_CONTROL_REG(n, r) (GROUP_CONTROL(n) + GROUP_CONTROL_BLOCK_REG(r))
@@ -1982,6 +1984,16 @@
 #define GLB_PRFCNT_CONFIG_SET_SELECT_SET(reg_val, value)    \
 	(((reg_val) & ~GLB_PRFCNT_CONFIG_SET_SELECT_MASK) | \
 	 (((value) << GLB_PRFCNT_CONFIG_SET_SELECT_SHIFT) & GLB_PRFCNT_CONFIG_SET_SELECT_MASK))
+#define GLB_PRFCNT_CONFIG_METADATA_ENABLE_SHIFT GPU_U(10)
+#define GLB_PRFCNT_CONFIG_METADATA_ENABLE_MASK \
+	(GPU_U(0x1) << GLB_PRFCNT_CONFIG_METADATA_ENABLE_SHIFT)
+#define GLB_PRFCNT_CONFIG_METADATA_ENABLE_GET(reg_val)         \
+	(((reg_val)&GLB_PRFCNT_CONFIG_METADATA_ENABLE_MASK) >> \
+	 GLB_PRFCNT_CONFIG_METADATA_ENABLE_SHIFT)
+#define GLB_PRFCNT_CONFIG_METADATA_ENABLE_SET(reg_val, value)     \
+	(~(~(reg_val) | GLB_PRFCNT_CONFIG_METADATA_ENABLE_MASK) | \
+	 (((value) << GLB_PRFCNT_CONFIG_METADATA_ENABLE_SHIFT) &  \
+	  GLB_PRFCNT_CONFIG_METADATA_ENABLE_MASK))
 
 /* GLB_PRFCNT_SIZE register */
 #define GLB_PRFCNT_SIZE_HARDWARE_SIZE_SET_MOD(value) ((value) >> 8)
@@ -2006,6 +2018,16 @@
 	(((reg_val) & ~GLB_PRFCNT_SIZE_FIRMWARE_SIZE_MASK) |                                      \
 	 ((GLB_PRFCNT_SIZE_FIRMWARE_SIZE_SET_MOD(value) << GLB_PRFCNT_SIZE_FIRMWARE_SIZE_SHIFT) & \
 	  GLB_PRFCNT_SIZE_FIRMWARE_SIZE_MASK))
+
+/* GLB_PRFCNT_FEATURES register */
+#define GLB_PRFCNT_FEATURES_METADATA_SIZE_GET_MOD(value) (value << 8)
+#define GLB_PRFCNT_FEATURES_METADATA_SIZE_SHIFT GPU_U(0)
+#define GLB_PRFCNT_FEATURES_METADATA_SIZE_MASK \
+	(GPU_U(0xF) << GLB_PRFCNT_FEATURES_METADATA_SIZE_SHIFT)
+#define GLB_PRFCNT_FEATURES_METADATA_SIZE_GET(reg_val)                \
+	(GLB_PRFCNT_FEATURES_METADATA_SIZE_GET_MOD(                   \
+		((reg_val)&GLB_PRFCNT_FEATURES_METADATA_SIZE_MASK) >> \
+		GLB_PRFCNT_FEATURES_METADATA_SIZE_SHIFT))
 
 /* GLB_DEBUG_REQ register */
 #define GLB_DEBUG_REQ_DEBUG_RUN_SHIFT GPU_U(23)

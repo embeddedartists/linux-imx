@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: (GPL-2.0-only OR MIT)
 /*
- * Copyright 2024 NXP
+ * Copyright 2024-2025 NXP
  */
 
 #include <dt-bindings/clock/nxp,imx95-clock.h>
@@ -398,8 +398,16 @@
 				reg = <0x19>;
 			};
 
+			scmi_lmm: protocol@80 {
+				reg = <0x80>;
+			};
+
 			scmi_bbm: protocol@81 {
 				reg = <0x81>;
+			};
+
+			scmi_cpu: protocol@82 {
+				reg = <0x82>;
 			};
 
 			scmi_misc: protocol@84 {
@@ -820,7 +828,8 @@
 					     <GIC_SPI 250 IRQ_TYPE_LEVEL_HIGH>;
 				clocks = <&scmi_clk IMX95_CLK_BUSWAKEUP>;
 				clock-names = "dma";
-				status = "disabled";
+				dma-coherent;
+				iommus = <&smmu 0x0>;
 			};
 
 			mu7: mailbox@42430000 {
@@ -870,6 +879,19 @@
 				reg = <0x42510000 0x1000>;
 				clocks = <&scmi_clk IMX95_CLK_TPM6>;
 				#pwm-cells = <3>;
+				status = "disabled";
+			};
+
+			i3c2: i3c@42520000 {
+				compatible = "silvaco,i3c-master-v1";
+				reg = <0x42520000 0x10000>;
+				interrupts = <GIC_SPI 57 IRQ_TYPE_LEVEL_HIGH>;
+				#address-cells = <3>;
+				#size-cells = <0>;
+				clocks = <&scmi_clk IMX95_CLK_BUSWAKEUP>,
+					 <&scmi_clk IMX95_CLK_I3C2SLOW>,
+					 <&dummy>;
+				clock-names = "pclk", "fast_clk", "slow_clk";
 				status = "disabled";
 			};
 
@@ -1287,6 +1309,7 @@
 				bus-width = <8>;
 				fsl,tuning-start-tap = <1>;
 				fsl,tuning-step= <2>;
+				iommus = <&smmu 0x1>;
 				status = "disabled";
 			};
 
@@ -1304,6 +1327,7 @@
 				bus-width = <4>;
 				fsl,tuning-start-tap = <1>;
 				fsl,tuning-step= <2>;
+				iommus = <&smmu 0x2>;
 				status = "disabled";
 			};
 
@@ -1321,6 +1345,7 @@
 				bus-width = <4>;
 				fsl,tuning-start-tap = <1>;
 				fsl,tuning-step= <2>;
+				iommus = <&smmu 0x3>;
 				status = "disabled";
 			};
 		};
@@ -1465,6 +1490,19 @@
 				reg = <0x44320000 0x1000>;
 				clocks = <&scmi_clk IMX95_CLK_TPM2>;
 				#pwm-cells = <3>;
+				status = "disabled";
+			};
+
+			i3c1: i3c@44330000 {
+				compatible = "silvaco,i3c-master-v1";
+				reg = <0x44330000 0x10000>;
+				interrupts = <GIC_SPI 12 IRQ_TYPE_LEVEL_HIGH>;
+				#address-cells = <3>;
+				#size-cells = <0>;
+				clocks = <&scmi_clk IMX95_CLK_BUSAON>,
+					 <&scmi_clk IMX95_CLK_I3C1SLOW>,
+					 <&dummy>;
+				clock-names = "pclk", "fast_clk", "slow_clk";
 				status = "disabled";
 			};
 
@@ -1678,6 +1716,20 @@
 			#mbox-cells = <2>;
 		};
 
+		v2x_mu7: mailbox@47330000 {
+			compatible = "fsl,imx95-mu-v2x";
+			reg = <0x0 0x47330000 0x0 0x10000>;
+			interrupts = <GIC_SPI 28 IRQ_TYPE_LEVEL_HIGH>;
+			#mbox-cells = <2>;
+		};
+
+		v2x_mu8: mailbox@47340000 {
+			compatible = "fsl,imx95-mu-v2x";
+			reg = <0x0 0x47340000 0x0 0x10000>;
+			interrupts = <GIC_SPI 239 IRQ_TYPE_LEVEL_HIGH>;
+			#mbox-cells = <2>;
+		};
+
 		v2x_mu: mailbox@47350000 {
 			compatible = "fsl,imx95-mu-v2x";
 			reg = <0x0 0x47350000 0x0 0x10000>;
@@ -1840,7 +1892,7 @@
 		};
 
 		neoisp0: isp@4ae00000 {
-			compatible = "nxp,imx95-a0-neoisp";
+			compatible = "nxp,imx95-b0-neoisp";
 			#address-cells = <2>;
 			#size-cells = <2>;
 			reg = <0x0 0x4ae00000 0x0 0x8000>,
@@ -2620,8 +2672,6 @@
 				phy-names = "usb2-phy", "usb3-phy";
 				snps,gfladj-refclk-lpm-sel-quirk;
 				snps,parkmode-disable-ss-quirk;
-				snps,tx-max-burst = /bits/ 8 <4>;
-				snps,tx-thr-num-pkt = /bits/ 8 <1>;
 				iommus = <&smmu 0xe>;
 			};
 		};
@@ -2633,7 +2683,7 @@
 				     <GIC_SPI 174 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&scmi_clk IMX95_CLK_HSIO>,
 				 <&scmi_clk IMX95_CLK_32K>;
-			clock-names = "usb1_ctrl_root_clk", "usb_wakeup_clk";
+			clock-names = "usb_ctrl_root", "usb_wakeup";
 			power-domains = <&scmi_devpd IMX95_PD_HSIO_TOP>;
 			phys = <&usbphynop>;
 			fsl,usbmisc = <&usbmisc 0>;
@@ -2669,14 +2719,17 @@
 			#size-cells = <2>;
 			device_type = "pci";
 			linux,pci-domain = <0>;
+			/* Dev id(BIT[7:6)] 0x00,stream id(BIT[5:0]) 0x10~0x17 for pci0 */
 			msi-map = <0x0 &its 0x10 0x1>,
 				  <0x100 &its 0x11 0x7>;
 			msi-map-mask = <0x1ff>; /* Suppose only 1 physic device connect */
 			bus-range = <0x00 0xff>;
 			num-lanes = <1>;
 			num-viewport = <8>;
-			interrupts = <GIC_SPI 310 IRQ_TYPE_LEVEL_HIGH>;
-			interrupt-names = "msi";
+			interrupts = <GIC_SPI 310 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 310 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 310 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "msi", "pme", "intr";
 			#interrupt-cells = <1>;
 			interrupt-map-mask = <0 0 0 0x7>;
 			interrupt-map = <0 0 0 1 &gic 0 0 GIC_SPI 306 IRQ_TYPE_LEVEL_HIGH>,
@@ -2746,11 +2799,17 @@
 			#size-cells = <2>;
 			device_type = "pci";
 			linux,pci-domain = <1>;
+			/* Dev id(BIT[7:6)] 0x10,stream id(BIT[5:0]) 0x18~0x1F for pci1 */
+			msi-map = <0x0 &its 0x98 0x1>,
+				  <0x100 &its 0x99 0x7>;
+			msi-map-mask = <0x1ff>; /* Suppose only 1 physic device connect */
 			bus-range = <0x00 0xff>;
 			num-lanes = <1>;
 			num-viewport = <8>;
-			interrupts = <GIC_SPI 316 IRQ_TYPE_LEVEL_HIGH>;
-			interrupt-names = "msi";
+			interrupts = <GIC_SPI 316 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 316 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 316 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "msi", "pme", "intr";
 			#interrupt-cells = <1>;
 			interrupt-map-mask = <0 0 0 0x7>;
 			interrupt-map = <0 0 0 1 &gic 0 0 GIC_SPI 312 IRQ_TYPE_LEVEL_HIGH>,
@@ -2861,7 +2920,7 @@
 				     <GIC_SPI 289 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 290 IRQ_TYPE_LEVEL_HIGH>;
 			interrupt-names = "gpu", "job", "mmu";
-			clocks = <&scmi_clk IMX95_CLK_GPU>;
+			clocks = <&scmi_clk IMX95_CLK_GPU_CGC>;
 			clock-names = "gpu";
 			power-domains = <&scmi_devpd IMX95_PD_GPU>, <&scmi_perf IMX95_PERF_GPU>;
 			power-domain-names = "gpumix", "gpuperf";
@@ -3005,6 +3064,14 @@
 					  <0x90 &its 0x65 0x1>, //ENETC2 VF0
 					  <0xa0 &its 0x66 0x1>, //ENETC2 VF1
 					  <0xc0 &its 0x67 0x1>; //NETC Timer
+				iommu-map = <0x0 &smmu 0x20 0x1>,
+					    <0x10 &smmu 0x21 0x1>,
+					    <0x20 &smmu 0x22 0x1>,
+					    <0x40 &smmu 0x23 0x1>,
+					    <0x80 &smmu 0x24 0x1>,
+					    <0x90 &smmu 0x25 0x1>,
+					    <0xa0 &smmu 0x26 0x1>,
+					    <0xc0 &smmu 0x27 0x1>;
 					 /* ENETC0~2 and Timer BAR0 - non-prefetchable memory */
 				ranges = <0x82000000 0x0 0x4cc00000  0x0 0x4cc00000  0x0 0xe0000
 					 /* Timer BAR2 - prefetchable memory */
@@ -3013,6 +3080,9 @@
 					 0x82000000 0x0 0x4cd20000  0x0 0x4cd20000  0x0 0x60000
 					 /* ENETC0~2: VF0-1 BAR2 - prefetchable memory */
 					 0xc2000000 0x0 0x4cd80000  0x0 0x4cd80000  0x0 0x60000>;
+				#interrupt-cells = <1>;
+				interrupt-map-mask = <0 0 0 7>;
+				interrupt-map = <0000 0 0 1 &gic 0 0 GIC_SPI 304 IRQ_TYPE_LEVEL_HIGH>;
 
 				enetc_port0: ethernet@0,0 {
 					compatible = "fsl,imx95-enetc";
@@ -3049,9 +3119,8 @@
 				};
 
 				rcec@1,0 {
-					compatible = "pci1131,e001";
 					reg = <0x000800 0 0 0 0>;
-					interrupts = <GIC_SPI 304 IRQ_TYPE_LEVEL_HIGH>;
+					interrupts = <1>;
 				};
 			};
 
@@ -3067,6 +3136,9 @@
 					 /* EMDIO BAR2 - prefetchable memory */
 					 0xc2000000 0x0 0x4cd10000  0x0 0x4cd10000  0x0 0x10000>;
 				power-domains = <&scmi_devpd IMX95_PD_NETC>;
+				#interrupt-cells = <1>;
+				interrupt-map-mask = <0 0 0 7>;
+				interrupt-map = <0000 0 0 1 &gic 0 0 GIC_SPI 305 IRQ_TYPE_LEVEL_HIGH>;
 
 				netc_emdio: mdio@0,0 {
 					compatible = "fsl,imx95-netc-emdio";
@@ -3074,6 +3146,11 @@
 					#address-cells = <1>;
 					#size-cells = <0>;
 					status = "disabled";
+				};
+
+				rcec@1,0 {
+					reg = <0x010800 0 0 0 0>;
+					interrupts = <1>;
 				};
 			};
 		};
@@ -3093,6 +3170,7 @@
 				 <&scmi_clk IMX95_CLK_NPUAPB>;
 			clock-names = "npu", "npu_apb";
 			power-domains = <&scmi_devpd IMX95_PD_NPU>;
+			iommus = <&smmu 0xd>;
 		};
 	};
 
@@ -3101,26 +3179,38 @@
 	};
 
 	ele_if0: secure-enclave-0 {
-		 compatible = "fsl,imx95-se";
-		 mbox-names = "tx", "rx";
-		 mboxes = <&elemu3 0 0>, <&elemu3 1 0>;
-	 };
+		compatible = "fsl,imx95-se";
+		mbox-names = "tx", "rx";
+		mboxes = <&elemu3 0 0>, <&elemu3 1 0>;
+	};
 
 	v2x_dbg: secure-enclave-1 {
-		 compatible = "fsl,imx95-se";
-		 mbox-names = "tx", "rx";
-		 mboxes = <&v2x_mu 0 0>, <&v2x_mu 1 0>;
-	 };
+		compatible = "fsl,imx95-se";
+		mbox-names = "tx", "rx";
+		mboxes = <&v2x_mu 0 0>, <&v2x_mu 1 0>;
+	};
 
 	v2x_sv0: secure-enclave-2 {
-		 compatible = "fsl,imx95-se";
-		 mbox-names = "tx", "rx";
-		 mboxes = <&v2x_mu4 0 0>, <&v2x_mu4 1 0>;
-	 };
+		compatible = "fsl,imx95-se";
+		mbox-names = "tx", "rx";
+		mboxes = <&v2x_mu4 0 0>, <&v2x_mu4 1 0>;
+	};
 
 	v2x_she: secure-enclave-3 {
-		 compatible = "fsl,imx95-se";
-		 mbox-names = "tx", "rx";
-		 mboxes = <&v2x_mu6 0 0>, <&v2x_mu6 1 0>;
-	 };
+		compatible = "fsl,imx95-se";
+		mbox-names = "tx", "rx";
+		mboxes = <&v2x_mu6 0 0>, <&v2x_mu6 1 0>;
+	};
+
+	v2x_sg0: secure-enclave-4 {
+		compatible = "fsl,imx95-se";
+		mbox-names = "tx", "rx";
+		mboxes = <&v2x_mu7 0 0>, <&v2x_mu7 1 0>;
+	};
+
+	v2x_sg1: secure-enclave-5 {
+		compatible = "fsl,imx95-se";
+		mbox-names = "tx", "rx";
+		mboxes = <&v2x_mu8 0 0>, <&v2x_mu8 1 0>;
+	};
 };

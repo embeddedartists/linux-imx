@@ -745,10 +745,13 @@ static irqreturn_t fxas21002c_trigger_handler(int irq, void *p)
 
 	ret = fxas21002c_pm_put(data);
 	if (ret < 0)
-		goto out_unlock;
+		goto out_pm_put;
 
 	iio_push_to_buffers_with_timestamp(indio_dev, data->buffer,
 					   data->timestamp);
+
+out_pm_put:
+	fxas21002c_pm_put(data);
 
 out_unlock:
 	mutex_unlock(&data->lock);

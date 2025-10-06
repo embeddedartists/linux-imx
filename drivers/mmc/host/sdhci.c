@@ -962,8 +962,8 @@ static void sdhci_calc_sw_timeout(struct sdhci_host *host,
 		host->data_timeout += MMC_CMD_TRANSFER_TIME;
 }
 
-static u8 sdhci_calc_timeout(struct sdhci_host *host, struct mmc_command *cmd,
-			     bool *too_big)
+u8 sdhci_calc_timeout(struct sdhci_host *host, struct mmc_command *cmd,
+		      bool *too_big)
 {
 	u8 count;
 	struct mmc_data *data;
@@ -1019,6 +1019,7 @@ static u8 sdhci_calc_timeout(struct sdhci_host *host, struct mmc_command *cmd,
 
 	return count;
 }
+EXPORT_SYMBOL_GPL(sdhci_calc_timeout);
 
 static void sdhci_set_transfer_irqs(struct sdhci_host *host)
 {
@@ -2035,10 +2036,15 @@ void sdhci_set_clock(struct sdhci_host *host, unsigned int clock)
 
 	host->mmc->actual_clock = 0;
 
-	sdhci_writew(host, 0, SDHCI_CLOCK_CONTROL);
+	clk = sdhci_readw(host, SDHCI_CLOCK_CONTROL);
+	if (clk & SDHCI_CLOCK_CARD_EN)
+		sdhci_writew(host, clk & ~SDHCI_CLOCK_CARD_EN,
+			SDHCI_CLOCK_CONTROL);
 
-	if (clock == 0)
+	if (clock == 0) {
+		sdhci_writew(host, 0, SDHCI_CLOCK_CONTROL);
 		return;
+	}
 
 	clk = sdhci_calc_clk(host, clock, &host->mmc->actual_clock);
 	sdhci_enable_clk(host, clk);

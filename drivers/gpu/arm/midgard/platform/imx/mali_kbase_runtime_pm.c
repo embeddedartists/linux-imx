@@ -114,7 +114,7 @@ static int pm_callback_power_on(struct kbase_device *kbdev)
 	spin_lock_irqsave(&kbdev->hwaccess_lock, flags);
 	WARN_ON(kbase_io_is_gpu_powered(kbdev));
 	if (likely(kbdev->csf.firmware_inited)) {
-		WARN_ON(!kbdev->pm.active_count);
+		WARN_ON(!atomic_read(&(kbdev->pm.active_count)));
 		WARN_ON(kbdev->pm.runtime_active);
 	}
 	spin_unlock_irqrestore(&kbdev->hwaccess_lock, flags);
@@ -146,15 +146,16 @@ static void pm_callback_power_off(struct kbase_device *kbdev)
 	/* Power down the GPU immediately */
 	disable_gpu_power_control(kbdev);
 
-	pm_runtime_mark_last_busy(kbdev->dev);
-	pm_runtime_put_autosuspend(kbdev->dev);
+	if (pm_runtime_enabled(kbdev->dev)) {
+		pm_runtime_mark_last_busy(kbdev->dev);
+		pm_runtime_put_autosuspend(kbdev->dev);
+	}
 
 #ifdef IMX_GPU_BLK_CTRL
 	ictx->init_blk_ctrl = 0;
 #endif
 }
 
-#ifdef KBASE_PM_RUNTIME
 static int kbase_device_runtime_init(struct kbase_device *kbdev)
 {
 	int ret = 0;
@@ -200,7 +201,6 @@ static void kbase_device_runtime_disable(struct kbase_device *kbdev)
 		kbdev->dev_gpuperf = NULL;
 	}
 }
-#endif /* KBASE_PM_RUNTIME */
 
 static int pm_callback_runtime_on(struct kbase_device *kbdev)
 {

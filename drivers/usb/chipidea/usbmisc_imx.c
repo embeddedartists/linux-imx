@@ -145,6 +145,7 @@
 
 #define BLKCTL_USB_WAKEUP_CTRL		0x0
 #define BLKCTL_OTG_WAKE_ENABLE		BIT(31)
+#define BLKCTL_OTG_VBUS_SOURCE_SESSVALID	BIT(4)
 #define BLKCTL_OTG_ID_WAKEUP_EN		BIT(2)
 #define BLKCTL_OTG_VBUS_WAKEUP_EN	BIT(1)
 #define BLKCTL_OTG_DPDM_WAKEUP_EN	BIT(0)
@@ -169,6 +170,9 @@ struct usbmisc_ops {
 	int (*charger_detection)(struct imx_usbmisc_data *data);
 	/* It's called when system resume from usb power lost */
 	int (*power_lost_check)(struct imx_usbmisc_data *data);
+	/* It's called when device controller changed pullup status */
+	void (*pullup)(struct imx_usbmisc_data *data, bool on);
+	/* It's called during suspend/resume to save power */
 	void (*vbus_comparator_on)(struct imx_usbmisc_data *data, bool on);
 };
 
@@ -994,6 +998,34 @@ static int usbmisc_imx7ulp_init(struct imx_usbmisc_data *data)
 	return 0;
 }
 
+static void usbmisc_imx7d_pullup(struct imx_usbmisc_data *data, bool on)
+{
+	struct imx_usbmisc *usbmisc = dev_get_drvdata(data->dev);
+	unsigned long flags;
+	u32 val;
+
+	if (on)
+		return;
+
+	spin_lock_irqsave(&usbmisc->lock, flags);
+	val = readl(usbmisc->base + MX7D_USBNC_USB_CTRL2);
+	val &= ~MX7D_USBNC_USB_CTRL2_OPMODE_OVERRIDE_MASK;
+	val |= MX7D_USBNC_USB_CTRL2_OPMODE(1);
+	val |= MX7D_USBNC_USB_CTRL2_OPMODE_OVERRIDE_EN;
+	writel(val, usbmisc->base + MX7D_USBNC_USB_CTRL2);
+	spin_unlock_irqrestore(&usbmisc->lock, flags);
+
+	/* Last for at least 1 micro-frame to let host see disconnect signal */
+	usleep_range(125, 150);
+
+	spin_lock_irqsave(&usbmisc->lock, flags);
+	val &= ~MX7D_USBNC_USB_CTRL2_OPMODE_OVERRIDE_MASK;
+	val |= MX7D_USBNC_USB_CTRL2_OPMODE(0);
+	val &= ~MX7D_USBNC_USB_CTRL2_OPMODE_OVERRIDE_EN;
+	writel(val, usbmisc->base + MX7D_USBNC_USB_CTRL2);
+	spin_unlock_irqrestore(&usbmisc->lock, flags);
+}
+
 static int usbmisc_imx7d_power_lost_check(struct imx_usbmisc_data *data)
 {
 	struct imx_usbmisc *usbmisc = dev_get_drvdata(data->dev);
@@ -1042,6 +1074,8 @@ static u32 usbmisc_blkctl_wakeup_setting(struct imx_usbmisc_data *data)
 	if (data->ext_vbus || data->available_role == USB_DR_MODE_HOST)
 		wakeup_setting &= ~BLKCTL_OTG_VBUS_WAKEUP_EN;
 
+	/* Selet session valid as VBUS wakeup source */
+	wakeup_setting |= BLKCTL_OTG_VBUS_SOURCE_SESSVALID;
 
 	return wakeup_setting;
 }
@@ -1143,6 +1177,7 @@ static const struct usbmisc_ops imx7d_usbmisc_ops = {
 	.set_wakeup = usbmisc_imx7d_set_wakeup,
 	.charger_detection = imx7d_charger_detection,
 	.power_lost_check = usbmisc_imx7d_power_lost_check,
+	.pullup = usbmisc_imx7d_pullup,
 	.vbus_comparator_on = usbmisc_imx7d_vbus_comparator_on,
 };
 
@@ -1159,6 +1194,7 @@ static const struct usbmisc_ops imx95_usbmisc_ops = {
 	.set_wakeup = usbmisc_imx95_set_wakeup,
 	.charger_detection = imx7d_charger_detection,
 	.power_lost_check = usbmisc_imx7d_power_lost_check,
+	.pullup = usbmisc_imx7d_pullup,
 	.vbus_comparator_on = usbmisc_imx7d_vbus_comparator_on,
 };
 
@@ -1255,6 +1291,21 @@ int imx_usbmisc_charger_detection(struct imx_usbmisc_data *data, bool connect)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(imx_usbmisc_charger_detection);
+
+int imx_usbmisc_pullup(struct imx_usbmisc_data *data, bool on)
+{
+	struct imx_usbmisc *usbmisc;
+
+	if (!data)
+		return 0;
+
+	usbmisc = dev_get_drvdata(data->dev);
+	if (usbmisc->ops->pullup)
+		usbmisc->ops->pullup(data, on);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(imx_usbmisc_pullup);
 
 int imx_usbmisc_suspend(struct imx_usbmisc_data *data, bool wakeup)
 {

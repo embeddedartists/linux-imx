@@ -79,7 +79,7 @@ snd-soc-cs35l56-shared-y := cs35l56-shared.o
 snd-soc-cs35l56-i2c-y := cs35l56-i2c.o
 snd-soc-cs35l56-spi-y := cs35l56-spi.o
 snd-soc-cs35l56-sdw-y := cs35l56-sdw.o
-snd-soc-cs40l50-objs := cs40l50-codec.o
+snd-soc-cs40l50-y := cs40l50-codec.o
 snd-soc-cs42l42-y := cs42l42.o
 snd-soc-cs42l42-i2c-y := cs42l42-i2c.o
 snd-soc-cs42l42-sdw-y := cs42l42-sdw.o
@@ -324,8 +324,8 @@ snd-soc-wcd-classh-y := wcd-clsh-v2.o
 snd-soc-wcd-mbhc-y := wcd-mbhc-v2.o
 snd-soc-wcd9335-y := wcd9335.o
 snd-soc-wcd934x-y := wcd934x.o
-snd-soc-wcd937x-objs := wcd937x.o
-snd-soc-wcd937x-sdw-objs := wcd937x-sdw.o
+snd-soc-wcd937x-y := wcd937x.o
+snd-soc-wcd937x-sdw-y := wcd937x-sdw.o
 snd-soc-wcd938x-y := wcd938x.o
 snd-soc-wcd938x-sdw-y := wcd938x-sdw.o
 snd-soc-wcd939x-y := wcd939x.o
@@ -394,7 +394,6 @@ snd-soc-wsa883x-y := wsa883x.o
 snd-soc-wsa884x-y := wsa884x.o
 snd-soc-zl38060-y := zl38060.o
 snd-soc-rpmsg-wm8960-y := rpmsg_wm8960.o
-snd-soc-rpmsg-wm8960-i2c-y := rpmsg_wm8960_i2c.o
 snd-soc-rpmsg-ak4497-y := rpmsg_ak4497.o
 
 # Amp
@@ -811,7 +810,6 @@ obj-$(CONFIG_SND_SOC_WSA883X)	+= snd-soc-wsa883x.o
 obj-$(CONFIG_SND_SOC_WSA884X)	+= snd-soc-wsa884x.o
 obj-$(CONFIG_SND_SOC_ZL38060)	+= snd-soc-zl38060.o
 obj-$(CONFIG_SND_SOC_RPMSG_WM8960)	+= snd-soc-rpmsg-wm8960.o
-obj-$(CONFIG_SND_SOC_RPMSG_WM8960_I2C)	+= snd-soc-rpmsg-wm8960-i2c.o
 obj-$(CONFIG_SND_SOC_RPMSG_AK4497)	+= snd-soc-rpmsg-ak4497.o
 
 # Amp

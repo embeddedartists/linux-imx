@@ -49,20 +49,6 @@ static void release_pcie_device(struct device *dev)
 	kfree(to_pcie_device(dev));
 }
 
-/**
- * pcibios_check_service_irqs - check irqs in the device tree
- * @dev: PCI Express port to handle
- * @irqs: Array of irqs to populate
- * @mask: Bitmask of port capabilities returned by get_port_device_capability()
- *
- * Return value: 0 means no service irqs in the device tree
- *
- */
-int __weak pcibios_check_service_irqs(struct pci_dev *dev, int *irqs, int mask)
-{
-	return 0;
-}
-
 /*
  * Fill in *pme, *aer, *dpc with the relevant Interrupt Message Numbers if
  * services are enabled in "mask".  Return the number of MSI/MSI-X vectors
@@ -190,25 +176,17 @@ static int pcie_port_enable_irq_vec(struct pci_dev *dev, int *irqs, int mask)
  */
 static int pcie_init_service_irqs(struct pci_dev *dev, int *irqs, int mask)
 {
+	struct pci_host_bridge *host_bridge = pci_find_host_bridge(dev->bus);
 	int ret, i;
-	int irq = -1;
-
-	/* Check if some platforms owns independent irq pins for AER/PME etc.
-	 * Some platforms may own independent AER/PME interrupts and set
-	 * them in the device tree file.
-	 */
-	ret = pcibios_check_service_irqs(dev, irqs, mask);
-	if (ret) {
-		if (dev->irq)
-			irq = dev->irq;
-		for (i = 0; i < PCIE_PORT_DEVICE_MAXSERVICES; i++)
-			if (irqs[i] == -1)
-				irqs[i] = irq;
-		return 0;
-	}
 
 	for (i = 0; i < PCIE_PORT_DEVICE_MAXSERVICES; i++)
 		irqs[i] = -1;
+
+	if (host_bridge->get_service_irqs) {
+		ret = host_bridge->get_service_irqs(host_bridge, irqs, mask);
+		if (ret > 0)
+			return 0;
+	}
 
 	/*
 	 * If we support PME but can't use MSI/MSI-X for it, we have to
@@ -257,10 +235,12 @@ static int get_port_device_capability(struct pci_dev *dev)
 
 		/*
 		 * Disable hot-plug interrupts in case they have been enabled
-		 * by the BIOS and the hot-plug service driver is not loaded.
+		 * by the BIOS and the hot-plug service driver won't be loaded
+		 * to handle them.
 		 */
-		pcie_capability_clear_word(dev, PCI_EXP_SLTCTL,
-			  PCI_EXP_SLTCTL_CCIE | PCI_EXP_SLTCTL_HPIE);
+		if (!IS_ENABLED(CONFIG_HOTPLUG_PCI_PCIE))
+			pcie_capability_clear_word(dev, PCI_EXP_SLTCTL,
+				PCI_EXP_SLTCTL_CCIE | PCI_EXP_SLTCTL_HPIE);
 	}
 
 #ifdef CONFIG_PCIEAER

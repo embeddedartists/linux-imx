@@ -862,6 +862,16 @@ static void dsa_tree_teardown_lags(struct dsa_switch_tree *dst)
 	kfree(dst->lags);
 }
 
+static void dsa_tree_teardown_routing_table(struct dsa_switch_tree *dst)
+{
+	struct dsa_link *dl, *next;
+
+	list_for_each_entry_safe(dl, next, &dst->rtable, list) {
+		list_del(&dl->list);
+		kfree(dl);
+	}
+}
+
 static int dsa_tree_setup(struct dsa_switch_tree *dst)
 {
 	bool complete;
@@ -879,7 +889,7 @@ static int dsa_tree_setup(struct dsa_switch_tree *dst)
 
 	err = dsa_tree_setup_cpu_ports(dst);
 	if (err)
-		return err;
+		goto teardown_rtable;
 
 	err = dsa_tree_setup_switches(dst);
 	if (err)
@@ -911,14 +921,14 @@ teardown_switches:
 	dsa_tree_teardown_switches(dst);
 teardown_cpu_ports:
 	dsa_tree_teardown_cpu_ports(dst);
+teardown_rtable:
+	dsa_tree_teardown_routing_table(dst);
 
 	return err;
 }
 
 static void dsa_tree_teardown(struct dsa_switch_tree *dst)
 {
-	struct dsa_link *dl, *next;
-
 	if (!dst->setup)
 		return;
 
@@ -932,10 +942,7 @@ static void dsa_tree_teardown(struct dsa_switch_tree *dst)
 
 	dsa_tree_teardown_cpu_ports(dst);
 
-	list_for_each_entry_safe(dl, next, &dst->rtable, list) {
-		list_del(&dl->list);
-		kfree(dl);
-	}
+	dsa_tree_teardown_routing_table(dst);
 
 	pr_info("DSA: tree %d torn down\n", dst->index);
 
@@ -1478,12 +1485,44 @@ static int dsa_switch_parse(struct dsa_switch *ds, struct dsa_chip_data *cd)
 
 static void dsa_switch_release_ports(struct dsa_switch *ds)
 {
+	struct dsa_mac_addr *a, *tmp;
 	struct dsa_port *dp, *next;
+	struct dsa_vlan *v, *n;
 
 	dsa_switch_for_each_port_safe(dp, next, ds) {
-		WARN_ON(!list_empty(&dp->fdbs));
-		WARN_ON(!list_empty(&dp->mdbs));
-		WARN_ON(!list_empty(&dp->vlans));
+		/* These are either entries that upper layers lost track of
+		 * (probably due to bugs), or installed through interfaces
+		 * where one does not necessarily have to remove them, like
+		 * ndo_dflt_fdb_add().
+		 */
+		list_for_each_entry_safe(a, tmp, &dp->fdbs, list) {
+			dev_info(ds->dev,
+				 "Cleaning up unicast address %pM vid %u from port %d\n",
+				 a->addr, a->vid, dp->index);
+			list_del(&a->list);
+			kfree(a);
+		}
+
+		list_for_each_entry_safe(a, tmp, &dp->mdbs, list) {
+			dev_info(ds->dev,
+				 "Cleaning up multicast address %pM vid %u from port %d\n",
+				 a->addr, a->vid, dp->index);
+			list_del(&a->list);
+			kfree(a);
+		}
+
+		/* These are entries that upper layers have lost track of,
+		 * probably due to bugs, but also due to dsa_port_do_vlan_del()
+		 * having failed and the VLAN entry still lingering on.
+		 */
+		list_for_each_entry_safe(v, n, &dp->vlans, list) {
+			dev_info(ds->dev,
+				 "Cleaning up vid %u from port %d\n",
+				 v->vid, dp->index);
+			list_del(&v->list);
+			kfree(v);
+		}
+
 		list_del(&dp->list);
 		kfree(dp);
 	}
@@ -1613,25 +1652,14 @@ out:
 EXPORT_SYMBOL_GPL(dsa_switch_shutdown);
 
 #ifdef CONFIG_PM_SLEEP
-static bool dsa_port_is_initialized(const struct dsa_port *dp)
-{
-	return dp->type == DSA_PORT_TYPE_USER && dp->user;
-}
-
 int dsa_switch_suspend(struct dsa_switch *ds)
 {
 	struct dsa_port *dp;
 	int ret = 0;
 
-	/* Suspend user network devices */
-	dsa_switch_for_each_port(dp, ds) {
-		if (!dsa_port_is_initialized(dp))
-			continue;
-
-		ret = dsa_user_suspend(dp->user);
-		if (ret)
-			return ret;
-	}
+	/* Suspend user and shared ports */
+	dsa_switch_for_each_available_port(dp, ds)
+		dsa_port_suspend(dp);
 
 	if (ds->ops->suspend)
 		ret = ds->ops->suspend(ds);
@@ -1651,15 +1679,9 @@ int dsa_switch_resume(struct dsa_switch *ds)
 	if (ret)
 		return ret;
 
-	/* Resume user network devices */
-	dsa_switch_for_each_port(dp, ds) {
-		if (!dsa_port_is_initialized(dp))
-			continue;
-
-		ret = dsa_user_resume(dp->user);
-		if (ret)
-			return ret;
-	}
+	/* Resume user and shared ports */
+	dsa_switch_for_each_available_port(dp, ds)
+		dsa_port_resume(dp);
 
 	return 0;
 }

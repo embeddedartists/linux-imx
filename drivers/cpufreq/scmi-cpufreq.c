@@ -34,10 +34,16 @@ static struct cpufreq_driver scmi_cpufreq_driver;
 
 static unsigned int scmi_cpufreq_get_rate(unsigned int cpu)
 {
-	struct cpufreq_policy *policy = cpufreq_cpu_get_raw(cpu);
-	struct scmi_data *priv = policy->driver_data;
+	struct cpufreq_policy *policy;
+	struct scmi_data *priv;
 	unsigned long rate;
 	int ret;
+
+	policy = cpufreq_cpu_get_raw(cpu);
+	if (unlikely(!policy))
+		return 0;
+
+	priv = policy->driver_data;
 
 	ret = perf_ops->freq_get(ph, priv->domain_id, &rate, false);
 	if (ret)
@@ -287,7 +293,7 @@ static int scmi_cpufreq_init(struct cpufreq_policy *policy)
 		ret = cpufreq_enable_boost_support();
 		if (ret) {
 			dev_warn(cpu_dev, "failed to enable boost: %d\n", ret);
-			goto out_free_opp;
+			goto out_free_table;
 		} else {
 			scmi_cpufreq_hw_attr[1] = &cpufreq_freq_attr_scaling_boost_freqs;
 			scmi_cpufreq_driver.boost_enabled = true;
@@ -296,6 +302,8 @@ static int scmi_cpufreq_init(struct cpufreq_policy *policy)
 
 	return 0;
 
+out_free_table:
+	dev_pm_opp_free_cpufreq_table(cpu_dev, &freq_table);
 out_free_opp:
 	dev_pm_opp_remove_all_dynamic(cpu_dev);
 

@@ -41,10 +41,20 @@
 #define FORCE_IDR			(1<<5)
 #define UPDATE_INFO			(1<<6)
 #define ERROR_BUFFER_FLAG		(1 << 7)
+#define RECT_ROI_UPDATE		(1 << 8)
 
 #define VSI_V4L2_MAX_ROI_REGIONS			8
 #define VSI_V4L2_MAX_ROI_REGIONS_H1		2
 #define VSI_V4L2_MAX_IPCM_REGIONS			2
+
+#define VSI_TEST_SET(tgt, newval, change)		\
+	do { \
+		typeof(newval) _newval = (newval); \
+		if ((tgt) != (_newval)) { \
+			(tgt) = (_newval); \
+			(change) = 1; \
+		} \
+	} while (0)
 
 /******************	communication with v4l2 driver. ***********/
 
@@ -262,6 +272,11 @@ struct v4l2_daemon_enc_general_cmd {
 	s32 scaledOutputFormat;
 
 	s32 codecFormat;
+
+	u32 extraFillLeft;
+	u32 extraFillTop;
+	u32 extraFillLRight;
+	u32 extraFillBottom;
 };
 
 struct v4l2_daemon_enc_h26x_cmd {

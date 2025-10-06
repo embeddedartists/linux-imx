@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /*
  *
- * (C) COPYRIGHT 2010-2024 ARM Limited. All rights reserved.
+ * (C) COPYRIGHT 2010-2025 ARM Limited. All rights reserved.
  *
  * This program is free software and is provided to you under the terms of the
  * GNU General Public License version 2 as published by the Free Software
@@ -175,7 +175,6 @@ static inline void kbase_process_page_usage_inc(struct kbase_context *kctx, int 
 /* Normal memory, inner non-cacheable, outer non-cacheable (ARMv8 mode only) */
 #define KBASE_MEMATTR_INDEX_NON_CACHEABLE 5
 
-#if MALI_USE_CSF
 /* Set to shared memory, that is inner cacheable on ACE and inner or outer
  * shared, otherwise inner non-cacheable.
  * Outer cacheable if inner or outer shared, otherwise outer non-cacheable.
@@ -188,14 +187,12 @@ static inline void kbase_process_page_usage_inc(struct kbase_context *kctx, int 
 
 /* Normal memory, shared between MCU and Host */
 #define KBASE_MEMATTR_INDEX_SHARED 6
-#endif
 
 #define KBASE_REG_PROTECTED (1ul << 19)
 
 /* Imported buffer is padded? */
 #define KBASE_REG_IMPORT_PAD (1ul << 21)
 
-#if MALI_USE_CSF
 /* CSF event memory */
 #define KBASE_REG_CSF_EVENT (1ul << 22)
 /* Bit 23 is reserved.
@@ -203,17 +200,6 @@ static inline void kbase_process_page_usage_inc(struct kbase_context *kctx, int 
  * Do not remove, use the next unreserved bit for new flags
  */
 #define KBASE_REG_RESERVED_BIT_23 (1ul << 23)
-#else
-/* Bit 22 is reserved.
- *
- * Do not remove, use the next unreserved bit for new flags
- */
-#define KBASE_REG_RESERVED_BIT_22 (1ul << 22)
-/* The top of the initial commit is aligned to extension pages.
- * Extent must be a power of 2
- */
-#define KBASE_REG_TILER_ALIGN_TOP (1ul << 23)
-#endif /* MALI_USE_CSF */
 
 /* Bit 24 is currently unused and is available for use for a new flag */
 
@@ -242,15 +228,11 @@ static inline void kbase_process_page_usage_inc(struct kbase_context *kctx, int 
  */
 #define KBASE_REG_HEAP_INFO_IS_SIZE (1ul << 27)
 
-#if MALI_USE_CSF
 /* This flag only applies to allocations in the EXEC_FIXED_VA and FIXED_VA
  * memory zones, and it determines whether they were created with a fixed
  * GPU VA address requested by the user.
  */
 #define KBASE_REG_FIXED_ADDRESS (1ul << 29)
-#else
-#define KBASE_REG_RESERVED_BIT_29 (1ul << 29)
-#endif
 /*
  * A CPU mapping
  */
@@ -330,6 +312,8 @@ enum kbase_user_buf_state {
  *                 kbase_phy_alloc_mapping_put() pair should be used
  *                 around access to the kernel-side CPU mapping so that
  *                 mapping doesn't disappear whilst it is being accessed.
+ * @delegate_hook: List head to hook onto kbdev deferral control for
+ *                 deferred releases of certain imported buffer types.
  * @properties: Bitmask of properties, e.g. KBASE_MEM_PHY_ALLOC_LARGE.
  * @group_id: A memory group ID to be passed to a platform-specific
  *            memory group manager, if present.
@@ -348,6 +332,7 @@ struct kbase_mem_phy_alloc {
 	struct kbase_va_region *reg;
 	enum kbase_memory_type type;
 	struct kbase_vmap_struct *permanent_map;
+	struct list_head delegate_hook;
 	u8 properties;
 	u8 group_id;
 
@@ -380,6 +365,7 @@ struct kbase_mem_phy_alloc {
 			u32 current_mapping_usage_count;
 			struct mm_struct *mm;
 			dma_addr_t *dma_addrs;
+			struct kbase_device *kbdev;
 			enum kbase_user_buf_state state;
 		} user_buf;
 	} imported;
@@ -928,8 +914,12 @@ static inline struct kbase_mem_phy_alloc *kbase_alloc_create(struct kbase_contex
 	alloc->type = type;
 	alloc->group_id = group_id;
 
-	if (type == KBASE_MEM_TYPE_IMPORTED_USER_BUF)
+	if (type == KBASE_MEM_TYPE_IMPORTED_USER_BUF) {
 		alloc->imported.user_buf.dma_addrs = (void *)(alloc->pages + nr_pages);
+		alloc->imported.user_buf.kbdev = kctx->kbdev;
+	}
+
+	INIT_LIST_HEAD(&alloc->delegate_hook);
 
 	return alloc;
 }
@@ -977,9 +967,23 @@ static inline int kbase_reg_prepare_native(struct kbase_va_region *reg, struct k
 #define KBASE_MEM_POOL_MAX_SIZE_KBDEV (SZ_64M >> PAGE_SHIFT)
 
 /*
+ * Max size for kbdev pgd memory pool (in pages)
+ */
+#define BASE_PGD_MEM_POOL_MAX_SIZE_KBDEV (SZ_2M >> PAGE_SHIFT)
+
+/*
+ * Max size for kbdev fw memory pool (in pages)
+ */
+#define KBASE_FW_MEM_POOL_MAX_SIZE_KBDEV ((4 * SZ_2M) >> PAGE_SHIFT)
+/*
  * Max size for kctx memory pool (in pages)
  */
 #define KBASE_MEM_POOL_MAX_SIZE_KCTX (SZ_64M >> PAGE_SHIFT)
+
+/*
+ * Max size of kctx pgd memory pool (in pages)
+ */
+#define KBASE_PGD_MM_POOLMAX_SIZE_KCTX (SZ_2M >> PAGE_SHIFT)
 
 /*
  * The order required for a 2MB page allocation (2^order * PAGE_SIZE = 2MB)
@@ -1023,13 +1027,12 @@ kbase_mem_pool_config_get_max_size(const struct kbase_mem_pool_config *const con
 /**
  * kbase_mem_pool_init - Create a memory pool for a kbase device
  * @pool:      Memory pool to initialize
- * @config:    Initial configuration for the memory pool
+ * @max_size:  Maximum size for the memory pool
  * @order:     Page order for physical page size (order=0 => small page, order != 0 => 2MB)
  * @group_id:  A memory group ID to be passed to a platform-specific
  *             memory group manager, if present.
  *             Valid range is 0..(MEMORY_GROUP_MANAGER_NR_GROUPS-1).
  * @kbdev:     Kbase device where memory is used
- * @next_pool: Pointer to the next pool or NULL.
  *
  * Allocations from @pool are in whole pages. Each @pool has a free list where
  * pages can be quickly allocated from. The free list is initially empty and
@@ -1047,9 +1050,26 @@ kbase_mem_pool_config_get_max_size(const struct kbase_mem_pool_config *const con
  *
  * Return: 0 on success, negative -errno on error
  */
-int kbase_mem_pool_init(struct kbase_mem_pool *pool, const struct kbase_mem_pool_config *config,
-			unsigned int order, int group_id, struct kbase_device *kbdev,
-			struct kbase_mem_pool *next_pool);
+int kbase_mem_pool_init(struct kbase_mem_pool *pool, size_t max_size, unsigned int order,
+			int group_id, struct kbase_device *kbdev);
+
+/**
+ * kbase_mem_pool_init_no_reclaim - Create a memory pool for a kbase device, with no reclaim.
+ * @pool:      Memory pool to initialize
+ * @max_size:  Maximum size for the memory pool
+ * @order:     Page order for physical page size (order=0 => small page, order != 0 => 2MB)
+ * @group_id:  A memory group ID to be passed to a platform-specific
+ *             memory group manager, if present.
+ *             Valid range is 0..(MEMORY_GROUP_MANAGER_NR_GROUPS-1).
+ * @kbdev:     Kbase device where memory is used
+ *
+ * Identical to kbase_mem_pool_init, except the pool does not support reclaiming of pages.
+ * For that reason it also omits support of the next_pool feature.
+ *
+ * Return: 0 on success, negative -errno on error
+ */
+int kbase_mem_pool_init_no_reclaim(struct kbase_mem_pool *pool, size_t max_size, unsigned int order,
+				   int group_id, struct kbase_device *kbdev);
 
 /**
  * kbase_mem_pool_term - Destroy a memory pool
@@ -2001,9 +2021,6 @@ void kbase_jit_trim_necessary_pages(struct kbase_context *kctx, size_t needed_pa
 static inline void kbase_jit_request_phys_increase_locked(struct kbase_context *kctx,
 							  size_t needed_pages)
 {
-#if !MALI_USE_CSF
-	lockdep_assert_held(&kctx->jctx.lock);
-#endif /* !MALI_USE_CSF */
 	lockdep_assert_held(&kctx->reg_lock);
 	lockdep_assert_held(&kctx->jit_evict_lock);
 
@@ -2039,9 +2056,6 @@ static inline void kbase_jit_request_phys_increase_locked(struct kbase_context *
  */
 static inline void kbase_jit_request_phys_increase(struct kbase_context *kctx, size_t needed_pages)
 {
-#if !MALI_USE_CSF
-	lockdep_assert_held(&kctx->jctx.lock);
-#endif /* !MALI_USE_CSF */
 	lockdep_assert_held(&kctx->reg_lock);
 
 	mutex_lock(&kctx->jit_evict_lock);
@@ -2396,7 +2410,6 @@ static inline void kbase_mem_pool_unlock(struct kbase_mem_pool *pool)
  */
 void kbase_mem_evictable_mark_reclaim(struct kbase_mem_phy_alloc *alloc);
 
-#if MALI_USE_CSF
 /**
  * kbase_link_event_mem_page - Add the new event memory region to the per
  *                             context list of event pages.
@@ -2452,7 +2465,6 @@ int kbase_mcu_shared_interface_region_tracker_init(struct kbase_device *kbdev);
  * @kbdev: Pointer to the kbase device
  */
 void kbase_mcu_shared_interface_region_tracker_term(struct kbase_device *kbdev);
-#endif
 
 /**
  * kbase_mem_umm_map - Map dma-buf
@@ -2527,6 +2539,32 @@ int kbase_mem_copy_to_pinned_user_pages(struct page **dest_pages, void *src_page
 					size_t offset);
 
 /**
+ * kbase_mem_pool_free_pages_from_deferred_list() - Free pages from deferred_pages_list
+ *
+ * @pool: Pointer to the memory pool.
+ * @from_defer_ctrl: Indicating the caller is defer_controller.
+ *
+ * This function frees pages from the deferred list. The destination of the pages
+ * depends on the pool capacity: firstly it tries to promote pages to the internal
+ * free_pages list, and then it releases the excess pages to kernel.
+ *
+ * The deferred pages shall be freed only if the derferral window is passed.
+ */
+void kbase_mem_pool_free_pages_from_deferred_list(struct kbase_mem_pool *pool,
+						  bool from_defer_ctrl);
+
+/**
+ * kbase_mem_pool_deferred_list_size() - get size of deferred page list
+ *
+ * @pool: Pointer to the memory pool.
+ *
+ * This function return number of pages stored in deferred pages list
+ *
+ * Return: size of deferred page list
+ */
+size_t kbase_mem_pool_deferred_list_size(struct kbase_mem_pool *pool);
+
+/**
  * kbase_mem_allow_alloc - Check if allocation of GPU memory is allowed
  * @kctx: Pointer to kbase context
  *
@@ -2590,5 +2628,27 @@ static inline base_mem_alloc_flags kbase_mem_group_id_set(int id)
 }
 
 bool kbase_is_large_pages_enabled(void);
+
+/**
+ * kbase_mem_is_pmode_deferral_required() - check if a GPU protm session is inflight
+ *                                          and actions have to be deferred
+ *
+ * @kbdev: Pointer to the device.
+ *
+ * If a protected mode session is currently in progress, it could be the case that
+ * some actions concerning memory pages need to be deferred, like for instance
+ * migrating pages or adding them to a memory pool.
+ * The function returns true if protected mode is active and page release deferral
+ * is required, otherwise return false.
+ *
+ * Return: true on deferral required, otherwise false.
+ */
+static inline bool kbase_mem_is_pmode_deferral_required(struct kbase_device *kbdev)
+{
+	struct kbase_csf_protm_mem_pages_defer_ctrl *ctrl = &kbdev->csf.scheduler.pages_defer_ctrl;
+
+	return (ctrl->do_defer &&
+		(atomic_read(&ctrl->protm_event_id) & CSF_SCHED_PROTM_EVENT_FLAGS_MASK));
+}
 
 #endif /* _KBASE_MEM_H_ */

@@ -43,6 +43,9 @@
 #define EDMA_TCD_CSR_ACTIVE		BIT(6)
 #define EDMA_TCD_CSR_DONE		BIT(7)
 
+#define EDMA_CH_MATTR_RCACHE		GENMASK(3, 0)
+#define EDMA_CH_MATTR_WCACHE		GENMASK(7, 4)
+
 #define EDMA_V3_TCD_NBYTES_MLOFF_NBYTES(x) ((x) & GENMASK(9, 0))
 #define EDMA_V3_TCD_NBYTES_MLOFF(x)        (x << 10)
 #define EDMA_V3_TCD_NBYTES_DMLOE           (1 << 30)
@@ -166,6 +169,7 @@ struct fsl_edma_chan {
 	u32				real_count;
 	struct platform_device		*pdev;
 	struct device			*pd_dev;
+	struct device_link		*pd_dev_link;
 	u32				srcid;
 	struct clk			*clk;
 	int                             priority;
@@ -266,6 +270,7 @@ struct fsl_edma_engine {
 	int                     txirq_count;
 	#define MAX_CHAN_NUM    64
 	bool			big_endian;
+	bool			dma_coherent;
 	struct edma_regs	regs;
 	struct fsl_edma3_reg_save edma_save_regs[MAX_CHAN_NUM];
 	u64			chan_masked;

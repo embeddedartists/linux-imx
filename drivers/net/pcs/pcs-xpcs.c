@@ -119,6 +119,16 @@ static const int xpcs_mx95_10g_features[] = {
 	__ETHTOOL_LINK_MODE_MASK_NBITS,
 };
 
+static const int xpcs_mx94_features[] = {
+	ETHTOOL_LINK_MODE_Pause_BIT,
+	ETHTOOL_LINK_MODE_Asym_Pause_BIT,
+	ETHTOOL_LINK_MODE_Autoneg_BIT,
+	ETHTOOL_LINK_MODE_1000baseT_Full_BIT,
+	ETHTOOL_LINK_MODE_2500baseT_Full_BIT,
+	ETHTOOL_LINK_MODE_2500baseX_Full_BIT,
+	__ETHTOOL_LINK_MODE_MASK_NBITS,
+};
+
 static const phy_interface_t xpcs_usxgmii_interfaces[] = {
 	PHY_INTERFACE_MODE_USXGMII,
 };
@@ -215,21 +225,6 @@ static bool __xpcs_linkmode_supported(const struct dw_xpcs_compat *compat,
 #define xpcs_linkmode_supported(compat, mode) \
 	__xpcs_linkmode_supported(compat, ETHTOOL_LINK_MODE_ ## mode ## _BIT)
 
-int xpcs_phy_read(struct dw_xpcs *xpcs, int dev, u32 reg)
-{
-	struct mii_bus *bus = xpcs->phydev->bus;
-	int addr = xpcs->phydev->addr;
-
-	return mdiobus_c45_read(bus, addr, dev, reg);
-}
-
-int xpcs_phy_write(struct dw_xpcs *xpcs, int dev, u32 reg, u16 val)
-{
-	struct mii_bus *bus = xpcs->phydev->bus;
-	int addr = xpcs->phydev->addr;
-
-	return mdiobus_c45_write(bus, addr, dev, reg, val);
-}
 
 int xpcs_read(struct dw_xpcs *xpcs, int dev, u32 reg)
 {
@@ -640,7 +635,8 @@ static void xpcs_disable(struct phylink_pcs *pcs)
 {
 	struct dw_xpcs *xpcs = phylink_pcs_to_xpcs(pcs);
 
-	if (xpcs && xpcs->info.pma == NXP_MX95_XPCS_ID)
+	if (xpcs && (xpcs->info.pma == NXP_MX95_XPCS_ID ||
+		     xpcs->info.pma == NXP_MX94_XPCS_ID))
 		xpcs_phy_reset(xpcs);
 }
 
@@ -863,6 +859,18 @@ static int xpcs_config_2500basex(struct dw_xpcs *xpcs)
 	return xpcs_write(xpcs, MDIO_MMD_VEND2, DW_VR_MII_MMD_CTRL, ret);
 }
 
+static int xpcs_config_10gbaser(struct dw_xpcs *xpcs)
+{
+	int ret;
+
+	ret = xpcs_modify_changed(xpcs, MDIO_MMD_VEND2, DW_VR_MII_DIG_CTRL1,
+				  DW_VR_MII_DIG_CTRL1_MAC_AUTO_SW, 0);
+	if (ret < 0)
+		return ret;
+
+	return 0;
+}
+
 int xpcs_do_config(struct dw_xpcs *xpcs, phy_interface_t interface,
 		   const unsigned long *advertising, unsigned int neg_mode)
 {
@@ -881,6 +889,9 @@ int xpcs_do_config(struct dw_xpcs *xpcs, phy_interface_t interface,
 
 	switch (compat->an_mode) {
 	case DW_10GBASER:
+		ret = xpcs_config_10gbaser(xpcs);
+		if (ret)
+			return ret;
 		break;
 	case DW_AN_C73:
 		if (neg_mode == PHYLINK_PCS_NEG_INBAND_ENABLED) {
@@ -1400,7 +1411,38 @@ static const struct dw_xpcs_compat nxp_mx95_xpcs_compat[DW_XPCS_INTERFACE_MAX] =
 		.interface = xpcs_10gbaser_interfaces,
 		.num_interfaces = ARRAY_SIZE(xpcs_10gbaser_interfaces),
 		.an_mode = DW_10GBASER,
-		.pma_config = xpcs_phy_usxgmii_pma_config,//
+		.pma_config = imx95_xpcs_phy_xfi_config,
+	},
+	[DW_XPCS_2500BASEX] = {
+		.supported = xpcs_2500basex_features,
+		.interface = xpcs_2500basex_interfaces,
+		.num_interfaces = ARRAY_SIZE(xpcs_2500basex_interfaces),
+		.an_mode = DW_2500BASEX,
+		.pma_config = imx95_xpcs_phy_sgmii_2p5g_config,
+	},
+	[DW_XPCS_SGMII] = {
+		.supported = xpcs_sgmii_features,
+		.interface = xpcs_sgmii_interfaces,
+		.num_interfaces = ARRAY_SIZE(xpcs_sgmii_interfaces),
+		.an_mode = DW_AN_C37_SGMII,
+		.pma_config = imx95_xpcs_phy_sgmii_1g_config,
+	},
+};
+
+static const struct dw_xpcs_compat nxp_mx94_xpcs_compat[DW_XPCS_INTERFACE_MAX] = {
+	[DW_XPCS_2500BASEX] = {
+		.supported = xpcs_mx94_features,
+		.interface = xpcs_2500basex_interfaces,
+		.num_interfaces = ARRAY_SIZE(xpcs_2500basex_interfaces),
+		.an_mode = DW_2500BASEX,
+		.pma_config = imx94_xpcs_phy_sgmii_2p5g_config,
+	},
+	[DW_XPCS_SGMII] = {
+		.supported = xpcs_mx94_features,
+		.interface = xpcs_sgmii_interfaces,
+		.num_interfaces = ARRAY_SIZE(xpcs_sgmii_interfaces),
+		.an_mode = DW_AN_C37_SGMII,
+		.pma_config = imx94_xpcs_phy_sgmii_1g_config,
 	},
 };
 
@@ -1421,6 +1463,10 @@ static const struct dw_xpcs_desc xpcs_desc_list[] = {
 		.id = NXP_MX95_XPCS_ID,
 		.mask = DW_XPCS_ID_MASK,
 		.compat = nxp_mx95_xpcs_compat,
+	}, {
+		.id = NXP_MX94_XPCS_ID,
+		.mask = DW_XPCS_ID_MASK,
+		.compat = nxp_mx94_xpcs_compat,
 	},
 };
 
@@ -1438,9 +1484,16 @@ static u32 xpcs_register_phy(struct dw_xpcs *xpcs, struct mii_bus *bus)
 	u32 xpcs_phy_id;
 	int ret = 0;
 
-	xpcs_phy_reg_lock(xpcs);
-
-	xpcs_phy_id = xpcs_phy_get_id(xpcs);
+	/* Here is a workaround.
+	 * Since the IDs of the XPCS/PHY of i.MX94/95 are exactly the same
+	 * in the registers, cannot simply distinguish the two versions
+	 * of XPCS/PHY by reading the ID register.
+	 * Therefore, when initializing XPCS/PHY, a unique ID is created
+	 * for different versions of them by passing in the version for
+	 * subsequent configuration.
+	 * By default, version is 0, which will not affect other platforms.
+	 */
+	xpcs_phy_id = xpcs_phy_get_id(xpcs) + xpcs->info.version;
 	ret = xpcs_phy_check_id(xpcs_phy_id);
 	if (!ret)
 		return -ENODEV;
@@ -1556,17 +1609,22 @@ static int xpcs_init_iface(struct dw_xpcs *xpcs, phy_interface_t interface)
 	if (!compat)
 		return -EINVAL;
 
-	if (xpcs->info.pma == WX_TXGBE_XPCS_PMA_10G_ID) {
+	if (xpcs->info.pma == WX_TXGBE_XPCS_PMA_10G_ID ||
+	    xpcs->info.pma == NXP_MX94_XPCS_ID) {
 		xpcs->pcs.poll = false;
 		return 0;
 	}
+
+	if (xpcs->info.pma == NXP_MX95_XPCS_ID)
+		return 0;
 
 	return xpcs_soft_reset(xpcs, compat);
 }
 
 static struct dw_xpcs *xpcs_create(struct mdio_device *mdiodev,
 				   struct mdio_device *phydev,
-				   phy_interface_t interface)
+				   phy_interface_t interface,
+				   int version)
 {
 	struct dw_xpcs *xpcs;
 	int ret;
@@ -1575,6 +1633,7 @@ static struct dw_xpcs *xpcs_create(struct mdio_device *mdiodev,
 	if (IS_ERR(xpcs))
 		return xpcs;
 
+	xpcs->info.version = version;
 	ret = xpcs_init_clks(xpcs);
 	if (ret)
 		goto out_free_data;
@@ -1618,7 +1677,7 @@ struct dw_xpcs *xpcs_create_mdiodev(struct mii_bus *bus, int addr,
 	if (IS_ERR(mdiodev))
 		return ERR_CAST(mdiodev);
 
-	xpcs = xpcs_create(mdiodev, NULL, interface);
+	xpcs = xpcs_create(mdiodev, NULL, interface, DW_XPCS_VER_DEFAULT);
 
 	/* xpcs_create() has taken a refcount on the mdiodev if it was
 	 * successful. If xpcs_create() fails, this will free the mdio
@@ -1656,7 +1715,7 @@ struct dw_xpcs *xpcs_create_fwnode(struct fwnode_handle *fwnode,
 	if (!mdiodev)
 		return ERR_PTR(-EPROBE_DEFER);
 
-	xpcs = xpcs_create(mdiodev, NULL, interface);
+	xpcs = xpcs_create(mdiodev, NULL, interface, DW_XPCS_VER_DEFAULT);
 
 	/* xpcs_create() has taken a refcount on the mdiodev if it was
 	 * successful. If xpcs_create() fails, this will free the mdio
@@ -1672,6 +1731,7 @@ EXPORT_SYMBOL_GPL(xpcs_create_fwnode);
 
 struct phylink_pcs *xpcs_create_mdiodev_with_phy(struct mii_bus *bus,
 						 int mdioaddr, int phyaddr,
+						 int portid, int version,
 						 phy_interface_t interface)
 {
 	struct mdio_device *mdiodev, *phydev;
@@ -1688,11 +1748,12 @@ struct phylink_pcs *xpcs_create_mdiodev_with_phy(struct mii_bus *bus,
 		goto err_phydev;
 	}
 
-	xpcs = xpcs_create(mdiodev, phydev, interface);
+	xpcs = xpcs_create(mdiodev, phydev, interface, version);
 	if (IS_ERR(xpcs)) {
 		err_ptr = ERR_CAST(xpcs);
 		goto err_xpcs;
 	}
+	xpcs->portid = portid;
 
 	/* xpcs_create() has taken a refcount on the mdiodev if it was
 	 * successful. If xpcs_create() fails, this will free the mdio

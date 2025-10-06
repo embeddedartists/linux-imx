@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Copyright 2024 NXP
+ * Copyright 2024-2025 NXP
  */
 
+#include <dt-bindings/clock/nxp,imx94-clock.h>
 #include <dt-bindings/clock/nxp,imx95-clock.h>
 #include <linux/clk.h>
 #include <linux/clk-provider.h>
@@ -34,7 +35,7 @@ struct imx95_blk_ctl {
 
 	void __iomem *base;
 	/* clock gate register */
-	u32 clk_reg_restore;
+	u32 *clk_reg_restore;
 };
 
 struct imx95_blk_ctl_clk_dev_data {
@@ -54,7 +55,6 @@ struct imx95_blk_ctl_dev_data {
 	const struct imx95_blk_ctl_clk_dev_data *clk_dev_data;
 	u32 num_clks;
 	bool rpm_enabled;
-	u32 clk_reg_offset;
 };
 
 static const struct imx95_blk_ctl_clk_dev_data vpublk_clk_dev_data[] = {
@@ -94,7 +94,6 @@ static const struct imx95_blk_ctl_dev_data vpublk_dev_data = {
 	.num_clks = ARRAY_SIZE(vpublk_clk_dev_data),
 	.clk_dev_data = vpublk_clk_dev_data,
 	.rpm_enabled = true,
-	.clk_reg_offset = 8,
 };
 
 static const struct imx95_blk_ctl_clk_dev_data camblk_clk_dev_data[] = {
@@ -153,10 +152,9 @@ static const struct imx95_blk_ctl_clk_dev_data camblk_clk_dev_data[] = {
 static const struct imx95_blk_ctl_dev_data camblk_dev_data = {
 	.num_clks = ARRAY_SIZE(camblk_clk_dev_data),
 	.clk_dev_data = camblk_clk_dev_data,
-	.clk_reg_offset = 0,
 };
 
-static const struct imx95_blk_ctl_clk_dev_data lvds_clk_dev_data[] = {
+static const struct imx95_blk_ctl_clk_dev_data imx95_lvds_clk_dev_data[] = {
 	[IMX95_CLK_DISPMIX_LVDS_PHY_DIV] = {
 		.name = "ldb_phy_div",
 		.parent_names = (const char *[]){ "ldbpll", },
@@ -213,13 +211,12 @@ static const struct imx95_blk_ctl_clk_dev_data lvds_clk_dev_data[] = {
 	},
 };
 
-static const struct imx95_blk_ctl_dev_data lvds_csr_dev_data = {
-	.num_clks = ARRAY_SIZE(lvds_clk_dev_data),
-	.clk_dev_data = lvds_clk_dev_data,
-	.clk_reg_offset = 0,
+static const struct imx95_blk_ctl_dev_data imx95_lvds_csr_dev_data = {
+	.num_clks = ARRAY_SIZE(imx95_lvds_clk_dev_data),
+	.clk_dev_data = imx95_lvds_clk_dev_data,
 };
 
-static const struct imx95_blk_ctl_clk_dev_data dispmix_csr_clk_dev_data[] = {
+static const struct imx95_blk_ctl_clk_dev_data imx95_dispmix_csr_clk_dev_data[] = {
 	[IMX95_CLK_DISPMIX_ENG0_SEL] = {
 		.name = "disp_engine0_sel",
 		.parent_names = (const char *[]){"videopll1", "dsi_pll", "ldb_pll_div7", },
@@ -242,10 +239,9 @@ static const struct imx95_blk_ctl_clk_dev_data dispmix_csr_clk_dev_data[] = {
 	}
 };
 
-static const struct imx95_blk_ctl_dev_data dispmix_csr_dev_data = {
-	.num_clks = ARRAY_SIZE(dispmix_csr_clk_dev_data),
-	.clk_dev_data = dispmix_csr_clk_dev_data,
-	.clk_reg_offset = 0,
+static const struct imx95_blk_ctl_dev_data imx95_dispmix_csr_dev_data = {
+	.num_clks = ARRAY_SIZE(imx95_dispmix_csr_clk_dev_data),
+	.clk_dev_data = imx95_dispmix_csr_clk_dev_data,
 };
 
 static const struct imx95_blk_ctl_clk_dev_data netxmix_clk_dev_data[] = {
@@ -274,7 +270,6 @@ static const struct imx95_blk_ctl_clk_dev_data netxmix_clk_dev_data[] = {
 static const struct imx95_blk_ctl_dev_data netcmix_dev_data = {
 	.num_clks = ARRAY_SIZE(netxmix_clk_dev_data),
 	.clk_dev_data = netxmix_clk_dev_data,
-	.clk_reg_offset = 0,
 };
 
 static const struct imx95_blk_ctl_clk_dev_data hsio_blk_ctl_clk_dev_data[] = {
@@ -293,6 +288,45 @@ static const struct imx95_blk_ctl_clk_dev_data hsio_blk_ctl_clk_dev_data[] = {
 static const struct imx95_blk_ctl_dev_data hsio_blk_ctl_dev_data = {
 	.num_clks = 1,
 	.clk_dev_data = hsio_blk_ctl_clk_dev_data,
+};
+
+static const struct imx95_blk_ctl_clk_dev_data imx94_lvds_clk_dev_data[] = {
+	[IMX94_CLK_DISPMIX_LVDS_CLK_GATE] = {
+		.name = "lvds_clk_gate",
+		.parent_names = (const char *[]){ "ldbpll", },
+		.num_parents = 1,
+		.reg = 0,
+		.bit_idx = 1,
+		.bit_width = 1,
+		.type = CLK_GATE,
+		.flags = CLK_SET_RATE_PARENT,
+		.flags2 = CLK_GATE_SET_TO_DISABLE,
+	},
+};
+
+static const struct imx95_blk_ctl_dev_data imx94_lvds_csr_dev_data = {
+	.num_clks = ARRAY_SIZE(imx94_lvds_clk_dev_data),
+	.clk_dev_data = imx94_lvds_clk_dev_data,
+	.rpm_enabled = true,
+};
+
+static const struct imx95_blk_ctl_clk_dev_data imx94_dispmix_csr_clk_dev_data[] = {
+	[IMX94_CLK_DISPMIX_CLK_SEL] = {
+		.name = "disp_clk_sel",
+		.parent_names = (const char *[]){"disppix", "ldb_pll_div7"},
+		.num_parents = 2,
+		.reg = 0,
+		.bit_idx = 1,
+		.bit_width = 1,
+		.type = CLK_MUX,
+		.flags = CLK_SET_RATE_NO_REPARENT | CLK_SET_RATE_PARENT,
+	},
+};
+
+static const struct imx95_blk_ctl_dev_data imx94_dispmix_csr_dev_data = {
+	.num_clks = ARRAY_SIZE(imx94_dispmix_csr_clk_dev_data),
+	.clk_dev_data = imx94_dispmix_csr_clk_dev_data,
+	.rpm_enabled = true,
 };
 
 static int imx95_bc_probe(struct platform_device *pdev)
@@ -332,13 +366,19 @@ static int imx95_bc_probe(struct platform_device *pdev)
 	if (!bc_data)
 		return devm_of_platform_populate(dev);
 
+	bc->clk_reg_restore = devm_kzalloc(bc->dev, sizeof(u32) * bc_data->num_clks, GFP_KERNEL);
+	if (!bc->clk_reg_restore)
+		return -ENOMEM;
+
 	clk_hw_data = devm_kzalloc(dev, struct_size(clk_hw_data, hws, bc_data->num_clks),
 				   GFP_KERNEL);
 	if (!clk_hw_data)
 		return -ENOMEM;
 
-	if (bc_data->rpm_enabled)
-		pm_runtime_enable(&pdev->dev);
+	if (bc_data->rpm_enabled) {
+		devm_pm_runtime_enable(&pdev->dev);
+		pm_runtime_resume_and_get(&pdev->dev);
+	}
 
 	clk_hw_data->num = bc_data->num_clks;
 	hws = clk_hw_data->hws;
@@ -378,8 +418,10 @@ static int imx95_bc_probe(struct platform_device *pdev)
 		goto cleanup;
 	}
 
-	if (pm_runtime_enabled(bc->dev))
+	if (pm_runtime_enabled(bc->dev)) {
+		pm_runtime_put_sync(&pdev->dev);
 		clk_disable_unprepare(bc->clk_apb);
+	}
 
 	return 0;
 
@@ -390,10 +432,39 @@ cleanup:
 		clk_hw_unregister(hws[i]);
 	}
 
-	if (bc_data->rpm_enabled)
-		pm_runtime_disable(&pdev->dev);
-
 	return ret;
+}
+
+static void __maybe_unused imx95_bc_reg_operation(struct imx95_blk_ctl *bc, bool save)
+{
+	const struct imx95_blk_ctl_dev_data *bc_data = of_device_get_match_data(bc->dev);
+	void *last_reg = NULL;
+
+	if (!bc_data)
+		return;
+
+	for (int i = 0; i < bc_data->num_clks; i++) {
+		void *reg = bc->base + bc_data->clk_dev_data[i].reg;
+
+		if (last_reg == reg)
+			continue;
+
+		if (save)
+			bc->clk_reg_restore[i] = readl(reg);
+		else
+			writel(bc->clk_reg_restore[i], reg);
+		last_reg = reg;
+	}
+}
+
+static void __maybe_unused imx95_bc_save_reg(struct imx95_blk_ctl *bc)
+{
+	imx95_bc_reg_operation(bc, true);
+}
+
+static void __maybe_unused imx95_bc_restore_reg(struct imx95_blk_ctl *bc)
+{
+	imx95_bc_reg_operation(bc, false);
 }
 
 #ifdef CONFIG_PM
@@ -401,7 +472,9 @@ static int imx95_bc_runtime_suspend(struct device *dev)
 {
 	struct imx95_blk_ctl *bc = dev_get_drvdata(dev);
 
+	imx95_bc_save_reg(bc);
 	clk_disable_unprepare(bc->clk_apb);
+
 	return 0;
 }
 
@@ -409,7 +482,10 @@ static int imx95_bc_runtime_resume(struct device *dev)
 {
 	struct imx95_blk_ctl *bc = dev_get_drvdata(dev);
 
-	return clk_prepare_enable(bc->clk_apb);
+	clk_prepare_enable(bc->clk_apb);
+	imx95_bc_restore_reg(bc);
+
+	return 0;
 }
 #endif
 
@@ -417,22 +493,12 @@ static int imx95_bc_runtime_resume(struct device *dev)
 static int imx95_bc_suspend(struct device *dev)
 {
 	struct imx95_blk_ctl *bc = dev_get_drvdata(dev);
-	const struct imx95_blk_ctl_dev_data *bc_data;
-	int ret;
 
-	bc_data = of_device_get_match_data(dev);
-	if (!bc_data)
+	if (pm_runtime_suspended(dev))
 		return 0;
 
-	if (bc_data->rpm_enabled) {
-		ret = pm_runtime_get_sync(bc->dev);
-		if (ret < 0) {
-			pm_runtime_put_noidle(bc->dev);
-			return ret;
-		}
-	}
-
-	bc->clk_reg_restore = readl(bc->base + bc_data->clk_reg_offset);
+	imx95_bc_save_reg(bc);
+	clk_disable_unprepare(bc->clk_apb);
 
 	return 0;
 }
@@ -440,16 +506,12 @@ static int imx95_bc_suspend(struct device *dev)
 static int imx95_bc_resume(struct device *dev)
 {
 	struct imx95_blk_ctl *bc = dev_get_drvdata(dev);
-	const struct imx95_blk_ctl_dev_data *bc_data;
 
-	bc_data = of_device_get_match_data(dev);
-	if (!bc_data)
+	if (pm_runtime_suspended(dev))
 		return 0;
 
-	writel(bc->clk_reg_restore, bc->base + bc_data->clk_reg_offset);
-
-	if (bc_data->rpm_enabled)
-		pm_runtime_put(bc->dev);
+	clk_prepare_enable(bc->clk_apb);
+	imx95_bc_restore_reg(bc);
 
 	return 0;
 }
@@ -463,11 +525,13 @@ static const struct dev_pm_ops imx95_bc_pm_ops = {
 static const struct of_device_id imx95_bc_of_match[] = {
 	{ .compatible = "nxp,imx95-camera-csr", .data = &camblk_dev_data },
 	{ .compatible = "nxp,imx95-display-master-csr", },
-	{ .compatible = "nxp,imx95-lvds-csr", .data = &lvds_csr_dev_data },
-	{ .compatible = "nxp,imx95-display-csr", .data = &dispmix_csr_dev_data },
+	{ .compatible = "nxp,imx95-lvds-csr", .data = &imx95_lvds_csr_dev_data },
+	{ .compatible = "nxp,imx95-display-csr", .data = &imx95_dispmix_csr_dev_data },
 	{ .compatible = "nxp,imx95-vpu-csr", .data = &vpublk_dev_data },
 	{ .compatible = "nxp,imx95-netcmix-blk-ctrl", .data = &netcmix_dev_data},
 	{ .compatible = "nxp,imx95-hsio-blk-ctl", .data = &hsio_blk_ctl_dev_data },
+	{ .compatible = "nxp,imx94-lvds-csr", .data = &imx94_lvds_csr_dev_data },
+	{ .compatible = "nxp,imx94-display-csr", .data = &imx94_dispmix_csr_dev_data },
 	{ /* Sentinel */ },
 };
 MODULE_DEVICE_TABLE(of, imx95_bc_of_match);
