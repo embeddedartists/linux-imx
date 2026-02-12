@@ -73,13 +73,13 @@
 		assigned-clock-rates = <24000000>;
 		csi_id = <0>;
 
-		powerdown-gpios = <&gpio1 7 GPIO_ACTIVE_HIGH>;
+		powerdown-gpios = <&gpio5 4 GPIO_ACTIVE_HIGH>;
 
 		AVDD-supply = <&reg_vref_2v5>;
 		DVDD-supply = <&reg_vref_3v3>;
 		DOVDD-supply = <&reg_vref_1v8>;
 
-		reset-gpios = <&gpio1 6 GPIO_ACTIVE_LOW>;
+		reset-gpios = <&gpio5 3 GPIO_ACTIVE_LOW>;
 		mclk = <12000000>;
 		mclk_source = <0>;
 		mipi_csi;
