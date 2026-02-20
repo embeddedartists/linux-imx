@@ -10,8 +10,8 @@
 #include "imx8mp.dtsi"
 
 / {
-	model = "NXP i.MX8MPlus EVK board";
-	compatible = "fsl,imx8mp-evk", "fsl,imx8mp";
+	model = "Embedded Artists i.MX8MPlus SOM";
+	compatible = "fsl,imx8mpea-som", "fsl,imx8mp";
 
 	chosen {
 		stdout-path = &uart2;
