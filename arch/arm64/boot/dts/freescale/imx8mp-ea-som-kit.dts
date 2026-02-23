@@ -757,6 +757,11 @@
 			};
 		};
 	};
+
+	rtc@68 {
+		compatible = "nxp,pcf8523";
+		reg = <0x68>;
+	};
 };
 
 &i2c3 {
