@@ -210,6 +210,68 @@
 			};
 		};
 	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		led-0 {
+			label = "user-red";
+			gpios = <&pcal6524_u6 18 GPIO_ACTIVE_LOW>;
+			default-state = "off";
+		};
+
+		led-1 {
+			label = "user-green";
+			gpios = <&pcal6524_u6 19 GPIO_ACTIVE_LOW>;
+			default-state = "off";
+		};
+
+		led-2 {
+			label = "user-yellow";
+			gpios = <&pcal6524_u6 20 GPIO_ACTIVE_LOW>;
+			default-state = "off";
+		};
+
+		led-3 {
+			label = "rgb-red";
+			gpios = <&pcal6524_u6 15 GPIO_ACTIVE_LOW>;
+			default-state = "off";
+		};
+
+		led-4 {
+			label = "rgb-blue";
+			gpios = <&pcal6524_u6 16 GPIO_ACTIVE_LOW>;
+			default-state = "off";
+		};
+
+		led-5 {
+			label = "rgb-green";
+			gpios = <&pcal6524_u6 17 GPIO_ACTIVE_LOW>;
+			default-state = "off";
+		};
+	};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+
+		key-1 {
+			label = "user-button1";
+			gpios = <&pcal6524_u6 21 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_1>;
+		};
+
+		key-2 {
+			label = "user-button2";
+			gpios = <&pcal6524_u6 22 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_2>;
+		};
+
+		key-3 {
+			label = "user-button3";
+			gpios = <&pcal6524_u6 23 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_3>;
+		};
+	};
 };
 
 &flexspi {
