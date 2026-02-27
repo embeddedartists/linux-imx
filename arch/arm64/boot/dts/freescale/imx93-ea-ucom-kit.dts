@@ -486,6 +486,13 @@
 	/delete-property/ dma-names;
 
 	fsl,uart-has-rtscts;
+
+	/* For IFX */
+	bluetooth {
+		compatible = "brcm,bcm4329-bt";
+		shutdown-gpios = <&pca6416 0 GPIO_ACTIVE_HIGH>;
+		max-speed = <3000000>;
+	};
 };
 
 &media_blk_ctrl {
@@ -839,13 +846,4 @@
 
 &dphy_rx {
 	status = "okay";
-};
-
-/* For IFX */
-&lpuart5 {
-	bluetooth {
-		compatible = "brcm,bcm4329-bt";
-		shutdown-gpios = <&pca6416 0 GPIO_ACTIVE_HIGH>;
-		max-speed = <3000000>;
-	};
 };

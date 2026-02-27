@@ -275,6 +275,13 @@
 	assigned-clock-parents = <&clk IMX8MN_SYS_PLL1_80M>;
 
 	fsl,uart-has-rtscts;
+
+	/* For IFX */
+	bluetooth {
+		compatible = "brcm,bcm4329-bt";
+		shutdown-gpios = <&gpio_buff 0 GPIO_ACTIVE_HIGH>;
+		max-speed = <3000000>;
+	};
 };
 
 &uart2 { /* Console */
@@ -365,14 +372,5 @@
 		reg = <0>;
 		compatible = "rohm,dh2228fv";
 		spi-max-frequency = <500000>;
-	};
-};
-
-/* For IFX */
-&uart1 {
-	bluetooth {
-		compatible = "brcm,bcm4329-bt";
-		shutdown-gpios = <&gpio_buff 0 GPIO_ACTIVE_HIGH>;
-		max-speed = <3000000>;
 	};
 };

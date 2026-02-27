@@ -495,6 +495,12 @@
 	assigned-clock-parents = <&clk IMX8MM_SYS_PLL1_80M>;
 
 	fsl,uart-has-rtscts;
+
+	bluetooth {
+		compatible = "brcm,bcm4329-bt";
+		shutdown-gpios = <&pcal6524_u5 3 GPIO_ACTIVE_HIGH>; /* M2E_BT_REG_ON */
+		max-speed = <3000000>;
+	};
 };
 
 /* Console */
@@ -613,11 +619,3 @@
     nvmem-cells = <&macaddr>;
     nvmem-cell-names = "mac-address";
 };*/
-
-&uart1 {
-	bluetooth {
-		compatible = "brcm,bcm4329-bt";
-		shutdown-gpios = <&pcal6524_u5 3 GPIO_ACTIVE_HIGH>; /* M2E_BT_REG_ON */
-		max-speed = <3000000>;
-	};
-};
