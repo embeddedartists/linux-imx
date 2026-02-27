@@ -42,12 +42,10 @@
 
 	reg_pcie0: regulator-pcie {
 		compatible = "regulator-fixed";
-		pinctrl-names = "default";
-		pinctrl-0 = <&pinctrl_pcie0_reg>;
 		regulator-name = "MPCIE_3V3";
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
-		gpio = <&gpio2 6 GPIO_ACTIVE_HIGH>;
+		gpio = <&pcal6524_u5 0 GPIO_ACTIVE_HIGH>; /* M2E_WL_REG_ON */
 		enable-active-high;
 	};
 
@@ -235,20 +233,6 @@
 			gpios = <&pcal6524_u6 23 GPIO_ACTIVE_LOW>;
 			linux,code = <KEY_3>;
 		};
-	};
-};
-
-&flexspi {
-	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_flexspi0>;
-	status = "okay";
-
-	flash@0 {
-		compatible = "jedec,spi-nor";
-		reg = <0>;
-		spi-max-frequency = <80000000>;
-		spi-tx-bus-width = <1>;
-		spi-rx-bus-width = <4>;
 	};
 };
 
@@ -877,16 +861,15 @@
 	fsl,refclk-pad-mode = <IMX8_PCIE_REFCLK_PAD_INPUT>;
 	clocks = <&pcie0_refclk>;
 	clock-names = "ref";
-	status = "okay";
+	status = "disabled";
 };
 
 &pcie {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_pcie0>;
-	reset-gpio = <&gpio2 7 GPIO_ACTIVE_LOW>;
-	host-wake-gpio = <&gpio5 21 GPIO_ACTIVE_LOW>;
+	reset-gpio = <&pcal6524_u5  7 GPIO_ACTIVE_LOW>;   /* M2E_PERST# */
 	vpcie-supply = <&reg_pcie0>;
-	status = "okay";
+	status = "disabled";
 };
 
 &pwm1 {
@@ -1125,17 +1108,6 @@
 		>;
 	};
 
-	pinctrl_flexspi0: flexspi0grp {
-		fsl,pins = <
-			MX8MP_IOMUXC_NAND_ALE__FLEXSPI_A_SCLK           0x1c2
-			MX8MP_IOMUXC_NAND_CE0_B__FLEXSPI_A_SS0_B        0x82
-			MX8MP_IOMUXC_NAND_DATA00__FLEXSPI_A_DATA00      0x82
-			MX8MP_IOMUXC_NAND_DATA01__FLEXSPI_A_DATA01      0x82
-			MX8MP_IOMUXC_NAND_DATA02__FLEXSPI_A_DATA02      0x82
-			MX8MP_IOMUXC_NAND_DATA03__FLEXSPI_A_DATA03      0x82
-		>;
-	};
-
 	pinctrl_hog: hoggrp {
 		fsl,pins = <
 			MX8MP_IOMUXC_HDMI_DDC_SCL__HDMIMIX_HDMI_SCL	0x400001c2
@@ -1188,14 +1160,7 @@
 	pinctrl_pcie0: pcie0grp {
 		fsl,pins = <
 			MX8MP_IOMUXC_I2C4_SCL__PCIE_CLKREQ_B	0x60 /* open drain, pull up */
-			MX8MP_IOMUXC_SD1_DATA5__GPIO2_IO07	0x40
-			MX8MP_IOMUXC_I2C4_SDA__GPIO5_IO21	0x1c4
-		>;
-	};
-
-	pinctrl_pcie0_reg: pcie0reggrp {
-		fsl,pins = <
-			MX8MP_IOMUXC_SD1_DATA4__GPIO2_IO06	0x40
+			MX8MP_IOMUXC_NAND_DATA02__GPIO3_IO08	0x06 /* Reset for onboard DeepX */
 		>;
 	};
 
