@@ -26,16 +26,6 @@
 		stdout-path = &uart2;
 	};
 
-	modem_reset: modem-reset {
-		compatible = "gpio-reset";
-		reset-gpios = <&pcal6524_u5 3 GPIO_ACTIVE_LOW>; /* M2E_BT_REG_ON */
-		initially-in-reset;
-		reset-delay-us = <2000>;
-		reset-post-delay-ms = <100>;
-		#reset-cells = <0>;
-	};
-
-
 	pcie0_refclk: pcie0-refclk {
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
@@ -504,7 +494,6 @@
 	assigned-clocks = <&clk IMX8MM_CLK_UART1>;
 	assigned-clock-parents = <&clk IMX8MM_SYS_PLL1_80M>;
 
-	resets = <&modem_reset>;
 	fsl,uart-has-rtscts;
 };
 
@@ -625,3 +614,10 @@
     nvmem-cell-names = "mac-address";
 };*/
 
+&uart1 {
+	bluetooth {
+		compatible = "brcm,bcm4329-bt";
+		shutdown-gpios = <&pcal6524_u5 3 GPIO_ACTIVE_HIGH>; /* M2E_BT_REG_ON */
+		max-speed = <3000000>;
+	};
+};

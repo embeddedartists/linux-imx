@@ -34,14 +34,6 @@
 		stdout-path = &uart1;
 	};
 
-	modem_reset: modem-reset {		/* Murata -- BT_REG_ON */
-		compatible = "gpio-reset";
-		reset-gpios = <&gpio_buff 0 GPIO_ACTIVE_LOW>;
-		reset-delay-us = <1000>;
-		initially-in-reset;
-		#reset-cells = <0>;
-	};
-
 	sii902x_reset: sii902x-reset {
 		compatible = "gpio-reset";
 		reset-gpios = <&gpio4 19 GPIO_ACTIVE_LOW>;
@@ -388,7 +380,6 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_uart2>;
 	fsl,uart-has-rtscts;
-	resets = <&modem_reset>;
 	status = "okay";
 };
 
@@ -936,5 +927,14 @@
 				/* GPIO_AV Not Connected */
 			>;
 		};
+	};
+};
+
+/* For IFX */
+&uart2 {
+	bluetooth {
+		compatible = "brcm,bcm4329-bt";
+		shutdown-gpios = <&gpio_buff 0 GPIO_ACTIVE_HIGH>;
+		max-speed = <3000000>;
 	};
 };

@@ -14,9 +14,11 @@
 
 #include "imx8mm-ea-ucom-kit_v3.dts"
 
+/*
 &modem_reset {
 	reset-gpios = <&gpio2 6 GPIO_ACTIVE_LOW>;
 };
+*/
 
 &usdhc1_pwrseq {
 	reset-gpios = <&gpio2 10 GPIO_ACTIVE_LOW>; /* WL REG ON */
@@ -50,3 +52,12 @@
 		line-name = "BT_DEV_WAKE";
 	};
 };
+
+&uart1 {
+      bluetooth {
+            compatible = "brcm,bcm4329-bt";
+            shutdown-gpios = <&gpio2 6 GPIO_ACTIVE_HIGH>;
+            max-speed = <3000000>;
+      };
+};
+

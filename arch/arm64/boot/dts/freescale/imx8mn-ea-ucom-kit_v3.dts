@@ -26,15 +26,6 @@
 		stdout-path = &uart2;
 	};
 
-	modem_reset: modem-reset {
-		compatible = "gpio-reset";
-		reset-gpios = <&gpio_buff 0 GPIO_ACTIVE_LOW>;
-		initially-in-reset;
-		reset-delay-us = <2000>;
-		reset-post-delay-ms = <100>;
-		#reset-cells = <0>;
-	};
-
 	regulators {
 		compatible = "simple-bus";
 		#address-cells = <1>;
@@ -283,7 +274,6 @@
 	assigned-clocks = <&clk IMX8MN_CLK_UART1>;
 	assigned-clock-parents = <&clk IMX8MN_SYS_PLL1_80M>;
 
-	resets = <&modem_reset>;
 	fsl,uart-has-rtscts;
 };
 
@@ -378,3 +368,11 @@
 	};
 };
 
+/* For IFX */
+&uart1 {
+	bluetooth {
+		compatible = "brcm,bcm4329-bt";
+		shutdown-gpios = <&gpio_buff 0 GPIO_ACTIVE_HIGH>;
+		max-speed = <3000000>;
+	};
+};

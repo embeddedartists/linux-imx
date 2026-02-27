@@ -38,14 +38,6 @@
 		status = "okay";
 	};
 
-	modem_reset: modem-reset {		/* Murata -- BT_REG_ON */
-		compatible = "gpio-reset";
-		reset-gpios = <&gpio_buff 0 GPIO_ACTIVE_LOW>;
-		reset-delay-us = <1000>;
-		initially-in-reset; 
-		#reset-cells = <0>;
-	};
-
 	sii902x_reset: sii902x-reset {
 		compatible = "gpio-reset";
 		reset-gpios = <&gpio2 27 GPIO_ACTIVE_LOW>;
@@ -642,7 +634,6 @@
 	assigned-clocks = <&clks IMX7D_UART2_ROOT_SRC>;
 	assigned-clock-parents = <&clks IMX7D_PLL_SYS_MAIN_240M_CLK>;
 	fsl,uart-has-rtscts;
-	resets = <&modem_reset>;
 	status = "okay";
 };
 
@@ -720,4 +711,13 @@
 &wdog1 {
 	status = "okay";
 	fsl,ext-reset-output;
+};
+
+/* For IFX */
+&uart2 {
+	bluetooth {
+		compatible = "brcm,bcm4329-bt";
+		shutdown-gpios = <&gpio_buff 0 GPIO_ACTIVE_HIGH>;
+		max-speed = <3000000>;
+	};
 };
