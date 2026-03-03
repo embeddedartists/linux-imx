@@ -19,15 +19,6 @@
 #include "imx8mm-ea-som-kit-deepx.dts"
 
 
-/* Delete clashes from included DT */
-/ {
-	/delete-node/ modem-reset;
-};
-
-&uart1 {
-	/delete-property/ resets;
-};
-
 /* Change to correct WL_REG_ON and BT_REG_ON */
 &iomuxc {
 	imx8mmea-som-kit {

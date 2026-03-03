@@ -91,15 +91,6 @@
 		power-domains = <&mlmix>;
 	};
 
-	modem_reset: modem-reset {
-		compatible = "gpio-reset";
-		reset-gpios = <&pca6416 0 GPIO_ACTIVE_LOW>;
-		initially-in-reset;
-		reset-delay-us = <2000>;
-		reset-post-delay-ms = <100>;
-		#reset-cells = <0>;
-	};
-
 	reg_can1_stby: regulator-can1-stby {
 		compatible = "regulator-fixed";
 		regulator-name = "can1-stby";
@@ -494,8 +485,14 @@
 	/delete-property/ dmas;
 	/delete-property/ dma-names;
 
-	resets = <&modem_reset>;
 	fsl,uart-has-rtscts;
+
+	/* For IFX */
+	bluetooth {
+		compatible = "brcm,bcm4329-bt";
+		shutdown-gpios = <&pca6416 0 GPIO_ACTIVE_HIGH>;
+		max-speed = <3000000>;
+	};
 };
 
 &media_blk_ctrl {
