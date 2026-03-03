@@ -61,23 +61,24 @@
 		enable-active-high;
 	};
 
-	sound-hdmi {
-		compatible = "fsl,imx-audio-hdmi";
-		model = "audio-hdmi";
-		audio-cpu = <&aud2htx>;
-		hdmi-out;
-	};
+	sound-da7217 {
+		compatible = "simple-audio-card";
+		simple-audio-card,name = "da7217-audio";
+		simple-audio-card,format = "i2s";
+		simple-audio-card,frame-master = <&cpudai>;
+		simple-audio-card,bitclock-master = <&cpudai>;
+		simple-audio-card,widgets = "Speaker", "Ext Spk";
+		simple-audio-card,routing = "Ext Spk", "LINE";
 
-	sound-xcvr {
-		compatible = "fsl,imx-audio-card";
-		model = "imx-audio-xcvr";
+		cpudai: simple-audio-card,cpu {
+			sound-dai = <&sai2>;
+			dai-tdm-slot-num = <2>;
+			dai-tdm-slot-width = <32>;
+		};
 
-		pri-dai-link {
-			link-name = "XCVR PCM";
-
-			cpu {
-				sound-dai = <&xcvr>;
-			};
+		simple-audio-card,codec {
+			sound-dai = <&codec>;
+			clocks = <&clk IMX8MP_CLK_SAI2_ROOT>;
 		};
 	};
 
@@ -183,10 +184,6 @@
 };
 
 &dsp {
-	status = "okay";
-};
-
-&aud2htx {
 	status = "okay";
 };
 
@@ -362,8 +359,8 @@
 
 			buck5: BUCK5{
 				regulator-name = "BUCK5";
-				regulator-min-microvolt = <600000>;
-				regulator-max-microvolt = <3400000>;
+				regulator-min-microvolt = <1605000>;
+				regulator-max-microvolt = <1995000>;
 				regulator-boot-on;
 				regulator-always-on;
 			};
@@ -550,6 +547,20 @@
 			};
 		};
 
+	};
+
+	codec: audio-codec@1a {
+		compatible = "dlg,da7212";
+		reg = <0x1a>;
+		#sound-dai-cells = <0>;
+
+		VDDA-supply = <&buck5>; /* 1v8 */
+		VDDSP-supply = <&buck4>; /* 3v3 */
+		VDDMIC-supply = <&buck4>; /* 3v3 */
+		VDDIO-supply = <&buck4>; /* 3v3 */
+
+		clocks = <&clk IMX8MP_CLK_SAI2_ROOT>;
+		clock-names = "mclk";
 	};
 };
 
@@ -769,11 +780,6 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_wdog>;
 	fsl,ext-reset-output;
-	status = "okay";
-};
-
-&xcvr {
-	#sound-dai-cells = <0>;
 	status = "okay";
 };
 
