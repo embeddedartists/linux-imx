@@ -724,6 +724,17 @@
 	snps,dis-u1-entry-quirk;
 	snps,dis-u2-entry-quirk;
 	status = "okay";
+
+	connector {
+		compatible = "gpio-usb-b-connector", "usb-b-connector";
+		id-gpios = <&gpio1 10 GPIO_ACTIVE_HIGH>;
+		label = "Type-C";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_usb0>;
+		self-powered;
+		type = "micro";
+		vbus-supply = <&reg_usb_vbus>;
+	};
 };
 
 &usb3_phy1 {
@@ -1040,6 +1051,13 @@
 	pinctrl_pcal6524_u6: pcal6524u6grp {
 		fsl,pins = <
 			MX8MP_IOMUXC_GPIO1_IO08__GPIO1_IO08	0x1d6     /* GPIO_B-IRQ */
+		>;
+	};
+
+	pinctrl_usb0: usb0grp {
+		fsl,pins = <
+			MX8MP_IOMUXC_GPIO1_IO10__GPIO1_IO10	0x140     /* USB OTG_ID */
+			MX8MP_IOMUXC_GPIO1_IO12__GPIO1_IO12	0x06      /* USB_OTG_PWR */
 		>;
 	};
 };
