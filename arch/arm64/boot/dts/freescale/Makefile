@@ -729,6 +729,8 @@ dtb-$(CONFIG_ARCH_MXC) += imx93-11x11-frdm-tianma-wvga-panel.dtb
 imx93-11x11-frdm-waveshare-7inch-c-panel-dtbs := imx93-11x11-frdm.dtb imx93-11x11-frdm-waveshare-7inch-c-panel.dtbo
 dtb-$(CONFIG_ARCH_MXC) += imx93-11x11-frdm-waveshare-7inch-c-panel.dtb
 
+dtb-$(CONFIG_ARCH_MXC) += imx93-ea-ucom-kit.dtb imx93-ea-ucom-kit-2ea.dtb imx93-ea-ucom-kit-m33.dtb imx93-ea-ucom-kit-m2_usb.dtb
+
 dtb-$(CONFIG_ARCH_MXC) += imx91-11x11-evk.dtb \
 			  imx91-11x11-evk-flexspi-m2.dtb imx91-11x11-evk-flexspi-nand-m2.dtb \
 			  imx91-11x11-evk-lpuart.dtb \
