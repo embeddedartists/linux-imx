@@ -1,0 +1,108 @@
+/*
+ * Copyright 2019 Embedded Artists AB
+ *
+ * The code contained herein is licensed under the GNU General Public
+ * License. You may obtain a copy of the GNU General Public License
+ * Version 2 or later at the following locations:
+ *
+ * http://www.opensource.org/licenses/gpl-license.html
+ * http://www.gnu.org/copyleft/gpl.html
+ */
+
+/dts-v1/;
+
+#include "imx8mm-ea-ucom-kit_v3.dts"
+
+/ {
+
+        regulators {
+                compatible = "simple-bus";
+
+		reg_vref_1v8: regulator-vref-1v8 {
+			compatible = "regulator-fixed";
+			regulator-name = "vref-1v8";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+		};
+
+		reg_vref_2v5: regulator-vref-2v5 {
+			compatible = "regulator-fixed";
+			regulator-name = "vref-2v5";
+			regulator-min-microvolt = <2500000>;
+			regulator-max-microvolt = <2500000>;
+		};
+
+		reg_vref_3v3: regulator-vref-3v3 {
+			compatible = "regulator-fixed";
+			regulator-name = "vref-3v3";
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+		};
+	};
+};
+
+&csi {
+	status = "okay";
+};
+
+&mipi_csi {
+	status = "okay";
+	ports {
+		port@0 {
+			imx8mm_mipi_csi_in: endpoint {
+				remote-endpoint = <&ov5640_mipi1_ep>;
+				data-lanes = <1 2>;
+			};
+		};
+
+	};
+};
+
+
+&i2c1 {
+	camera@3c {
+		compatible = "ovti,ov5640";
+		reg = <0x3c>;
+		status = "okay";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_ov5640>;
+		clocks = <&clk IMX8MM_CLK_CLKO1>;
+		clock-names = "xclk";
+		assigned-clocks = <&clk IMX8MM_CLK_CLKO1>;
+		assigned-clock-parents = <&clk IMX8MM_CLK_24M>;
+		assigned-clock-rates = <24000000>;
+		csi_id = <0>;
+
+		powerdown-gpios = <&gpio5 4 GPIO_ACTIVE_HIGH>;
+
+		AVDD-supply = <&reg_vref_2v5>;
+		DVDD-supply = <&reg_vref_3v3>;
+		DOVDD-supply = <&reg_vref_1v8>;
+
+		reset-gpios = <&gpio5 3 GPIO_ACTIVE_LOW>;
+		mclk = <12000000>;
+		mclk_source = <0>;
+		mipi_csi;
+		port {
+			ov5640_mipi1_ep: endpoint {
+				remote-endpoint = <&imx8mm_mipi_csi_in>;
+				clock-lanes = <0>;
+				data-lanes = <1 2>;
+			};
+		};
+	};
+
+};
+
+&iomuxc {
+
+        imx8mmea-kit {
+
+                pinctrl_ov5640: ov5640grp {
+                        fsl,pins = <
+				MX8MM_IOMUXC_SPDIF_TX_GPIO5_IO3		0x19
+				MX8MM_IOMUXC_SPDIF_RX_GPIO5_IO4		0x19
+                        >;
+                };
+	};
+};
