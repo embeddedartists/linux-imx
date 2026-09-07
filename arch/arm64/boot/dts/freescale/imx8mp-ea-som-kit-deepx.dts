@@ -1,0 +1,49 @@
+/*
+ * Copyright 2025 Embedded Artists AB
+ *
+ * The code contained herein is licensed under the GNU General Public
+ * License. You may obtain a copy of the GNU General Public License
+ * Version 2 or later at the following locations:
+ *
+ * http://www.opensource.org/licenses/gpl-license.html
+ * http://www.gnu.org/copyleft/gpl.html
+ */
+
+/* For using onboard DeepX module. PCIe on Carrier Board not available. */
+
+/dts-v1/;
+
+#include "imx8mp-ea-som-kit.dts"
+
+/ {
+	reg_pcie0: regulator-pcie {
+		compatible = "regulator-fixed";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_pcie0_reg>;
+		regulator-name = "MPCIE_3V3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpio = <&gpio2 20 GPIO_ACTIVE_HIGH>;
+		startup-delay-us = <2000000>;
+		enable-active-high;
+	};
+};
+
+&pcie_phy {
+	status = "okay";
+};
+
+&pcie {
+	status = "okay";
+	reset-gpio = <&gpio3 8 GPIO_ACTIVE_LOW>;   /* Onboard DeepX */
+};
+
+&iomuxc {
+
+	pinctrl_pcie0_reg: pcie0reggrp {
+		fsl,pins = <
+			MX8MP_IOMUXC_SD2_WP__GPIO2_IO20		0x184
+		>;
+	};
+};
+
