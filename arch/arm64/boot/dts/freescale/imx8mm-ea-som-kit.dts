@@ -16,6 +16,7 @@
 
 #include <dt-bindings/phy/phy-imx8-pcie.h>
 #include "imx8mm-ea-som.dtsi"
+#include "imx8mm-nxp-display.dtsi"
 
 / {
 	model = "Embedded Artists i.MX8MM SOM Kit";
@@ -285,8 +286,8 @@
 		#interrupt-cells = <2>;
 		interrupt-parent = <&gpio1>;
 		interrupts = <0 IRQ_TYPE_EDGE_BOTH>;
-		gpio-line-names = "M2E_WL_REG_ON_3V3", "M2E_WL_DEV_WAKE", "M2E_WL_HOST_WAKE", "M2E_BT_REG_ON", 
-			"M2E_BT_DEV_WAKE", "M2E_BT_HOST_WAKE", "M2E_SDIO_RST", "M2E_PERST", 
+		gpio-line-names = "M2E_WL_REG_ON_3V3", "M2E_WL_DEV_WAKE", "M2E_WL_HOST_WAKE", "M2E_BT_REG_ON",
+			"M2E_BT_DEV_WAKE", "M2E_BT_HOST_WAKE", "M2E_SDIO_RST", "M2E_PERST",
 			"M2E_PEWAKE", "M2E_ALERT", "M2E_PWR_EN", "M2B_PWR_OFF",
 			"M2B_WDISABLE", "M2B_PEWAKE", "M2B_PERST", "M2M_PERST",
 			"M2M_PEWAKE", "M2BM_PWR_EN", "M2B_RESET", "SE050_EN_RST",
@@ -330,7 +331,7 @@
 		#interrupt-cells = <2>;
 		interrupt-parent = <&gpio1>;
 		interrupts = <8 IRQ_TYPE_EDGE_BOTH>;
-		gpio-line-names = "CSI0_RST-DATA", "CSI0_PWR-CLK", "CSI1_RST-DATA", "CSI1_PWR-CLK", 
+		gpio-line-names = "CSI0_RST-DATA", "CSI0_PWR-CLK", "CSI1_RST-DATA", "CSI1_PWR-CLK",
 			"MIPI_CTP_RST", "MIPI_CTP_IRQ", "RGB_BL_PWR", "RGB_CTP_RST",
 			"RGB_CTP_IRQ", "MIPI_BL_PWR_EN", "ADV_IRQ", "",
 			"", "", "", "RGB_LED_RED",
@@ -383,7 +384,7 @@
 		compatible = "dlg,da7212";
 		reg = <0x1a>;
 		#sound-dai-cells = <0>;
-		
+
 		VDDA-supply = <&buck5_reg>; /* 1v8 */
 		VDDSP-supply = <&buck4_reg>; /* 3v3 */
 		VDDMIC-supply = <&buck4_reg>; /* 3v3 */
