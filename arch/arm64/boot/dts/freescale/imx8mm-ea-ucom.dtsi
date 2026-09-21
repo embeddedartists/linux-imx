@@ -335,22 +335,15 @@
 	cpu-supply = <&buck2_reg>;
 };
 
-&gpu_3d {
-	status = "okay";
+&pgc_gpu {
+	assigned-clocks = <&clk IMX8MM_CLK_GPU_AXI>,
+			 <&clk IMX8MM_CLK_GPU_AHB>;
+	assigned-clock-parents = <&clk IMX8MM_SYS_PLL1_800M>,
+				 <&clk IMX8MM_SYS_PLL1_800M>;
+	assigned-clock-rates = <800000000>, <400000000>;
+	/delete-property/ power-domains;
 };
 
-&vpu_g1 {
-	status = "okay";
-};
-
-&vpu_g2 {
-	status = "okay";
-};
-
-&vpu_h1 {
-	status = "okay";
-};
-
-&vpu_v4l2 {
-	status = "okay";
+&pgc_gpumix {
+	status = "disabled";
 };

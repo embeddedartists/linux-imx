@@ -16,6 +16,7 @@
 
 #include <dt-bindings/phy/phy-imx8-pcie.h>
 #include "imx8mm-ea-ucom.dtsi"
+#include "imx8mm-nxp-display.dtsi"
 
 / {
 	model = "Embedded Artists i.MX8MM uCOM Kit";
